@@ -1,0 +1,1 @@
+from .DummyAlgo import DummyAlgo

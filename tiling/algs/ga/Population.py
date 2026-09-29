@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Callable
 from .GaParam import GaParam
 from tiling.base.Base import BaseResult

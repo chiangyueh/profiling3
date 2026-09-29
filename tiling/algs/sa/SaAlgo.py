@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from tiling.base.Base import BaseAlgo, BaseResult, BaseValidator, BaseParam
 from typing import Callable
 import random

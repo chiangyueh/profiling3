@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from tiling.base.Base import BaseAlgo, BaseResult, BaseValidator
+from tiling.base.Base import BaseAlgo, BaseResult, BaseValidator, BaseParam
 from .Population import Individual, Population
 from typing import Callable
 
@@ -9,7 +7,7 @@ class GaAlgo(BaseAlgo):
     def __init__(self,
                  is_stop: Callable[[list[BaseResult]], bool],
                  validator: BaseValidator,
-                 input_params: list,
+                 input_params: list[BaseParam],
                  pop_size: int = 8,
                  mut_rate: float = 0.1,
                  tournament_k: int = 3,

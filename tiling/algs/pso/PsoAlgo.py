@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from tiling.base import BaseResult, BaseValidator, BaseAlgo, BaseParam
 from .Swarm import Swarm, Particle
 from typing import Callable

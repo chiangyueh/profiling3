@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from tiling.base.Base import BaseParam
 from dataclasses import field, dataclass
 import math

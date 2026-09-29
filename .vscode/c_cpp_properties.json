@@ -1,0 +1,35 @@
+{
+    "configurations": [
+        {
+            "name": "Ascend",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/include",
+                "/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/include/acl",
+                "/usr/local/Ascend/ascend-toolkit/latest/runtime/include",
+                "/root/bench_run/matmul_v3/op_kernel",
+                "/usr/local/Ascend/ascend-toolkit/latest/include",
+                "/usr/local/Ascend/ascend-toolkit/latest/include/aclnn",
+                "/usr/local/Ascend/ascend-toolkit/latest/tools/tikcpp/tikcfw",
+                "/usr/local/Ascend/ascend-toolkit/latest/tools/tikcpp/tikcfw/lib",
+                "/usr/local/Ascend/ascend-toolkit/latest/tools/tikcpp/tikcfw/interface",
+                "/usr/local/Ascend/ascend-toolkit/latest/tools/tikcpp/tikcfw/impl",
+                "/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/ascendc/include/highlevel_api"
+            ],
+            "defines": [
+                "DTYPE_X1=half",
+                "DTYPE_X2=half",
+                "DTYPE_Y=float",
+                "DTYPE_BIAS=float",
+                "__aicore__=",
+                "__global__=",
+                "__gm__=",
+                "__CCE_KT_TEST__"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-arm64"
+        }
+    ],
+    "version": 4
+}
