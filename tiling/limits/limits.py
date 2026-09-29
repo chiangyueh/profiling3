@@ -20,11 +20,6 @@ class OpLimits(AscendLimits):
 
 
 @dataclass
-class MatmulLimits(OpLimits):
-    dtype_size: int
-
-
-@dataclass
 class AttentionLimits(OpLimits):
     """DAV_2201 resources required by FA/FAG route validators.
 
