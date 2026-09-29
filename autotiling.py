@@ -167,6 +167,8 @@ def _decode_fag_mla(data: bytes) -> tuple[dict[str, int], dict[str, int]]:
 
 def _fag_route(key_fields: dict[str, int]) -> str:
     axes = (key_fields["ub0_axis"], key_fields["ub1_axis"], key_fields["block_axis"])
+    if axes == (0, 0, 0) and not any(key_fields.values()):
+        return "fag_empty"
     if axes == (9, 9, 9):
         return "fag_basic_deterministic" if key_fields["deterministic"] else "fag_mla"
     if key_fields["same_ab"]:
@@ -174,7 +176,11 @@ def _fag_route(key_fields: dict[str, int]) -> str:
     if axes == (4, 3, 4):
         return "fag_generic"
     if axes == (4, 3, 1):
-        return "fag_s1s2_bn2"
+        return "fag_s1s2_bn2_deterministic" if key_fields["deterministic"] else "fag_s1s2_bn2"
+    if axes == (6, 6, 0):
+        return "fag_b"
+    if axes == (6, 6, 1):
+        return "fag_n2"
     return "fag_axis_{}_{}_{}".format(*axes)
 
 
