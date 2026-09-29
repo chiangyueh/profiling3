@@ -1,0 +1,97 @@
+diff --git a/attention/flash_attention_score/op_host/arch22/flash_attention_score_tiling_general.cpp b/attention/flash_attention_score/op_host/arch22/flash_attention_score_tiling_general.cpp
+index c544de0d3..f9a7c2fef 100644
+--- a/attention/flash_attention_score/op_host/arch22/flash_attention_score_tiling_general.cpp
++++ b/attention/flash_attention_score/op_host/arch22/flash_attention_score_tiling_general.cpp
+@@ -18,0 +19 @@
++#include <cstdlib>
+@@ -32,0 +34,15 @@ namespace FA {
++static bool ReadPositiveSearchEnv(const char *name, int64_t &value)
++{
++    const char *raw = std::getenv(name);
++    if (raw == nullptr || *raw == '\0') {
++        return false;
++    }
++    char *end = nullptr;
++    const long long parsed = std::strtoll(raw, &end, 10);
++    if (end == raw || *end != '\0' || parsed <= 0) {
++        return false;
++    }
++    value = static_cast<int64_t>(parsed);
++    return true;
++}
++
+@@ -2157,0 +2174,8 @@ void FlashAttentionScoreTilingBase::SetCoreParams()
++    int64_t searchValue = 0;
++    if (ReadPositiveSearchEnv("FA_S1_BASE", searchValue)) {
++        s1BasicBlock = searchValue;
++    }
++    if (ReadPositiveSearchEnv("FA_S2_BASE", searchValue)) {
++        s2BasicBlock = searchValue;
++    }
++
+@@ -2166 +2190,3 @@ void FlashAttentionScoreTilingBase::SetCoreParams()
+-        nRatio = std::min(GetNRatio(), coreParams.get_s2OuterSize());
++        int64_t requestedNRatio = GetNRatio();
++        ReadPositiveSearchEnv("FA_N_RATIO", requestedNRatio);
++        nRatio = std::min(requestedNRatio, coreParams.get_s2OuterSize());
+@@ -2169 +2195,3 @@ void FlashAttentionScoreTilingBase::SetCoreParams()
+-        nRatio = std::min(GetNRatio(), coreParams.get_s1OuterSize());
++        int64_t requestedNRatio = GetNRatio();
++        ReadPositiveSearchEnv("FA_N_RATIO", requestedNRatio);
++        nRatio = std::min(requestedNRatio, coreParams.get_s1OuterSize());
+diff --git a/attention/flash_attention_score_grad/op_host/arch22/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp b/attention/flash_attention_score_grad/op_host/arch22/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
+index f253c382c..bf32154a8 100644
+--- a/attention/flash_attention_score_grad/op_host/arch22/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
++++ b/attention/flash_attention_score_grad/op_host/arch22/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
+@@ -22,0 +23 @@
++#include <cstdlib>
+@@ -25,0 +27,15 @@ namespace optiling {
++static bool ReadPositiveSearchEnv(const char *name, uint32_t &value)
++{
++    const char *raw = std::getenv(name);
++    if (raw == nullptr || *raw == '\0') {
++        return false;
++    }
++    char *end = nullptr;
++    const unsigned long parsed = std::strtoul(raw, &end, 10);
++    if (end == raw || *end != '\0' || parsed == 0 || parsed > UINT32_MAX) {
++        return false;
++    }
++    value = static_cast<uint32_t>(parsed);
++    return true;
++}
++
+@@ -1212,0 +1229,3 @@ ge::graphStatus FlashAttentionScoreGradTilingS1s2Bn2gs1s2::DoSplit()
++    ReadPositiveSearchEnv("FAG_S1_CV_RATIO", fBaseParams.s1CvRatio);
++    ReadPositiveSearchEnv("FAG_S2_CV_RATIO", fBaseParams.s2CvRatio);
++
+@@ -1220,0 +1240 @@ ge::graphStatus FlashAttentionScoreGradTilingS1s2Bn2gs1s2::DoSplit()
++    ReadPositiveSearchEnv("FAG_S1_INNER", s1Inner);
+@@ -1236,0 +1257 @@ ge::graphStatus FlashAttentionScoreGradTilingS1s2Bn2gs1s2::DoSplit()
++    ReadPositiveSearchEnv("FAG_S2_INNER", s2Inner);
+diff --git a/attention/flash_attention_score_grad/op_host/arch22/flash_attention_score_grad_tiling_s1s2_bn2gs1s2_sab.cpp b/attention/flash_attention_score_grad/op_host/arch22/flash_attention_score_grad_tiling_s1s2_bn2gs1s2_sab.cpp
+index 33bda8e72..f13182e87 100644
+--- a/attention/flash_attention_score_grad/op_host/arch22/flash_attention_score_grad_tiling_s1s2_bn2gs1s2_sab.cpp
++++ b/attention/flash_attention_score_grad/op_host/arch22/flash_attention_score_grad_tiling_s1s2_bn2gs1s2_sab.cpp
+@@ -17,0 +18 @@
++#include <cstdlib>
+@@ -24,0 +26,15 @@ using namespace AscendC::tiling;
++static bool ReadPositiveSearchEnv(const char *name, uint32_t &value)
++{
++    const char *raw = std::getenv(name);
++    if (raw == nullptr || *raw == '\0') {
++        return false;
++    }
++    char *end = nullptr;
++    const unsigned long parsed = std::strtoul(raw, &end, 10);
++    if (end == raw || *end != '\0' || parsed == 0 || parsed > UINT32_MAX) {
++        return false;
++    }
++    value = static_cast<uint32_t>(parsed);
++    return true;
++}
++
+@@ -1408,0 +1425,3 @@ ge::graphStatus FlashAttentionScoreGradTilingS1s2Bn2gs1s2SameAb::DoSplit()
++    ReadPositiveSearchEnv("FAG_S1_CV_INNER", fBaseParams.s1CvInner);
++    ReadPositiveSearchEnv("FAG_S2_CV_INNER", fBaseParams.s2CvInner);
++

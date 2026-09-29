@@ -187,29 +187,42 @@ tiling/
 
 ## FlashAttention forward/backward
 
-The original MatMul workflow above is unchanged. FA/FAG support is added by
-route-specific validators; the shared search algorithms are reused without
-modification.
+The MatMul search algorithms are unchanged. FA/FAG use the same chain:
+candidate parameters are exported as environment variables, the official host
+tiling consumes them before deriving MatMul/workspace fields, the real ACLNN
+operator runs on NPU, and `msprof` supplies the duration. Because FA/FAG can
+launch multiple tasks, their estimator sums every task in `OpBasicInfo.csv`.
+For each shape, the runner first executes the unmodified official autotiling
+choice and stores its output as `golden.bin`; every searched tiling is checked
+against that reference through the framework's original correctness path.
 
-First collect the operator's official tiling key and packet:
+Build the official forward/backward operators and the bundled benchmark once:
 
 ```bash
-./get_tiling.sh forward
-./get_tiling.sh backward
+OPS_TRANSFORMER_ROOT=../ops-transformer ./build_attention.sh
 ```
 
-Then select the observed route and use the same `main.py` entry point:
+This applies `patches/ops_transformer_attention_search.patch` idempotently,
+builds and locally installs the two custom operators, and creates
+`./attention_npu`. It does not modify MatMul sources or algorithms.
+The upstream repository currently requires CMake 3.18.4 or newer and its
+normal `cann-cmake` dependency (either cached locally or reachable during the
+first build).
+
+Then select the observed route and use the same `main.py` entry point. No
+external runner variable is required:
 
 ```bash
-export FA_FORWARD_RUNNER=/absolute/path/to/forward_runner.sh
 ATTENTION_KERNEL=fa_general python3 main.py
-
-export FA_BACKWARD_RUNNER=/absolute/path/to/backward_runner.sh
 ATTENTION_KERNEL=fag_generic python3 main.py
 ```
 
 Supported routes are `fa_general`, `fa_varlen`, `fag_mla`, `fag_same_ab`, and
-`fag_generic`. Edit `SIZES` and `FEATURES` in `attention_main.py` to match the
-collected DeepSeek/Pangu workload. The bundled
-`patches/ops_transformer_autotiling_dump.patch` only exposes raw tiling data
-when `AUTOTILING_DUMP=1`; normal operator tests are unchanged.
+`fag_generic`. Edit `SIZES` and `FEATURES` in `attention_main.py` to match each
+collected DeepSeek/Pangu workload. The benchmark supports BNSD, SBH, BSND and
+uniform-sequence TND layouts, FP32/FP16 data, and the no-mask/no-PSE/no-dropout
+path represented by the default `FEATURES`. It rejects unsupported optional
+inputs instead of silently profiling a different case.
+
+`get_tiling.sh` remains available to identify which official route a workload
+actually selects. It is not part of each optimization iteration.

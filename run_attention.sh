@@ -39,26 +39,38 @@ while :; do
     esac
 done
 
-if [[ "${ATTENTION_GRAD:-0}" == "1" ]]; then
-    OPERATOR="flash_attention_score_grad"
-    OPERATOR_RUNNER="${FA_BACKWARD_RUNNER:-}"
-else
-    OPERATOR="flash_attention_score"
-    OPERATOR_RUNNER="${FA_FORWARD_RUNNER:-}"
-fi
-
-if [[ -z "${OPERATOR_RUNNER}" ]]; then
-    echo "[ERROR]: no real ${OPERATOR} runner is configured" >&2
+if [[ "${RUN_MODE}" != "npu" ]]; then
+    echo "[ERROR]: FA/FAG runner currently supports -r npu only" >&2
     exit 2
 fi
 
-RUN_ARGS=(-r "${RUN_MODE}")
-if [[ "${CYCLES_ONLY}" == "1" ]]; then
-    RUN_ARGS+=(--cycles-only)
+ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
+if [[ -f "${ASCEND_ROOT}/bin/setenv.bash" ]]; then
+    source "${ASCEND_ROOT}/bin/setenv.bash"
 fi
 
-export ATTENTION_OPERATOR="${OPERATOR}"
-if [[ -x "${OPERATOR_RUNNER}" ]]; then
-    exec "${OPERATOR_RUNNER}" "${RUN_ARGS[@]}"
+INSTALL_ROOT=${ATTENTION_OPP_INSTALL_ROOT:-"${CURRENT_DIR}/out/attention_opp"}
+SET_ENV=""
+if [[ -d "${INSTALL_ROOT}/vendors" ]]; then
+    SET_ENV=$(find "${INSTALL_ROOT}/vendors" -mindepth 3 -maxdepth 3 -type f \
+        -path '*/bin/set_env.bash' -print | head -n 1)
 fi
-exec bash "${OPERATOR_RUNNER}" "${RUN_ARGS[@]}"
+if [[ -n "${SET_ENV}" ]]; then
+    source "${SET_ENV}"
+fi
+
+if [[ ! -x "${CURRENT_DIR}/attention_npu" ]]; then
+    echo "[ERROR]: attention_npu is missing; run ./build_attention.sh first" >&2
+    exit 2
+fi
+
+if [[ "${CYCLES_ONLY}" == "1" ]]; then
+    echo "[ERROR]: --cycles-only is not implemented for the ACLNN attention runner" >&2
+    exit 2
+fi
+
+if [[ "${ATTENTION_REFERENCE:-0}" == "1" ]]; then
+    exec "${CURRENT_DIR}/attention_npu"
+fi
+
+exec msprof op "${CURRENT_DIR}/attention_npu"

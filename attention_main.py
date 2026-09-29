@@ -1,6 +1,44 @@
 from __future__ import annotations
 
+import __future__
+import importlib.abc
+import importlib.machinery
 import os
+from pathlib import Path
+import subprocess
+import sys
+
+import pandas as pd
+
+
+if sys.version_info < (3, 10):
+    class _PostponedAnnotationsLoader(importlib.machinery.SourceFileLoader):
+        def get_code(self, fullname):
+            source_path = self.get_filename(fullname)
+            return self.source_to_code(self.get_data(source_path), source_path)
+
+        def source_to_code(self, data, path, *, _optimize=-1):
+            return compile(
+                data,
+                path,
+                "exec",
+                flags=__future__.annotations.compiler_flag,
+                dont_inherit=True,
+                optimize=_optimize,
+            )
+
+
+    class _TilingFinder(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname != "tiling" and not fullname.startswith("tiling."):
+                return None
+            spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+            if spec is not None and isinstance(spec.loader, importlib.machinery.SourceFileLoader):
+                spec.loader = _PostponedAnnotationsLoader(fullname, spec.loader.path)
+            return spec
+
+
+    sys.meta_path.insert(0, _TilingFinder())
 
 from tiling import base, estimator_algs, limits, pso, valids
 
@@ -30,7 +68,18 @@ FEATURES = {
 
 
 class PsoAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
-    pass
+    def _get_time(self) -> float:
+        """FA/FAG may launch several tasks; score the complete operator."""
+        try:
+            profiles = list(Path(".").glob("OPPROF_*"))
+            if not profiles:
+                return float("inf")
+            profile = max(profiles, key=lambda path: path.stat().st_mtime)
+            table = pd.read_csv(profile / "OpBasicInfo.csv")
+            durations = pd.to_numeric(table["Task Duration(us)"], errors="coerce").dropna()
+            return float(durations.sum()) if not durations.empty else float("inf")
+        except Exception:
+            return float("inf")
 
 
 def get_domains(kernel: str) -> dict[str, list[int]]:
@@ -90,7 +139,38 @@ def get_input_params(kernel: str, shape: tuple[int, ...]) -> list[base.BaseParam
     return [base.BaseParam(name=name, value=value, is_const=True) for name, value in values.items()]
 
 
+def prepare_golden(input_params: list[base.BaseParam], domains: dict[str, list[int]]) -> None:
+    """Run official autotiling once and use its output as the shape reference."""
+    env = dict(os.environ)
+    for name in domains:
+        env.pop(name, None)
+    for param in input_params:
+        env[param.name] = str(param.value)
+    env["ATTENTION_REFERENCE"] = "1"
+
+    output = Path("output/output.bin")
+    golden = Path("output/golden.bin")
+    output.unlink(missing_ok=True)
+    completed = subprocess.run(
+        ["bash", "./run_attention.sh", "-r", "npu"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "failed to generate the official-autotiling reference:\n"
+            f"{completed.stdout}{completed.stderr}"
+        )
+    if not output.is_file() or output.stat().st_size == 0:
+        raise RuntimeError("attention reference run produced no output/output.bin")
+    output.replace(golden)
+
+
 def main() -> None:
+    if not Path("attention_npu").is_file():
+        raise FileNotFoundError("attention_npu is missing; run ./build_attention.sh once before starting the search")
+
     domains = get_domains(KERNEL)
     validator = get_validator(KERNEL, domains)
     print(f"KERNEL: {KERNEL}")
@@ -100,6 +180,7 @@ def main() -> None:
         input_params = get_input_params(KERNEL, shape)
         if not validator.get_combinations(1, input_params):
             raise ValueError(f"shape/features do not reach a legal {KERNEL} configuration: {shape}")
+        prepare_golden(input_params, domains)
 
         shape_key = "_".join(str(value) for value in shape)
         algo = PsoAlgo(
