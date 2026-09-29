@@ -1,0 +1,77 @@
+diff --git a/tests/ut/framework_normal/common/tiling_case_executor.cpp b/tests/ut/framework_normal/common/tiling_case_executor.cpp
+index 7f6a6e81f..bcb3d69ee 100644
+--- a/tests/ut/framework_normal/common/tiling_case_executor.cpp
++++ b/tests/ut/framework_normal/common/tiling_case_executor.cpp
+@@ -19,6 +19,7 @@
+ #include <sstream>
+ #include <iomanip>
+ #include <cstdint>
++#include <cstdlib>
+ 
+ #define DO_TILING(tilingPara)                                                                                                                                                                                                                \
+     auto contextFaker = gert::TilingContextFaker();                                                                                                                                                                                          \
+@@ -237,6 +238,47 @@ static string to_string(void *buf, size_t size, unordered_set<size_t> mask = {})
+     return result;
+ }
+ 
++template <typename ContextT>
++static void DumpAutotiling(const gert::TilingContextPara &tilingContextPara, ContextT *tilingContext)
++{
++    const char *enabled = std::getenv("AUTOTILING_DUMP");
++    if (enabled == nullptr || enabled[0] == '\0' || std::string(enabled) == "0") {
++        return;
++    }
++
++    const auto *testInfo = testing::UnitTest::GetInstance()->current_test_info();
++    const char *suiteName = testInfo == nullptr ? "unknown" : testInfo->test_case_name();
++    const char *testName = testInfo == nullptr ? "unknown" : testInfo->name();
++    const auto rawTilingData = tilingContext->GetRawTilingData();
++    const auto *data = static_cast<const uint8_t *>(rawTilingData->GetData());
++
++    std::ostringstream workspace;
++    const size_t workspaceCount = tilingContext->GetWorkspaceNum();
++    if (workspaceCount > 0) {
++        const auto workspaceSizes = tilingContext->GetWorkspaceSizes(workspaceCount);
++        for (size_t i = 0; i < workspaceCount; ++i) {
++            if (i != 0) {
++                workspace << ',';
++            }
++            workspace << workspaceSizes[i];
++        }
++    }
++
++    std::ostringstream hex;
++    hex << std::hex << std::setfill('0');
++    for (size_t i = 0; i < rawTilingData->GetDataSize(); ++i) {
++        hex << std::setw(2) << static_cast<unsigned int>(data[i]);
++    }
++
++    std::cout << "AUTOTILING_DUMP"
++              << "\top=" << tilingContextPara.opName_
++              << "\tcase=" << suiteName << '.' << testName
++              << "\tkey=" << tilingContext->GetTilingKey()
++              << "\tblock_dim=" << tilingContext->GetBlockDim()
++              << "\tworkspace=" << workspace.str()
++              << "\tdata_hex=" << hex.str() << std::endl;
++}
++
+ static unordered_set<size_t> GetMask(const string &expectTilingData)
+ {
+     unordered_set<size_t> mask;
+@@ -336,6 +378,8 @@ void ExecuteTestCase(const gert::TilingContextPara &tilingContextPara, ge::graph
+         return;
+     }
+ 
++    DumpAutotiling(tilingContextPara, tilingContext);
++
+     // check workspace
+     if (!expectWorkspaces.empty()) {
+         size_t workspaceCount = tilingContext->GetWorkspaceNum();
+@@ -391,5 +435,7 @@ bool ExecuteTiling(const gert::TilingContextPara &tilingContextPara, TilingInfo
+     tilingInfo.tilingDataSize = rawTilingData->GetDataSize();
+     std::memcpy(tilingInfo.tilingData.get(), rawTilingData->GetData(), rawTilingData->GetDataSize());
+ 
++    DumpAutotiling(tilingContextPara, tilingContext);
++
+     return true;
+ }

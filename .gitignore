@@ -4,3 +4,5 @@ cache_*.json
 results_*.json
 OPPROF_*/
 cceprint/
+autotiling_run.log
+autotiling_results.json

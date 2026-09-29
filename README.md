@@ -12,9 +12,39 @@ The validators were derived from the DAV_2201 host tiling in
 `flash_attention_score_grad`. They validate a selected route; they do not guess
 the route from latency or switch kernels during a search.
 
+## Read official autotiling
+
+The MatMul `dict.h` method from `ops-nn.zip` is connected to FA/FAG through the
+operators' real host unit-test path.  The shared test executor emits the tiling
+key, block dimension, workspaces, and exact raw tiling bytes only when
+`AUTOTILING_DUMP=1`; normal unit-test output is unchanged.  The decoder then
+maps the key to a route and reads the route's named tiling fields.
+
+Put the DeepSeek/Pangu cases into the official host tests (forward uses its
+CSV; backward may use the same generated-`dict.h` pattern as MatMul), then run:
+
+```bash
+./get_tiling.sh forward
+./get_tiling.sh backward
+# or both:
+./get_tiling.sh all
+```
+
+`OPS_TRANSFORMER_ROOT` defaults to `../ops-transformer`.  The command produces
+`autotiling_run.log` and `autotiling_results.json`.  Use
+`AUTOTILING_FILTER='exact.gtest.filter'` to collect only generated model cases.
+If the opt-in dump hook is absent, the script first verifies and applies the
+included source patch.  The build needs a complete official checkout and CMake
+3.18.4 or newer.
+
+The decoded record is the official baseline, not a benchmark winner.  Its
+`route` selects the validator; its `tiling_params` show the actual starting
+packet and which fields can be searched without changing kernel family.
+
 ## Run
 
-1. Profile the real DeepSeek/Pangu workload and identify its host tiling route.
+1. Run the official host autotiling collector for the real DeepSeek/Pangu
+   cases and identify each route in `autotiling_results.json`.
 2. In `main.py`, set `KERNEL`, `SIZES`, `FEATURES`, and that route's domains.
 3. Point the wrapper at the real evaluator and run the same single entry point:
 
