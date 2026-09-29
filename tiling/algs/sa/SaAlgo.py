@@ -11,14 +11,14 @@ class SaAlgo(BaseAlgo):
     def __init__(self,
                  is_stop: Callable[[list[BaseResult]], bool],
                  validator: BaseValidator,
-                 input_params: list,
+                 input_params: list[BaseParam],
                  t_start: float = 10.0,
                  t_min: float = 1e-2,
                  cooling: float = 0.95,
                  runner: str = "./run.sh",
                  cache_path: str = "msprof_cache.json",
                  verbose: bool = False) -> None:
-        super().__init__(is_stop, validator, runner=runner, cache_path=cache_path, verbose=verbose)
+        super().__init__(is_stop, validator, input_params, runner=runner, cache_path=cache_path, verbose=verbose)
         self.t_start = t_start
         self.t_min = t_min
         self.cooling = cooling

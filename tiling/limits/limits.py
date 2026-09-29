@@ -2,28 +2,36 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-@dataclass
-class OpLimits:
-    domains: dict[str, list[int]]
 
 @dataclass
-class AscendLimits(OpLimits):
+class AscendLimits:
     max_cores: int
     L0A_size: int
     L0B_size: int
     L0C_size: int
     L1_size: int
     L2_size: int
-    
+    UB_size: int
+
+
 @dataclass
-class MatmulLimits(AscendLimits):
+class OpLimits(AscendLimits):
+    domains: dict[str, list[int]]
+
+
+@dataclass
+class MatmulLimits(OpLimits):
     dtype_size: int
 
 
 @dataclass
 class AttentionLimits(OpLimits):
-    """Small operator-specific envelope shared by FA and FAG searches."""
+    """DAV_2201 resources required by FA/FAG route validators.
 
-    operator: str
-    max_cores: int
+    ``max_cores`` is the AIV count; ``aic_num`` is separate because SameAB
+    kernels schedule paired AIV/AIC work from the AIC count.
+    """
+
+    aic_num: int
+    calc_type_size: int = 4
     

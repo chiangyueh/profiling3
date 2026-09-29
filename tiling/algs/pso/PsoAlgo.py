@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tiling.base import BaseResult, BaseValidator, BaseAlgo
+from tiling.base import BaseResult, BaseValidator, BaseAlgo, BaseParam
 from .Swarm import Swarm, Particle
 from typing import Callable
 
@@ -9,7 +9,7 @@ class PsoAlgo(BaseAlgo):
     def __init__(self,
                  is_stop: Callable[[list[BaseResult]], bool],
                  validator: BaseValidator,
-                 input_params: list,
+                 input_params: list[BaseParam],
                  swarm_size: int = 8,
                  chi: float = 0.7298,
                  c1: float = 2.05,
@@ -18,7 +18,7 @@ class PsoAlgo(BaseAlgo):
                  runner: str = "./run.sh",
                  cache_path: str = "msprof_cache.json",
                  verbose: bool = False) -> None:
-        super().__init__(is_stop, validator, runner=runner, cache_path=cache_path, verbose=verbose)
+        super().__init__(is_stop, validator, input_params, runner=runner, cache_path=cache_path, verbose=verbose)
         self.swarm_size = swarm_size
         self.chi = chi
         self.c1 = c1

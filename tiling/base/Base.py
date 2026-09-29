@@ -8,6 +8,7 @@ import json
 import numpy as np
 import copy
 import heapq
+import math
 import random
 
 
@@ -44,26 +45,48 @@ class BaseResult:
 class BaseValidator:
     def __init__(self,
                  limits: OpLimits,
-                 param_funcs: dict[str, list[tuple[Callable[[dict[str, BaseParam]], bool | tuple[bool]],
-                                                   Callable[[dict[str, BaseParam]], dict[BaseParam]]]]]):
+                 param_funcs: dict[
+                     str, tuple[Callable[[dict[str, BaseParam]], bool | tuple[bool, ...]],
+                                Callable[[dict[str, BaseParam]], dict[str, BaseParam]]]] | None = None
+                 ) -> None:
         self.limits = limits
-        self.param_funcs = param_funcs
+        self.param_funcs = dict(param_funcs or {})
     
-    def get_combinations(self, num: int, const_params: list) -> list[list[BaseParam]]:
+    def get_combinations(self, num: int, const_params: list[BaseParam]) -> list[list[BaseParam]]:
+        names = list(self.limits.domains.keys())
+        space = 1
+        for name in names:
+            space *= len(self.limits.domains[name])
+        if space < 1 or num < 1:
+            return []
+
+        if space == 1:
+            a, b = 1, 0
+        else:
+            a = random.randrange(1, space)
+            while math.gcd(a, space) != 1:
+                a = random.randrange(1, space)
+            b = random.randrange(space)
+
         combs = []
-        while len(combs) < num:
+        for i in range(space):
+            index = (a * i + b) % space
             params = [self._make_param(p.name, p.value, True) for p in const_params]
-            for name, domain in self.limits.domains.items():
-                params.append(self._make_param(name, random.choice(domain), False, domain))
+            for name in reversed(names):
+                domain = self.limits.domains[name]
+                index, pos = divmod(index, len(domain))
+                params.append(self._make_param(name, domain[pos], False, domain))
             params = self.get_all_params(params)
             if self.is_valid(params):
                 combs.append(params)
+                if len(combs) >= num:
+                    break
         return combs
     
     
     
     def _make_param(self, name: str, value: int, is_const: bool, domain: list[int] | None = None) -> BaseParam:
-        raise NotImplementedError
+        return BaseParam(name=name, value=value, is_const=is_const, domain=domain or [value])
     
     def _ceil_div(self, a: int, b: int) -> int:
         return (a + b - 1) // b
@@ -93,26 +116,29 @@ class BaseValidator:
             if not valid: 
                 return False       
         return True
+
+    def _refresh(self, params: dict[str, BaseParam] | list[BaseParam]) -> dict[str, BaseParam]:
+        if isinstance(params, dict):
+            params = list(params.values())
+        return {p.name: p for p in self.get_all_params(params)}
         
     def _is_valid(self,
-                  params: dict[str, BaseParam],
-                  limit_name: str) -> bool | tuple[bool]:
+        params: dict[str, BaseParam],
+        limit_name: str) -> bool | tuple[bool]:
         valid_func, _ = self.param_funcs[limit_name]
-        return valid_func(params)
+        return valid_func(self._refresh(params))
 
     def repair(self, params: list[BaseParam]) -> list[BaseParam]:
-        ps_dict = {p.name: p for p in params}
+        ps_dict = self._refresh(params)
         for limit_name in self.param_funcs:
             valid = self._is_valid(ps_dict, limit_name)
             if isinstance(valid, tuple):
                 valid = all(valid)
             if not valid:
                 _, repair_func = self.param_funcs[limit_name]
-                repaired_params = repair_func(ps_dict)
+                repaired_params = repair_func(self._refresh(ps_dict))
                 ps_dict.update(repaired_params)
-                # производные зависят от свободных: пересчитываем сразу,
-                # иначе следующий предикат в цикле увидит их устаревшими
-                ps_dict = {p.name: p for p in self.get_all_params(list(ps_dict.values()))}
+                ps_dict = self._refresh(ps_dict)
         return self.get_all_params(list(ps_dict.values()))
 
     def repair_dijkstra(
@@ -120,6 +146,7 @@ class BaseValidator:
         params: dict[str, BaseParam],
         is_valid: Callable[[dict[str, int]], bool],
         step_weight: Callable[[str, list[int]], float] | None = None,
+        context: dict[str, BaseParam] | None = None,
     ) -> dict[BaseParam]:
 
         if step_weight is None:
@@ -130,13 +157,20 @@ class BaseValidator:
         start = tuple(params[n].index for n in names)
         weights = {n: step_weight(n, domains[n]) for n in names}
 
-        def values_of(state: tuple[int, int, tuple[int]]) -> dict[str, BaseParam]:
+        def moved_of(state: tuple[int, ...]) -> dict[str, BaseParam]:
             out = {}
             for i, n in enumerate(names):
                 p = copy.copy(params[n])
                 p.update(state[i])
                 out[n] = p
             return out
+
+        def values_of(state: tuple[int, ...]) -> dict[str, BaseParam]:
+            moved = moved_of(state)
+            if context is None:
+                return moved
+            merged = {**context, **moved}
+            return {p.name: p for p in self.get_all_params(list(merged.values()))}
 
         def in_bounds(axis: int, idx: int) -> bool:
             return 0 <= idx < len(domains[names[axis]])
@@ -151,12 +185,7 @@ class BaseValidator:
                 continue
             
             if is_valid(values_of(state)):
-                out = {}
-                for i, n in enumerate(names):
-                    p = copy.copy(params[n])
-                    p.update(state[i])
-                    out[n] = p
-                return out
+                return moved_of(state)
             
             for axis in range(len(names)):
                 for delta in (-1, 1):
@@ -173,21 +202,29 @@ class BaseValidator:
         return dict(params)
     
     
-    def _movable_params(self, params: dict[str, BaseParam], names: list[str]) -> dict[str, BaseParam]:
+    @staticmethod
+    def _movable_params(params: dict[str, BaseParam], names: list[str]) -> dict[str, BaseParam]:
         return {n: params[n] for n in names if not params[n].is_const}
 
-    def _const_params(self, params: dict[str, BaseParam], names: list[str]) -> dict[str, BaseParam]:
+    @staticmethod
+    def _const_params(params: dict[str, BaseParam], names: list[str]) -> dict[str, BaseParam]:
         return {n: params[n] for n in names if params[n].is_const}
+
+    @staticmethod
+    def _align_up(value: int, align: int) -> int:
+        return (value + align - 1) // align * align
 
 class BaseAlgo:
     def __init__(self,
                  is_stop: Callable[[list[BaseResult]], bool],
                  validator: BaseValidator,
+                 input_params: list[BaseParam] | None = None,
                  runner: str = "./run.sh",
                  verbose: bool = False,
                  cache_path: str = "msprof_cache.json") -> None:
         self.is_stop = is_stop
         self.validator = validator
+        self.input_params = list(input_params or [])
         self.runner = runner
         self.verbose = verbose
         self.cache_path = Path(cache_path)
@@ -271,8 +308,17 @@ class BaseAlgo:
     def _is_right(self,
                   absolute_tol: float = 1e-9,
                   error_tol: float = 1e-4) -> bool:
-        output = np.fromfile("./output/output.bin", dtype=np.float32).reshape(-1)
-        golden = np.fromfile("./output/golden.bin", dtype=np.float32).reshape(-1)
+        try:
+            output = np.fromfile("./output/output.bin", dtype=np.float32).reshape(-1)
+            golden = np.fromfile("./output/golden.bin", dtype=np.float32).reshape(-1)
+        except Exception as error:
+            if self.verbose:
+                print(f"IS_RIGHT: False, failed to read output: {error}")
+            return False
+        if output.size != golden.size or golden.size == 0:
+            if self.verbose:
+                print(f"IS_RIGHT: False, output size {output.size} != golden size {golden.size}")
+            return False
         different_elements_num = (np.abs(output - golden) >= absolute_tol).sum()
         error_ratio = different_elements_num / golden.size
         if self.verbose:

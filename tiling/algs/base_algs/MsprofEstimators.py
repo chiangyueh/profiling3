@@ -9,11 +9,18 @@ import json
 import pandas as pd
 
 
+def _drop_stale_output() -> None:
+    output = Path("output/output.bin")
+    if output.exists():
+        output.unlink()
+
+
 class BaseAlgoMsprof(BaseAlgo):
     def _run_estimator(self, params: list[BaseParam]) -> float:
         env = dict(os.environ)
         for param in params:
             env[param.name] = str(param.value)
+        _drop_stale_output()
         for d in Path(".").glob("OPPROF_*"):
             shutil.rmtree(d)
         subprocess.run(["bash", self.runner, "-r", "sim"], env=env,
@@ -61,6 +68,7 @@ class BaseAlgoProfile(BaseAlgo):
         if cceprint.exists():
             for f in cceprint.glob("*.cce"):
                 f.unlink()
+        _drop_stale_output()
         for d in Path(".").glob("OPPROF_*"):
             shutil.rmtree(d)
         subprocess.run(["bash", self.runner, "-r", "npu"], env=env,
