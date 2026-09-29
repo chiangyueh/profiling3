@@ -17,7 +17,6 @@ thin operator adapter for the training operators:
 - `search_attention.py`: common FA/FAG command-line entry point
 - `configs/`: one initial search-space example for each operator
 - `runners/`: adapters for real operator runners
-- `tests/`: a small runner used only for interface tests
 
 ## Check a configuration
 
@@ -85,13 +84,3 @@ Backward search uses:
 These are deliberately route-neutral.  Route-specific restrictions should be
 added to the JSON domains or to the downstream runner, rather than changing
 GA/SA/PSO.
-
-## Tests
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-The tests exercise both operators through a complete search/measurement/result
-path using `tests/mock_attention_runner.sh`; they do not claim NPU performance
-validation.
