@@ -1,0 +1,29 @@
+{
+  "operator": "flash_attention_score_grad",
+  "shape": {
+    "B": 1,
+    "N1": 8,
+    "N2": 8,
+    "S1": 1024,
+    "S2": 1024,
+    "D": 128,
+    "DV": 128
+  },
+  "constants": {
+    "FAG_DTYPE_BYTES": 2,
+    "FAG_LAYOUT": 0
+  },
+  "domains": {
+    "FAG_S1_INNER": [64, 128, 256],
+    "FAG_S2_INNER": [64, 128, 256],
+    "FAG_S1_CV_RATIO": [1, 2, 4],
+    "FAG_S2_CV_RATIO": [1, 2, 4],
+    "FAG_CORE_NUM": [8, 16, 20]
+  },
+  "runner": "../runners/flash_attention_score_grad.sh",
+  "algorithm": "pso",
+  "mode": "npu",
+  "population": 8,
+  "steps": 32,
+  "max_cores": 20
+}
