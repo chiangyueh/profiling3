@@ -208,6 +208,13 @@ reuse them and go directly to the NPU execution. A failed or timed-out NPU run
 does not cause the next invocation to rebuild. Set `FAG_FORCE_REBUILD=1` only
 when an explicit clean rebuild is wanted.
 
+Package and launcher caching are independent. An existing complete
+`fag_single_key` package from an earlier runner version is adopted even when it
+predates the manifest file. A missing launcher only recompiles the small C++
+launcher; it does not rebuild the FAG kernel package. Cache invalidation is
+limited to an explicit force rebuild or a changed source commit, SoC, tiling
+key, or vendor.
+
 The v8.5.0 build files require CMake 3.21 or newer for correct object-library
 dependency ordering. If the system CMake is older, the script installs CMake
 3.28.3 locally under `out/fag_npu`; it does not replace the system CMake.

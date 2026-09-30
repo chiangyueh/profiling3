@@ -13,7 +13,6 @@ VENDOR=fag_single_key
 JOBS=${FAG_BUILD_JOBS:-1}
 RUN_TIMEOUT=${FAG_RUN_TIMEOUT:-300}
 FORCE_REBUILD=${FAG_FORCE_REBUILD:-0}
-ARTIFACT_SCHEMA=1
 CANN_LOG_LEVEL=${FAG_CANN_LOG_LEVEL:-${ASCEND_GLOBAL_LOG_LEVEL:-1}}
 CANN_LOG_STDOUT=${FAG_CANN_LOG_STDOUT:-1}
 
@@ -284,38 +283,50 @@ ARCH=$(uname -m)
 SAMPLE="${OPS_ROOT}/attention/flash_attention_score_grad/examples/test_aclnn_flash_attention_score_grad_v2.cpp"
 BIN="${BUILD_ROOT}/fag_official_v2"
 ARTIFACT_MANIFEST="${BUILD_ROOT}/artifact_manifest.txt"
-EXPECTED_FINGERPRINT="schema=${ARTIFACT_SCHEMA};commit=${COMMIT};soc=${SOC};key=${TILING_KEY};cann=${ASCEND_ROOT};vendor=${VENDOR}"
+EXPECTED_FINGERPRINT="commit=${COMMIT};soc=${SOC};key=${TILING_KEY};vendor=${VENDOR}"
 
 require_file "CANN runtime library" "${ASCEND_ROOT}/lib64/libascendcl.so"
 require_file "CANN NN operator base library" "${ASCEND_ROOT}/lib64/libnnopbase.so"
 require_file "CANN secure C library" "${ASCEND_ROOT}/lib64/libc_sec.so"
 
-CACHE_HIT=0
-if [[ "${FORCE_REBUILD}" == "1" ]]; then
-    CACHE_REASON="FAG_FORCE_REBUILD=1"
-elif [[ ! -f "${ARTIFACT_MANIFEST}" ]]; then
-    CACHE_REASON="artifact manifest is missing: ${ARTIFACT_MANIFEST}"
-elif [[ "$(<"${ARTIFACT_MANIFEST}")" != "${EXPECTED_FINGERPRINT}" ]]; then
-    CACHE_REASON="artifact manifest does not match this source/key/SoC/CANN"
-elif [[ ! -f "${CUSTOM_ROOT}/bin/set_env.bash" ]]; then
-    CACHE_REASON="installed custom environment is missing: ${CUSTOM_ROOT}/bin/set_env.bash"
-elif [[ ! -f "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h" ]]; then
-    CACHE_REASON="installed FAG API header is missing"
-elif [[ ! -f "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" ]]; then
-    CACHE_REASON="installed FAG API library is missing"
-elif [[ ! -x "${BIN}" ]]; then
-    CACHE_REASON="compiled launcher is missing or not executable: ${BIN}"
-else
-    CACHE_HIT=1
-    CACHE_REASON="matching one-key package and launcher already exist"
+MANIFEST_COMPATIBLE=0
+if [[ -f "${ARTIFACT_MANIFEST}" ]]; then
+    MANIFEST_CONTENT=$(<"${ARTIFACT_MANIFEST}")
+    if [[ "${MANIFEST_CONTENT}" == *"commit=${COMMIT}"* && \
+          "${MANIFEST_CONTENT}" == *"soc=${SOC}"* && \
+          "${MANIFEST_CONTENT}" == *"key=${TILING_KEY}"* && \
+          "${MANIFEST_CONTENT}" == *"vendor=${VENDOR}"* ]]; then
+        MANIFEST_COMPATIBLE=1
+    fi
 fi
 
-if [[ "${CACHE_HIT}" == "1" ]]; then
-    echo "[INFO] build cache hit: ${CACHE_REASON}"
-    echo "[INFO] skipping package build, installation, and launcher compilation"
+PACKAGE_REBUILD=0
+if [[ "${FORCE_REBUILD}" == "1" ]]; then
+    PACKAGE_REBUILD=1
+    PACKAGE_CACHE_REASON="FAG_FORCE_REBUILD=1"
+elif [[ ! -f "${CUSTOM_ROOT}/bin/set_env.bash" ]]; then
+    PACKAGE_REBUILD=1
+    PACKAGE_CACHE_REASON="installed custom environment is missing"
+elif [[ ! -f "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h" ]]; then
+    PACKAGE_REBUILD=1
+    PACKAGE_CACHE_REASON="installed FAG API header is missing"
+elif [[ ! -f "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" ]]; then
+    PACKAGE_REBUILD=1
+    PACKAGE_CACHE_REASON="installed FAG API library is missing"
+elif [[ -f "${ARTIFACT_MANIFEST}" && "${MANIFEST_COMPATIBLE}" != "1" ]]; then
+    PACKAGE_REBUILD=1
+    PACKAGE_CACHE_REASON="source commit, SoC, tiling key, or vendor changed"
+elif [[ ! -f "${ARTIFACT_MANIFEST}" ]]; then
+    PACKAGE_CACHE_REASON="complete pre-manifest one-key package found; adopting it"
 else
-    echo "[INFO] build cache miss: ${CACHE_REASON}"
-    require_command g++
+    PACKAGE_CACHE_REASON="matching one-key package already exists"
+fi
+
+if [[ "${PACKAGE_REBUILD}" == "0" ]]; then
+    echo "[INFO] package cache hit: ${PACKAGE_CACHE_REASON}"
+    echo "[INFO] skipping FAG kernel package build and installation"
+else
+    echo "[INFO] package cache miss: ${PACKAGE_CACHE_REASON}"
     require_command bisheng
 
     CMAKE_MIN=3.21
@@ -395,8 +406,36 @@ else
     require_file "custom FAG API header" \
         "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h"
     require_file "custom FAG API library" "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so"
-    source "${CUSTOM_ROOT}/bin/set_env.bash"
+fi
 
+CURRENT_PHASE="installed package validation"
+CURRENT_PHASE_LOG=
+require_file "custom FAG environment script" "${CUSTOM_ROOT}/bin/set_env.bash"
+require_file "custom FAG API header" \
+    "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h"
+require_file "custom FAG API library" "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so"
+source "${CUSTOM_ROOT}/bin/set_env.bash"
+
+LAUNCHER_REBUILD=0
+if [[ "${FORCE_REBUILD}" == "1" ]]; then
+    LAUNCHER_REBUILD=1
+    LAUNCHER_CACHE_REASON="FAG_FORCE_REBUILD=1"
+elif [[ "${PACKAGE_REBUILD}" == "1" ]]; then
+    LAUNCHER_REBUILD=1
+    LAUNCHER_CACHE_REASON="FAG package was rebuilt"
+elif [[ ! -x "${BIN}" ]]; then
+    LAUNCHER_REBUILD=1
+    LAUNCHER_CACHE_REASON="compiled launcher is missing or not executable"
+else
+    LAUNCHER_CACHE_REASON="compiled launcher already exists"
+fi
+
+if [[ "${LAUNCHER_REBUILD}" == "0" ]]; then
+    echo "[INFO] launcher cache hit: ${LAUNCHER_CACHE_REASON}"
+    echo "[INFO] skipping launcher compilation"
+else
+    echo "[INFO] launcher cache miss: ${LAUNCHER_CACHE_REASON}"
+    require_command g++
     echo "[INFO] compiling the official one-shape launcher"
     COMPILE_CMD=(g++ -O2 -std=c++17 "${SAMPLE}"
         -I"${ASCEND_ROOT}/include"
@@ -411,11 +450,6 @@ else
     run_phase "official launcher compile" "${LOG_ROOT}/launcher_compile_${RUN_ID}.log" \
         "${COMPILE_CMD[@]}"
     require_file "compiled FAG launcher" "${BIN}"
-
-    MANIFEST_TMP="${ARTIFACT_MANIFEST}.tmp.$$"
-    printf '%s\n' "${EXPECTED_FINGERPRINT}" > "${MANIFEST_TMP}"
-    mv "${MANIFEST_TMP}" "${ARTIFACT_MANIFEST}"
-    echo "[INFO] build artifacts cached: ${ARTIFACT_MANIFEST}"
 fi
 
 CURRENT_PHASE="cached artifact validation"
@@ -425,7 +459,11 @@ require_file "custom FAG API header" \
     "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h"
 require_file "custom FAG API library" "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so"
 require_file "compiled FAG launcher" "${BIN}"
-source "${CUSTOM_ROOT}/bin/set_env.bash"
+
+MANIFEST_TMP="${ARTIFACT_MANIFEST}.tmp.$$"
+printf '%s\n' "${EXPECTED_FINGERPRINT}" > "${MANIFEST_TMP}"
+mv "${MANIFEST_TMP}" "${ARTIFACT_MANIFEST}"
+echo "[INFO] build artifacts ready: ${ARTIFACT_MANIFEST}"
 
 echo "[INFO] running exactly one FAG shape on NPU (timeout: ${RUN_TIMEOUT}s)"
 if run_phase "single-shape NPU execution" "${RESULT_ROOT}/run.log" \
