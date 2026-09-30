@@ -3,6 +3,24 @@ set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
+NPU_ID=
+for arg in "$@"; do
+    case "${arg}" in
+        --id=*)
+            NPU_ID=${arg#--id=}
+            ;;
+        *)
+            echo "Usage: bash run_npu.sh --id=<NPU_ID>" >&2
+            exit 2
+            ;;
+    esac
+done
+if [[ ! "${NPU_ID}" =~ ^[0-9]+$ ]]; then
+    echo "Usage: bash run_npu.sh --id=<NPU_ID>" >&2
+    exit 2
+fi
+export ASCEND_RT_VISIBLE_DEVICES="${NPU_ID}"
+
 # Exact shape and key from the official v8.5.0 FAG V2 example/host tiling test.
 TAG=v8.5.0
 COMMIT=6ead121aded45355043b502756b6592fd7c30b14
@@ -209,12 +227,7 @@ echo "[INFO] one shape: ${SHAPE}"
 echo "[INFO] one tiling key: ${TILING_KEY}"
 echo "[INFO] build jobs: ${JOBS}"
 echo "[INFO] CANN runtime log level: ${CANN_LOG_LEVEL} (stdout=${CANN_LOG_STDOUT})"
-if [[ -n "${ASCEND_RT_VISIBLE_DEVICES:-}" ]]; then
-    echo "[INFO] ASCEND_RT_VISIBLE_DEVICES=${ASCEND_RT_VISIBLE_DEVICES}"
-    echo "[INFO] launcher logical device 0 maps to the first selected NPU"
-else
-    echo "[INFO] ASCEND_RT_VISIBLE_DEVICES is unset; launcher uses device 0"
-fi
+echo "[INFO] physical NPU: ${NPU_ID} (launcher logical device: 0)"
 echo "[INFO] full log: ${FULL_LOG}"
 echo "[INFO] timestamped log: ${RUN_LOG}"
 

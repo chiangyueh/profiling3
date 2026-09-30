@@ -193,20 +193,12 @@ the optimization framework, verify this official baseline independently on an
 Ascend 910B NPU with CANN 8.5.0:
 
 ```bash
-./run_npu.sh
-```
-
-To run on a different NPU without modifying the official launcher, select it
-before invoking the same entry point:
-
-```bash
-export ASCEND_RT_VISIBLE_DEVICES=3
-./run_npu.sh
+bash run_npu.sh --id=3
 ```
 
 The visible devices are re-indexed from zero, so the launcher's fixed
-`aclrtSetDevice(0)` selects the first ID in `ASCEND_RT_VISIBLE_DEVICES`. The
-runner prints this mapping at startup.
+`aclrtSetDevice(0)` selects the physical NPU passed with `--id`. The runner
+prints this mapping at startup.
 
 The script performs one serial workflow for the single official V2 example
 shape `B=1, N1=N2=1, S1=S2=256, D=128, FP32, SBH`. The matching v8.5.0 host
@@ -215,10 +207,10 @@ exact key to the official compiler. It does not use JIT and does not compile
 all FAG tiling keys. The script then installs the isolated custom package,
 compiles the unmodified official launcher, and executes that one shape on NPU.
 The default build parallelism is one job. The package and launcher are built
-only when the matching artifacts are absent; later `./run_npu.sh` invocations
-reuse them and go directly to the NPU execution. A failed or timed-out NPU run
-does not cause the next invocation to rebuild. Set `FAG_FORCE_REBUILD=1` only
-when an explicit clean rebuild is wanted.
+only when the matching artifacts are absent; later `bash run_npu.sh --id=<NPU_ID>`
+invocations reuse them and go directly to the NPU execution. A failed or
+timed-out NPU run does not cause the next invocation to rebuild. Set
+`FAG_FORCE_REBUILD=1` only when an explicit clean rebuild is wanted.
 
 Package and launcher caching are independent. An existing complete
 `fag_single_key` package from an earlier runner version is adopted even when it
