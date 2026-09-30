@@ -48,7 +48,7 @@ fi
     cd "${OPS_ROOT}"
     bash build.sh -j"${JOBS}" \
         --ops=flash_attention_score,flash_attention_score_grad \
-        --soc="${SOC_UNIT}" --ophost --opapi --opkernel --pkg
+        --soc="${SOC_UNIT}" --pkg
 )
 
 PACKAGE=$(find "${OPS_ROOT}/output" "${OPS_ROOT}/build" -type f \
