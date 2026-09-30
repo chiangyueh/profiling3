@@ -2,22 +2,42 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-OPS_ROOT=${OPS_TRANSFORMER_ROOT:-"${SCRIPT_DIR}/../ops-transformer"}
+OPS_ROOT=${OPS_TRANSFORMER_ROOT:-"${SCRIPT_DIR}/../ops-transformer-official-8.5.0"}
+EXPECTED_COMMIT=6ead121aded45355043b502756b6592fd7c30b14
 ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
 SOC_UNIT=${ATTENTION_SOC_UNIT:-ascend910b}
 JOBS=${ATTENTION_BUILD_JOBS:-1}
 INSTALL_ROOT=${ATTENTION_OPP_INSTALL_ROOT:-"${SCRIPT_DIR}/out/attention_opp"}
 PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_attention_search.patch"
+PATCH_ACTIVE=0
+
+restore_official_source() {
+    if [[ "${PATCH_ACTIVE}" == "1" ]] && \
+       git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
+        git -C "${OPS_ROOT}" apply --unidiff-zero --reverse "${PATCH_FILE}"
+        echo "[INFO] restored the pristine ops-transformer v8.5.0 source"
+    fi
+}
+
+trap restore_official_source EXIT
 
 if [[ ! -f "${OPS_ROOT}/build.sh" ]]; then
-    echo "[ERROR] ops-transformer build.sh not found: ${OPS_ROOT}" >&2
+    echo "[ERROR] ops-transformer v8.5.0 build.sh not found: ${OPS_ROOT}" >&2
+    exit 2
+fi
+
+if [[ "$(git -C "${OPS_ROOT}" rev-parse HEAD)" != "${EXPECTED_COMMIT}" ]]; then
+    echo "[ERROR] build_attention.sh requires ops-transformer v8.5.0 (${EXPECTED_COMMIT})" >&2
+    echo "[ERROR] current checkout: ${OPS_ROOT} ($(git -C "${OPS_ROOT}" rev-parse HEAD))" >&2
     exit 2
 fi
 
 if git -C "${OPS_ROOT}" apply --unidiff-zero --check "${PATCH_FILE}" 2>/dev/null; then
     git -C "${OPS_ROOT}" apply --unidiff-zero "${PATCH_FILE}"
+    PATCH_ACTIVE=1
     echo "[INFO] applied FA/FAG search-parameter hook"
 elif git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
+    PATCH_ACTIVE=1
     echo "[INFO] FA/FAG search-parameter hook is already applied"
 else
     echo "[ERROR] the FA/FAG patch does not match this ops-transformer revision" >&2
@@ -28,7 +48,7 @@ fi
     cd "${OPS_ROOT}"
     bash build.sh -j"${JOBS}" \
         --ops=flash_attention_score,flash_attention_score_grad \
-        --soc="${SOC_UNIT}" --ophost --opapi --opkernel --pkg --incremental
+        --soc="${SOC_UNIT}" --ophost --opapi --opkernel --pkg
 )
 
 PACKAGE=$(find "${OPS_ROOT}/output" "${OPS_ROOT}/build" -type f \

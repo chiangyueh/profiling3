@@ -216,6 +216,12 @@ on the selected NPU. The operator is built once; changing a candidate does not
 recompile it. `run_npu.sh` remains only the independent one-shape official FAG
 baseline and is not the search entry point.
 
+`build_attention.sh` requires the `v8.5.0` checkout at
+`../ops-transformer-official-8.5.0` by default. A different location can be
+provided through `OPS_TRANSFORMER_ROOT`, but it must point to commit
+`6ead121aded45355043b502756b6592fd7c30b14`; the master branch is not compatible
+with the CANN 8.5 op-build metadata.
+
 ## Official FlashAttentionScoreGrad one-shape run
 
 The repository contains an unmodified snapshot of
