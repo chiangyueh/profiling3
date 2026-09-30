@@ -185,6 +185,22 @@ tiling/
 - **Новый оператор.** Унаследовать `BaseValidator`, реализовать `get_combinations`, `is_valid` и `repair`.
 - **Другая форма задачи или другое железо.** Добавить новый `Limits`.
 
+## FA/FAG official autotiling extraction (CANN v8.5.0)
+
+Before defining a validator, collect the route and the tiling packet emitted by
+the official host code. Backward is the default and builds with one job:
+
+```bash
+bash get_tiling.sh backward
+```
+
+Use `bash get_tiling.sh forward` for FA. The script builds host unit tests only;
+it does not run an NPU kernel. It writes the raw log to `autotiling_run.log` and
+the decoded records to `autotiling_results.json`. The decoder recognizes the
+verified FAG `fag_s1s2_bn2` packet, including its vector tile, ownership tile,
+core count and S1/S2 outer counts. Workload-specific DeepSeek/Pangu cases must
+be added only after their exact shapes and attributes are available.
+
 ## Official FlashAttentionScoreGrad one-shape run
 
 The repository contains an unmodified snapshot of

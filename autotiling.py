@@ -152,6 +152,35 @@ def _decode_fag_same_ab(data: bytes) -> tuple[dict[str, int], dict[str, int]]:
     return shape, params
 
 
+def _decode_fag_bn2(data: bytes) -> tuple[dict[str, int], dict[str, int]]:
+    # FlashAttentionScoreGradTilingDataS1s2Bn2 (v8.5.0 arch32):
+    # opInfo @ 0, splitCoreParams @ 232.
+    shape = {
+        "B": _read(data, 16, "q"),
+        "N2": _read(data, 24, "q"),
+        "S1": _read(data, 32, "q"),
+        "S2": _read(data, 40, "q"),
+        "G": _read(data, 48, "q"),
+        "D": _read(data, 56, "q"),
+    }
+    shape["N1"] = shape["N2"] * shape["G"]
+    shape["DV"] = shape["D"]
+    split = 232
+    params = {
+        "FAG_CORE_NUM": _read(data, 0, "I"),
+        "FAG_BASE_M": _read(data, split + 0, "I"),
+        "FAG_BASE_N": _read(data, split + 4, "I"),
+        "FAG_SINGLE_N": _read(data, split + 8, "I"),
+        "FAG_SINGLE_M": _read(data, split + 12, "I"),
+        "FAG_S1_OUTER": _read(data, split + 16, "I"),
+        "FAG_S2_OUTER": _read(data, split + 20, "I"),
+        "FAG_D_INNER": _read(data, split + 24, "I"),
+        "FAG_SFT_BASE_M": _read(data, split + 28, "I"),
+        "FAG_SFT_SINGLE_M": _read(data, split + 32, "I"),
+    }
+    return shape, params
+
+
 def _decode_fag_mla(data: bytes) -> tuple[dict[str, int], dict[str, int]]:
     shape = {
         "B": _read(data, 8, "q"),
@@ -211,6 +240,8 @@ def parse_line(line: str) -> dict[str, object]:
             shape, params = _decode_fag_generic(data)
         elif route == "fag_same_ab":
             shape, params = _decode_fag_same_ab(data)
+        elif route in ("fag_s1s2_bn2", "fag_s1s2_bn2_deterministic"):
+            shape, params = _decode_fag_bn2(data)
         elif route == "fag_mla":
             shape, params = _decode_fag_mla(data)
         else:
