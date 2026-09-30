@@ -201,6 +201,14 @@ verified FAG `fag_s1s2_bn2` packet, including its vector tile, ownership tile,
 core count and S1/S2 outer counts. Workload-specific DeepSeek/Pangu cases must
 be added only after their exact shapes and attributes are available.
 
+The extraction command above is host-only and does not select an NPU. The
+actual FA/FAG search requires an explicit physical NPU ID; every child latency
+evaluation inherits that selection:
+
+```bash
+ATTENTION_KERNEL=fag_generic python3 main.py --id=3
+```
+
 ## Official FlashAttentionScoreGrad one-shape run
 
 The repository contains an unmodified snapshot of

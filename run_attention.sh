@@ -9,8 +9,9 @@ cd "${CURRENT_DIR}"
 
 RUN_MODE="sim"
 CYCLES_ONLY=0
+NPU_ID=""
 SHORT=r:,v:
-LONG=run-mode:,soc-version:,cycles-only
+LONG=run-mode:,soc-version:,cycles-only,id:
 OPTS=$(getopt -a --options "${SHORT}" --longoptions "${LONG}" -- "$@")
 eval set -- "${OPTS}"
 
@@ -28,6 +29,10 @@ while :; do
         CYCLES_ONLY=1
         shift
         ;;
+    --id)
+        NPU_ID="$2"
+        shift 2
+        ;;
     --)
         shift
         break
@@ -39,10 +44,23 @@ while :; do
     esac
 done
 
+if [[ -n "${NPU_ID}" ]]; then
+    if [[ ! "${NPU_ID}" =~ ^[0-9]+$ ]]; then
+        echo "[ERROR]: --id must be a non-negative integer" >&2
+        exit 2
+    fi
+    export ASCEND_RT_VISIBLE_DEVICES="${NPU_ID}"
+elif [[ -z "${ASCEND_RT_VISIBLE_DEVICES:-}" ]]; then
+    echo "[ERROR]: NPU is not selected; pass --id=<NPU_ID>" >&2
+    exit 2
+fi
+
 if [[ "${RUN_MODE}" != "npu" ]]; then
     echo "[ERROR]: FA/FAG runner currently supports -r npu only" >&2
     exit 2
 fi
+
+echo "[INFO] physical NPU: ${ASCEND_RT_VISIBLE_DEVICES} (launcher logical device: 0)"
 
 ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
 if [[ -f "${ASCEND_ROOT}/bin/setenv.bash" ]]; then

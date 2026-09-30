@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import __future__
+import argparse
 import importlib.abc
 import importlib.machinery
 import os
@@ -167,12 +168,24 @@ def prepare_golden(input_params: list[base.BaseParam], domains: dict[str, list[i
     output.replace(golden)
 
 
+def _select_npu() -> int:
+    parser = argparse.ArgumentParser(description="Run FA/FAG tiling search on one NPU")
+    parser.add_argument("--id", required=True, type=int, help="physical NPU ID")
+    args = parser.parse_args()
+    if args.id < 0:
+        parser.error("--id must be a non-negative integer")
+    os.environ["ASCEND_RT_VISIBLE_DEVICES"] = str(args.id)
+    return args.id
+
+
 def main() -> None:
+    npu_id = _select_npu()
     if not Path("attention_npu").is_file():
         raise FileNotFoundError("attention_npu is missing; run ./build_attention.sh once before starting the search")
 
     domains = get_domains(KERNEL)
     validator = get_validator(KERNEL, domains)
+    print(f"NPU: physical {npu_id} (launcher logical 0)")
     print(f"KERNEL: {KERNEL}")
     print(f"DOMAINS: {domains}")
 
