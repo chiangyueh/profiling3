@@ -41,7 +41,7 @@ if sys.version_info < (3, 10):
 
     sys.meta_path.insert(0, _TilingFinder())
 
-from tiling import base, estimator_algs, limits, pso, valids
+from tiling import base, bf, estimator_algs, limits, valids
 
 
 # This route matches the fixed workload currently configured below. Route
@@ -66,12 +66,12 @@ FEATURES = {
     "HAS_DROP": 0,
     "HAS_ROPE": 0,
     "HAS_SINK": 0,
-    "HAS_ACTUAL_SEQ": 1,
+    "HAS_ACTUAL_SEQ": 0,
     "HAS_START_IDX": 0,
 }
 
 
-class PsoAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
+class PsoAlgo(estimator_algs.AlgoProfileEst, bf.BruteForceAlgo):
     def _get_time(self) -> float:
         """FA/FAG may launch several tasks; score the complete operator."""
         try:
@@ -200,8 +200,7 @@ def main() -> None:
 
         shape_key = "_".join(str(value) for value in shape)
         algo = PsoAlgo(
-            is_stop=lambda results: len(results) >= 48,
-            swarm_size=64,
+            is_stop=lambda results: len(results) >= 1,
             validator=validator,
             input_params=input_params,
             runner="./run_attention.sh",

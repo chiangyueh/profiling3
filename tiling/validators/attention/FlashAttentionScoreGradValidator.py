@@ -98,9 +98,27 @@ class FlashAttentionScoreGradGenericValidator(AttentionValidator):
         )
 
     def _generic_route_is_valid(self, params: dict[str, BaseParam]) -> bool:
-        # Generic is the final DAV_2201 fallback. The caller supplies this
-        # validator only after the actual tiling key/kernel has been observed.
-        return all(self._shape_is_valid(params)) and self._value(params, "FAG_HAS_SINK", 0) == 0
+        if not all(self._shape_is_valid(params)):
+            return False
+
+        # This is the source-provable Generic envelope used by the current
+        # workload.  It excludes every earlier DAV_2201 route: deterministic
+        # families, TND/MLA, the FP16/BF16 B/N2/SameAB families, and the
+        # short-S1/S2 BN2 family.  Keeping the route check in the validator is
+        # important: otherwise a candidate can be accepted even though the
+        # host selects another kernel and ignores all FAG_* search parameters.
+        return (
+            params["FAG_DTYPE_BYTES"].value == 4
+            and self._value(params, "FAG_DETERMINISTIC", 0) == 0
+            and params["FAG_LAYOUT"].value != LAYOUT_TND
+            and max(params["FAG_S1"].value, params["FAG_S2"].value) >= 1024
+            and self._value(params, "FAG_IS_SPARSE", 0) == 0
+            and self._value(params, "FAG_HAS_MASK", 0) == 0
+            and self._value(params, "FAG_HAS_PSE", 0) == 0
+            and self._value(params, "FAG_HAS_DROP", 0) == 0
+            and self._value(params, "FAG_HAS_ROPE", 0) == 0
+            and self._value(params, "FAG_HAS_SINK", 0) == 0
+        )
 
     @staticmethod
     def _repair_route(params: dict[str, BaseParam]) -> dict[str, BaseParam]:

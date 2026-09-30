@@ -5,7 +5,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 OPS_ROOT=${OPS_TRANSFORMER_ROOT:-"${SCRIPT_DIR}/../ops-transformer"}
 ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
 SOC_UNIT=${ATTENTION_SOC_UNIT:-ascend910b}
-JOBS=${ATTENTION_BUILD_JOBS:-8}
+JOBS=${ATTENTION_BUILD_JOBS:-1}
 INSTALL_ROOT=${ATTENTION_OPP_INSTALL_ROOT:-"${SCRIPT_DIR}/out/attention_opp"}
 PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_attention_search.patch"
 

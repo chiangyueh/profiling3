@@ -209,6 +209,13 @@ evaluation inherits that selection:
 python3 main.py --id=3
 ```
 
+This uses the same framework flow as the Matmul example. One
+`BruteForceAlgo.run()` enumerates the tiling domain, the FA/FAG validator drops
+illegal candidates, and `run_attention.sh` measures every accepted candidate
+on the selected NPU. The operator is built once; changing a candidate does not
+recompile it. `run_npu.sh` remains only the independent one-shape official FAG
+baseline and is not the search entry point.
+
 ## Official FlashAttentionScoreGrad one-shape run
 
 The repository contains an unmodified snapshot of
