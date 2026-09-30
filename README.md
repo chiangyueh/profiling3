@@ -220,3 +220,9 @@ The final status is written to `results/fag_npu/status.txt`; the values printed
 by the official example are stored in `results/fag_npu/run.log`, and the
 complete build/run log is `results/fag_npu/full.log`. The compatibility entry
 `run_fag_baseline.sh` invokes the same `run_npu.sh` workflow.
+
+Every build/run phase also has a timestamped log under
+`results/fag_npu/logs`. On failure the terminal summary reports the failed
+phase, exit code, source line, command, relevant error lines, and log paths.
+Preflight checks name each missing command, official source file, CANN file,
+generated package file, API header/library, or launcher binary explicitly.
