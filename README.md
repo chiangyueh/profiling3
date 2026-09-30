@@ -185,44 +185,31 @@ tiling/
 - **Новый оператор.** Унаследовать `BaseValidator`, реализовать `get_combinations`, `is_valid` и `repair`.
 - **Другая форма задачи или другое железо.** Добавить новый `Limits`.
 
-## FlashAttention forward/backward
+## Official FlashAttentionScoreGrad baseline
 
-The MatMul search algorithms are unchanged. FA/FAG use the same chain:
-candidate parameters are exported as environment variables, the official host
-tiling consumes them before deriving MatMul/workspace fields, the real ACLNN
-operator runs on NPU, and `msprof` supplies the duration. Because FA/FAG can
-launch multiple tasks, their estimator sums every task in `OpBasicInfo.csv`.
-For each shape, the runner first executes the unmodified official autotiling
-choice and stores its output as `golden.bin`; every searched tiling is checked
-against that reference through the framework's original correctness path.
-
-Build the official forward/backward operators and the bundled benchmark once:
+The repository contains an unmodified snapshot of
+`ops-transformer v8.5.0/attention/flash_attention_score_grad`. Before adding
+the optimization framework, verify this official baseline independently on an
+Ascend 910B NPU with CANN 8.5.0:
 
 ```bash
-OPS_TRANSFORMER_ROOT=../ops-transformer ./build_attention.sh
+./run_fag_baseline.sh
 ```
 
-This applies `patches/ops_transformer_attention_search.patch` idempotently,
-builds and locally installs the two custom operators, and creates
-`./attention_npu`. It does not modify MatMul sources or algorithms.
-The upstream repository currently requires CMake 3.18.4 or newer and its
-normal `cann-cmake` dependency (either cached locally or reachable during the
-first build).
+The script performs one serial workflow: verify the exact upstream source,
+build only `flash_attention_score_grad` with `-j1`, install it into an isolated
+directory, compile one official V2 example against `libcust_opapi.so`, and run
+it on NPU. It does not use the installed `libopapi_transformer.so` and does not
+modify the official FAG host or kernel sources.
 
-Then select the observed route and use the same `main.py` entry point. No
-external runner variable is required:
+If the official `ops-transformer v8.5.0` checkout is not located at
+`../ops-transformer-official-8.5.0`, specify it explicitly:
 
 ```bash
-ATTENTION_KERNEL=fa_general python3 main.py
-ATTENTION_KERNEL=fag_generic python3 main.py
+OPS_TRANSFORMER_ROOT=/absolute/path/to/ops-transformer-official-8.5.0 \
+./run_fag_baseline.sh
 ```
 
-Supported routes are `fa_general`, `fa_varlen`, `fag_mla`, `fag_same_ab`, and
-`fag_generic`. Edit `SIZES` and `FEATURES` in `attention_main.py` to match each
-collected DeepSeek/Pangu workload. The benchmark supports BNSD, SBH, BSND and
-uniform-sequence TND layouts, FP32/FP16 data, and the no-mask/no-PSE/no-dropout
-path represented by the default `FEATURES`. It rejects unsupported optional
-inputs instead of silently profiling a different case.
-
-`get_tiling.sh` remains available to identify which official route a workload
-actually selects. It is not part of each optimization iteration.
+The final status is written to `results/fag_baseline/status.txt`; the values
+printed by the official example are stored in `results/fag_baseline/run.log`,
+and the complete build/run log is `results/fag_baseline/full.log`.

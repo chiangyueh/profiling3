@@ -6,3 +6,5 @@ OPPROF_*/
 cceprint/
 autotiling_run.log
 autotiling_results.json
+out/
+results/
