@@ -216,8 +216,6 @@ OPS_TRANSFORMER_ROOT=/absolute/path/to/ops-transformer-official-8.5.0 \
 ./run_fag_baseline.sh
 ```
 
-The final status is written to `results/fag_baseline/status.txt`. The runner
-keeps the first value printed by the official example and suppresses its
-remaining per-element output; the concise result is stored in
-`results/fag_baseline/run.log`, and the complete build/run log is
-`results/fag_baseline/full.log`.
+The final status is written to `results/fag_baseline/status.txt`; the values
+printed by the official example are stored in `results/fag_baseline/run.log`,
+and the complete build/run log is `results/fag_baseline/full.log`.

@@ -151,27 +151,13 @@ g++ -O2 -std=c++17 "${SAMPLE}" \
 
 echo "[INFO] running the official FAG V2 example on NPU"
 set +e
-"${BIN}" 2>&1 | awk '
-    /^mean result\[/ {
-        value_count++
-        if (value_count == 1) {
-            print "[RESULT] " $0
-        }
-        next
-    }
-    { print }
-    END {
-        if (value_count > 1) {
-            print "[INFO] suppressed " value_count - 1 " additional element values"
-        }
-    }
-' | tee "${RESULT_ROOT}/run.log"
+"${BIN}" 2>&1 | tee "${RESULT_ROOT}/run.log"
 RUN_STATUS=${PIPESTATUS[0]}
 set -e
 
 if [[ ${RUN_STATUS} -eq 0 ]]; then
     echo "PASS" > "${RESULT_ROOT}/status.txt"
-    echo "[PASS] official FAG ${TAG} completed; the first output value is in ${RESULT_ROOT}/run.log"
+    echo "[PASS] official FAG ${TAG} completed; output values are in ${RESULT_ROOT}/run.log"
 else
     echo "FAIL (${RUN_STATUS})" > "${RESULT_ROOT}/status.txt"
     echo "[FAIL] official FAG ${TAG} exited with ${RUN_STATUS}" >&2
