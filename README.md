@@ -202,7 +202,11 @@ tiling test expects tiling key `134258996`, so the package build passes that
 exact key to the official compiler. It does not use JIT and does not compile
 all FAG tiling keys. The script then installs the isolated custom package,
 compiles the unmodified official launcher, and executes that one shape on NPU.
-The default build parallelism is one job.
+The default build parallelism is one job. The package and launcher are built
+only when the matching artifacts are absent; later `./run_npu.sh` invocations
+reuse them and go directly to the NPU execution. A failed or timed-out NPU run
+does not cause the next invocation to rebuild. Set `FAG_FORCE_REBUILD=1` only
+when an explicit clean rebuild is wanted.
 
 The v8.5.0 build files require CMake 3.21 or newer for correct object-library
 dependency ordering. If the system CMake is older, the script installs CMake

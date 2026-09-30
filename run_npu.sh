@@ -12,6 +12,8 @@ SOC=${FAG_SOC:-ascend910b}
 VENDOR=fag_single_key
 JOBS=${FAG_BUILD_JOBS:-1}
 RUN_TIMEOUT=${FAG_RUN_TIMEOUT:-300}
+FORCE_REBUILD=${FAG_FORCE_REBUILD:-0}
+ARTIFACT_SCHEMA=1
 
 SNAPSHOT="${SCRIPT_DIR}/vendor/ops-transformer-v8.5.0/attention/flash_attention_score_grad"
 DEFAULT_OPS_ROOT="${SCRIPT_DIR}/../ops-transformer-official-8.5.0"
@@ -164,7 +166,7 @@ trap 'on_signal 130 INT' INT
 trap 'on_signal 143 TERM' TERM
 
 CURRENT_PHASE=preflight
-for command in git diff find sort sed awk grep tail tee g++ timeout; do
+for command in git diff find sort sed awk grep tail tee timeout; do
     require_command "${command}"
 done
 
@@ -173,6 +175,9 @@ if [[ ! "${JOBS}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if [[ ! "${RUN_TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
     fail "FAG_RUN_TIMEOUT must be a positive integer in seconds; got '${RUN_TIMEOUT}'"
+fi
+if [[ "${FORCE_REBUILD}" != "0" && "${FORCE_REBUILD}" != "1" ]]; then
+    fail "FAG_FORCE_REBUILD must be 0 or 1; got '${FORCE_REBUILD}'"
 fi
 
 echo "[INFO] source: ops-transformer ${TAG} (${COMMIT})"
@@ -249,110 +254,153 @@ CURRENT_PHASE_LOG=
 source "${CANN_SETENV}"
 ASCEND_ROOT=${ASCEND_HOME_PATH:-${ASCEND_ROOT}}
 require_file "CANN ACL header" "${ASCEND_ROOT}/include/acl/acl.h"
-require_command bisheng
-
-CMAKE_MIN=3.21
-if command -v cmake >/dev/null 2>&1; then
-    CMAKE_VERSION=$(cmake --version | awk 'NR == 1 {print $3}')
-else
-    CMAKE_VERSION=
-fi
-if [[ -z "${CMAKE_VERSION}" ]] || \
-   [[ "$(printf '%s\n' "${CMAKE_MIN}" "${CMAKE_VERSION}" | sort -V | sed -n '1p')" != "${CMAKE_MIN}" ]]; then
-    CMAKE_ROOT="${BUILD_ROOT}/cmake-3.28.3"
-    CMAKE_BIN="${CMAKE_ROOT}/cmake/data/bin"
-    if [[ ! -x "${CMAKE_BIN}/cmake" ]]; then
-        echo "[INFO] installing CMake 3.28.3 locally under ${CMAKE_ROOT}"
-        require_command python3
-        run_phase "local CMake install" "${LOG_ROOT}/cmake_install_${RUN_ID}.log" \
-            python3 -m pip install --no-cache-dir --target "${CMAKE_ROOT}" cmake==3.28.3
-    fi
-    export PATH="${CMAKE_BIN}:${PATH}"
-fi
-
-require_command cmake
-
-echo "[INFO] using $(cmake --version | sed -n '1p')"
-export CMAKE_BUILD_PARALLEL_LEVEL=${JOBS}
-export MAKEFLAGS="-j${JOBS}"
-export MAX_JOBS=${JOBS}
-
-BUILD_PREFIX=()
-if command -v ionice >/dev/null 2>&1; then
-    BUILD_PREFIX+=(ionice -c 3)
-fi
-if command -v nice >/dev/null 2>&1; then
-    BUILD_PREFIX+=(nice -n 15)
-fi
-
-echo "[INFO] compiling only tiling key ${TILING_KEY} (no JIT, no all-key build)"
-build_one_key_package() {
-    cd "${OPS_ROOT}" || return $?
-    "${BUILD_PREFIX[@]}" bash build.sh \
-        --pkg \
-        --ops=flash_attention_score_grad \
-        --soc="${SOC}" \
-        --vendor_name="${VENDOR}" \
-        --tiling_key="${TILING_KEY}" \
-        -j"${JOBS}"
-}
-
-run_phase "one-key package build" "${LOG_ROOT}/package_build_${RUN_ID}.log" \
-    build_one_key_package
-
-CURRENT_PHASE="package discovery"
-CURRENT_PHASE_LOG="${LOG_ROOT}/package_build_${RUN_ID}.log"
-PACKAGE_ROOTS=()
-for package_dir in "${OPS_ROOT}/output" "${OPS_ROOT}/build"; do
-    [[ -d "${package_dir}" ]] && PACKAGE_ROOTS+=("${package_dir}")
-done
-if [[ ${#PACKAGE_ROOTS[@]} -eq 0 ]]; then
-    fail "build completed but no package directory exists under ${OPS_ROOT}"
-fi
-PACKAGE=$(find "${PACKAGE_ROOTS[@]}" -type f -name '*.run' -printf '%T@ %p\n' 2>/dev/null | \
-    sort -nr | sed -n '1p' | cut -d' ' -f2- || true)
-if [[ -z "${PACKAGE}" ]]; then
-    fail "build completed but no .run package was found under: ${PACKAGE_ROOTS[*]}"
-fi
-require_file "generated custom package" "${PACKAGE}"
-
-echo "[INFO] installing the one-key package into ${INSTALL_ROOT}"
-run_phase "custom package install" "${LOG_ROOT}/package_install_${RUN_ID}.log" \
-    "${PACKAGE}" --quiet --install-path="${INSTALL_ROOT}"
-
 CUSTOM_ROOT="${INSTALL_ROOT}/vendors/${VENDOR}_transformer"
-CURRENT_PHASE="installed package validation"
-CURRENT_PHASE_LOG="${LOG_ROOT}/package_install_${RUN_ID}.log"
-require_dir "installed custom FAG directory" "${CUSTOM_ROOT}"
-require_file "custom FAG environment script" "${CUSTOM_ROOT}/bin/set_env.bash"
-require_dir "custom FAG API include directory" "${CUSTOM_ROOT}/op_api/include"
-require_dir "custom FAG API library directory" "${CUSTOM_ROOT}/op_api/lib"
-require_file "custom FAG API header" \
-    "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h"
-require_file "custom FAG API library" "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so"
-require_file "CANN runtime library" "${ASCEND_ROOT}/lib64/libascendcl.so"
-require_file "CANN NN operator base library" "${ASCEND_ROOT}/lib64/libnnopbase.so"
-require_file "CANN secure C library" "${ASCEND_ROOT}/lib64/libc_sec.so"
-source "${CUSTOM_ROOT}/bin/set_env.bash"
-
 ARCH=$(uname -m)
 SAMPLE="${OPS_ROOT}/attention/flash_attention_score_grad/examples/test_aclnn_flash_attention_score_grad_v2.cpp"
 BIN="${BUILD_ROOT}/fag_official_v2"
+ARTIFACT_MANIFEST="${BUILD_ROOT}/artifact_manifest.txt"
+EXPECTED_FINGERPRINT="schema=${ARTIFACT_SCHEMA};commit=${COMMIT};soc=${SOC};key=${TILING_KEY};cann=${ASCEND_ROOT};vendor=${VENDOR}"
 
-echo "[INFO] compiling the official one-shape launcher"
-COMPILE_CMD=(g++ -O2 -std=c++17 "${SAMPLE}"
-    -I"${ASCEND_ROOT}/include" \
-    -I"${CUSTOM_ROOT}/op_api/include" \
-    -I"${ASCEND_ROOT}/${ARCH}-linux/include/aclnnop" \
-    -L"${CUSTOM_ROOT}/op_api/lib" \
-    -L"${ASCEND_ROOT}/lib64" \
-    -Wl,-rpath,"${CUSTOM_ROOT}/op_api/lib" \
-    -Wl,-rpath,"${ASCEND_ROOT}/lib64" \
-    -lcust_opapi -lascendcl -lnnopbase -lpthread -lc_sec \
-    -o "${BIN}")
-run_phase "official launcher compile" "${LOG_ROOT}/launcher_compile_${RUN_ID}.log" \
-    "${COMPILE_CMD[@]}"
+require_file "CANN runtime library" "${ASCEND_ROOT}/lib64/libascendcl.so"
+require_file "CANN NN operator base library" "${ASCEND_ROOT}/lib64/libnnopbase.so"
+require_file "CANN secure C library" "${ASCEND_ROOT}/lib64/libc_sec.so"
+
+CACHE_HIT=0
+if [[ "${FORCE_REBUILD}" == "1" ]]; then
+    CACHE_REASON="FAG_FORCE_REBUILD=1"
+elif [[ ! -f "${ARTIFACT_MANIFEST}" ]]; then
+    CACHE_REASON="artifact manifest is missing: ${ARTIFACT_MANIFEST}"
+elif [[ "$(<"${ARTIFACT_MANIFEST}")" != "${EXPECTED_FINGERPRINT}" ]]; then
+    CACHE_REASON="artifact manifest does not match this source/key/SoC/CANN"
+elif [[ ! -f "${CUSTOM_ROOT}/bin/set_env.bash" ]]; then
+    CACHE_REASON="installed custom environment is missing: ${CUSTOM_ROOT}/bin/set_env.bash"
+elif [[ ! -f "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h" ]]; then
+    CACHE_REASON="installed FAG API header is missing"
+elif [[ ! -f "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" ]]; then
+    CACHE_REASON="installed FAG API library is missing"
+elif [[ ! -x "${BIN}" ]]; then
+    CACHE_REASON="compiled launcher is missing or not executable: ${BIN}"
+else
+    CACHE_HIT=1
+    CACHE_REASON="matching one-key package and launcher already exist"
+fi
+
+if [[ "${CACHE_HIT}" == "1" ]]; then
+    echo "[INFO] build cache hit: ${CACHE_REASON}"
+    echo "[INFO] skipping package build, installation, and launcher compilation"
+else
+    echo "[INFO] build cache miss: ${CACHE_REASON}"
+    require_command g++
+    require_command bisheng
+
+    CMAKE_MIN=3.21
+    if command -v cmake >/dev/null 2>&1; then
+        CMAKE_VERSION=$(cmake --version | awk 'NR == 1 {print $3}')
+    else
+        CMAKE_VERSION=
+    fi
+    if [[ -z "${CMAKE_VERSION}" ]] || \
+       [[ "$(printf '%s\n' "${CMAKE_MIN}" "${CMAKE_VERSION}" | sort -V | sed -n '1p')" != "${CMAKE_MIN}" ]]; then
+        CMAKE_ROOT="${BUILD_ROOT}/cmake-3.28.3"
+        CMAKE_BIN="${CMAKE_ROOT}/cmake/data/bin"
+        if [[ ! -x "${CMAKE_BIN}/cmake" ]]; then
+            echo "[INFO] installing CMake 3.28.3 locally under ${CMAKE_ROOT}"
+            require_command python3
+            run_phase "local CMake install" "${LOG_ROOT}/cmake_install_${RUN_ID}.log" \
+                python3 -m pip install --no-cache-dir --target "${CMAKE_ROOT}" cmake==3.28.3
+        fi
+        export PATH="${CMAKE_BIN}:${PATH}"
+    fi
+
+    require_command cmake
+    echo "[INFO] using $(cmake --version | sed -n '1p')"
+    export CMAKE_BUILD_PARALLEL_LEVEL=${JOBS}
+    export MAKEFLAGS="-j${JOBS}"
+    export MAX_JOBS=${JOBS}
+
+    BUILD_PREFIX=()
+    if command -v ionice >/dev/null 2>&1; then
+        BUILD_PREFIX+=(ionice -c 3)
+    fi
+    if command -v nice >/dev/null 2>&1; then
+        BUILD_PREFIX+=(nice -n 15)
+    fi
+
+    echo "[INFO] compiling only tiling key ${TILING_KEY} (no JIT, no all-key build)"
+    build_one_key_package() {
+        cd "${OPS_ROOT}" || return $?
+        "${BUILD_PREFIX[@]}" bash build.sh \
+            --pkg \
+            --ops=flash_attention_score_grad \
+            --soc="${SOC}" \
+            --vendor_name="${VENDOR}" \
+            --tiling_key="${TILING_KEY}" \
+            -j"${JOBS}"
+    }
+
+    run_phase "one-key package build" "${LOG_ROOT}/package_build_${RUN_ID}.log" \
+        build_one_key_package
+
+    CURRENT_PHASE="package discovery"
+    CURRENT_PHASE_LOG="${LOG_ROOT}/package_build_${RUN_ID}.log"
+    PACKAGE_ROOTS=()
+    for package_dir in "${OPS_ROOT}/output" "${OPS_ROOT}/build"; do
+        [[ -d "${package_dir}" ]] && PACKAGE_ROOTS+=("${package_dir}")
+    done
+    if [[ ${#PACKAGE_ROOTS[@]} -eq 0 ]]; then
+        fail "build completed but no package directory exists under ${OPS_ROOT}"
+    fi
+    PACKAGE=$(find "${PACKAGE_ROOTS[@]}" -type f -name '*.run' -printf '%T@ %p\n' 2>/dev/null | \
+        sort -nr | sed -n '1p' | cut -d' ' -f2- || true)
+    if [[ -z "${PACKAGE}" ]]; then
+        fail "build completed but no .run package was found under: ${PACKAGE_ROOTS[*]}"
+    fi
+    require_file "generated custom package" "${PACKAGE}"
+
+    echo "[INFO] installing the one-key package into ${INSTALL_ROOT}"
+    run_phase "custom package install" "${LOG_ROOT}/package_install_${RUN_ID}.log" \
+        "${PACKAGE}" --quiet --install-path="${INSTALL_ROOT}"
+
+    CURRENT_PHASE="installed package validation"
+    CURRENT_PHASE_LOG="${LOG_ROOT}/package_install_${RUN_ID}.log"
+    require_dir "installed custom FAG directory" "${CUSTOM_ROOT}"
+    require_file "custom FAG environment script" "${CUSTOM_ROOT}/bin/set_env.bash"
+    require_dir "custom FAG API include directory" "${CUSTOM_ROOT}/op_api/include"
+    require_dir "custom FAG API library directory" "${CUSTOM_ROOT}/op_api/lib"
+    require_file "custom FAG API header" \
+        "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h"
+    require_file "custom FAG API library" "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so"
+    source "${CUSTOM_ROOT}/bin/set_env.bash"
+
+    echo "[INFO] compiling the official one-shape launcher"
+    COMPILE_CMD=(g++ -O2 -std=c++17 "${SAMPLE}"
+        -I"${ASCEND_ROOT}/include"
+        -I"${CUSTOM_ROOT}/op_api/include"
+        -I"${ASCEND_ROOT}/${ARCH}-linux/include/aclnnop"
+        -L"${CUSTOM_ROOT}/op_api/lib"
+        -L"${ASCEND_ROOT}/lib64"
+        -Wl,-rpath,"${CUSTOM_ROOT}/op_api/lib"
+        -Wl,-rpath,"${ASCEND_ROOT}/lib64"
+        -lcust_opapi -lascendcl -lnnopbase -lpthread -lc_sec
+        -o "${BIN}")
+    run_phase "official launcher compile" "${LOG_ROOT}/launcher_compile_${RUN_ID}.log" \
+        "${COMPILE_CMD[@]}"
+    require_file "compiled FAG launcher" "${BIN}"
+
+    MANIFEST_TMP="${ARTIFACT_MANIFEST}.tmp.$$"
+    printf '%s\n' "${EXPECTED_FINGERPRINT}" > "${MANIFEST_TMP}"
+    mv "${MANIFEST_TMP}" "${ARTIFACT_MANIFEST}"
+    echo "[INFO] build artifacts cached: ${ARTIFACT_MANIFEST}"
+fi
+
+CURRENT_PHASE="cached artifact validation"
+CURRENT_PHASE_LOG=
+require_file "custom FAG environment script" "${CUSTOM_ROOT}/bin/set_env.bash"
+require_file "custom FAG API header" \
+    "${CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h"
+require_file "custom FAG API library" "${CUSTOM_ROOT}/op_api/lib/libcust_opapi.so"
 require_file "compiled FAG launcher" "${BIN}"
+source "${CUSTOM_ROOT}/bin/set_env.bash"
 
 echo "[INFO] running exactly one FAG shape on NPU (timeout: ${RUN_TIMEOUT}s)"
 if run_phase "single-shape NPU execution" "${RESULT_ROOT}/run.log" \
