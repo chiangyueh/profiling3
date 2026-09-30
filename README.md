@@ -196,6 +196,18 @@ Ascend 910B NPU with CANN 8.5.0:
 ./run_npu.sh
 ```
 
+To run on a different NPU without modifying the official launcher, select it
+before invoking the same entry point:
+
+```bash
+export ASCEND_RT_VISIBLE_DEVICES=3
+./run_npu.sh
+```
+
+The visible devices are re-indexed from zero, so the launcher's fixed
+`aclrtSetDevice(0)` selects the first ID in `ASCEND_RT_VISIBLE_DEVICES`. The
+runner prints this mapping at startup.
+
 The script performs one serial workflow for the single official V2 example
 shape `B=1, N1=N2=1, S1=S2=256, D=128, FP32, SBH`. The matching v8.5.0 host
 tiling test expects tiling key `134258996`, so the package build passes that

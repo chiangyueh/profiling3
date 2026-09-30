@@ -209,6 +209,12 @@ echo "[INFO] one shape: ${SHAPE}"
 echo "[INFO] one tiling key: ${TILING_KEY}"
 echo "[INFO] build jobs: ${JOBS}"
 echo "[INFO] CANN runtime log level: ${CANN_LOG_LEVEL} (stdout=${CANN_LOG_STDOUT})"
+if [[ -n "${ASCEND_RT_VISIBLE_DEVICES:-}" ]]; then
+    echo "[INFO] ASCEND_RT_VISIBLE_DEVICES=${ASCEND_RT_VISIBLE_DEVICES}"
+    echo "[INFO] launcher logical device 0 maps to the first selected NPU"
+else
+    echo "[INFO] ASCEND_RT_VISIBLE_DEVICES is unset; launcher uses device 0"
+fi
 echo "[INFO] full log: ${FULL_LOG}"
 echo "[INFO] timestamped log: ${RUN_LOG}"
 
