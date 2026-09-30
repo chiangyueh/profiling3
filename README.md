@@ -230,3 +230,7 @@ Every build/run phase also has a timestamped log under
 phase, exit code, source line, command, relevant error lines, and log paths.
 Preflight checks name each missing command, official source file, CANN file,
 generated package file, API header/library, or launcher binary explicitly.
+The NPU phase enables CANN info logs automatically. If it times out, the same
+`./run_npu.sh` invocation prints the relevant tiling-key, FlashAttention,
+workspace, ACL/runtime, and kernel diagnostic lines; no second command is
+required.

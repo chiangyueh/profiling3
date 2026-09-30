@@ -14,6 +14,8 @@ JOBS=${FAG_BUILD_JOBS:-1}
 RUN_TIMEOUT=${FAG_RUN_TIMEOUT:-300}
 FORCE_REBUILD=${FAG_FORCE_REBUILD:-0}
 ARTIFACT_SCHEMA=1
+CANN_LOG_LEVEL=${FAG_CANN_LOG_LEVEL:-${ASCEND_GLOBAL_LOG_LEVEL:-1}}
+CANN_LOG_STDOUT=${FAG_CANN_LOG_STDOUT:-1}
 
 SNAPSHOT="${SCRIPT_DIR}/vendor/ops-transformer-v8.5.0/attention/flash_attention_score_grad"
 DEFAULT_OPS_ROOT="${SCRIPT_DIR}/../ops-transformer-official-8.5.0"
@@ -68,6 +70,25 @@ print_error_lines() {
     echo "  phase_log: ${log_file}"
 }
 
+print_runtime_diagnostics() {
+    local log_file="$1"
+    echo "  runtime_diagnostics:"
+    if [[ ! -s "${log_file}" ]]; then
+        echo "    no runtime output was produced before timeout"
+        return 0
+    fi
+    local matches
+    matches=$(grep -Eai \
+        'FAGTiling|tiling.?key|FlashAttention|workspace|aclrt|kernel|error|failed|exception|507[0-9]+' \
+        "${log_file}" | tail -100 || true)
+    if [[ -n "${matches}" ]]; then
+        echo "${matches}"
+    else
+        echo "    no matching CANN diagnostic line; last 80 runtime lines:"
+        tail -80 "${log_file}" || true
+    fi
+}
+
 report_failure() {
     local rc="$1"
     local line="$2"
@@ -83,6 +104,9 @@ report_failure() {
         echo "  detail:     ${LAST_ERROR}"
     fi
     print_error_lines "${CURRENT_PHASE_LOG}"
+    if [[ "${CURRENT_PHASE}" == "single-shape NPU execution" ]]; then
+        print_runtime_diagnostics "${CURRENT_PHASE_LOG}"
+    fi
     echo "  full_log:   ${FULL_LOG}"
     echo "  run_log:    ${RUN_LOG}"
 }
@@ -166,7 +190,7 @@ trap 'on_signal 130 INT' INT
 trap 'on_signal 143 TERM' TERM
 
 CURRENT_PHASE=preflight
-for command in git diff find sort sed awk grep tail tee timeout; do
+for command in git diff find sort sed awk grep tail tee timeout env; do
     require_command "${command}"
 done
 
@@ -185,6 +209,7 @@ echo "[INFO] operator: FlashAttentionScoreGrad"
 echo "[INFO] one shape: ${SHAPE}"
 echo "[INFO] one tiling key: ${TILING_KEY}"
 echo "[INFO] build jobs: ${JOBS}"
+echo "[INFO] CANN runtime log level: ${CANN_LOG_LEVEL} (stdout=${CANN_LOG_STDOUT})"
 echo "[INFO] full log: ${FULL_LOG}"
 echo "[INFO] timestamped log: ${RUN_LOG}"
 
@@ -404,14 +429,18 @@ source "${CUSTOM_ROOT}/bin/set_env.bash"
 
 echo "[INFO] running exactly one FAG shape on NPU (timeout: ${RUN_TIMEOUT}s)"
 if run_phase "single-shape NPU execution" "${RESULT_ROOT}/run.log" \
-    timeout --signal=INT --kill-after=10 "${RUN_TIMEOUT}" "${BIN}"; then
+    timeout --signal=INT --kill-after=10 "${RUN_TIMEOUT}" \
+        env ASCEND_GLOBAL_LOG_LEVEL="${CANN_LOG_LEVEL}" \
+            ASCEND_SLOG_PRINT_TO_STDOUT="${CANN_LOG_STDOUT}" \
+            "${BIN}"; then
     echo "PASS" > "${STATUS_FILE}"
     echo "[PASS] one official FAG shape completed"
     echo "[PASS] output: ${RESULT_ROOT}/run.log"
 else
     RUN_STATUS=$?
     if [[ ${RUN_STATUS} -eq 124 ]]; then
-        echo "[ERROR] the one-shape NPU run exceeded ${RUN_TIMEOUT}s" >&2
+        LAST_ERROR="the one-shape NPU run exceeded ${RUN_TIMEOUT}s"
+        echo "[ERROR] ${LAST_ERROR}" >&2
     fi
     report_failure "${RUN_STATUS}" "${LINENO}" "${BIN}"
     finalize_logs
