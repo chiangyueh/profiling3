@@ -206,7 +206,7 @@ actual FA/FAG search requires an explicit physical NPU ID; every child latency
 evaluation inherits that selection:
 
 ```bash
-ATTENTION_KERNEL=fag_generic python3 main.py --id=3
+python3 main.py --id=3
 ```
 
 ## Official FlashAttentionScoreGrad one-shape run

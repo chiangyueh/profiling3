@@ -44,7 +44,10 @@ if sys.version_info < (3, 10):
 from tiling import base, estimator_algs, limits, pso, valids
 
 
-KERNEL = os.environ["ATTENTION_KERNEL"]
+# This route matches the fixed workload currently configured below. Route
+# selection will move to the workload/autotiling registry when the exact
+# DeepSeek/Pangu cases are added; it is not a user-facing launch argument.
+KERNEL = "fag_generic"
 
 # (B, N1, N2, S1, S2, D, DV). Replace this list with the collected
 # DeepSeek/Pangu workload shapes before starting a search campaign.

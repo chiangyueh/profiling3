@@ -1,6 +1,6 @@
-import os
+import sys
 
-if os.environ.get("ATTENTION_KERNEL"):
+if any(arg == "--id" or arg.startswith("--id=") for arg in sys.argv[1:]):
     from attention_main import main as run_attention
 
     run_attention()
