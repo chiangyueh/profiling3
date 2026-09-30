@@ -197,10 +197,16 @@ Ascend 910B NPU with CANN 8.5.0:
 ```
 
 The script performs one serial workflow: verify the exact upstream source,
-build only `flash_attention_score_grad` with `-j1`, install it into an isolated
-directory, compile one official V2 example against `libcust_opapi.so`, and run
-it on NPU. It does not use the installed `libopapi_transformer.so` and does not
+build only the `flash_attention_score_grad` JIT package with `-j1`, install it
+into an isolated directory, compile one official V2 example against
+`libcust_opapi.so`, and run it on NPU. JIT mode avoids precompiling every FAG
+tiling-key kernel; the NPU run compiles the kernel actually selected by the
+example. It does not use the installed `libopapi_transformer.so` and does not
 modify the official FAG host or kernel sources.
+
+The v8.5.0 build files require CMake 3.21 or newer for correct object-library
+dependency ordering. If the system CMake is older, the script installs CMake
+3.28.3 locally under `out/fag_baseline`; it does not replace the system CMake.
 
 If the official `ops-transformer v8.5.0` checkout is not located at
 `../ops-transformer-official-8.5.0`, specify it explicitly:

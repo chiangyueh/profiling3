@@ -18,7 +18,7 @@ exec > >(tee "${RESULT_ROOT}/full.log") 2>&1
 
 echo "[INFO] official FAG baseline: ${TAG} (${COMMIT})"
 
-if [[ ! -d "${OPS_ROOT}/.git" ]]; then
+if ! git -C "${OPS_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     OPS_ROOT="${BUILD_ROOT}/ops-transformer-v8.5.0"
     if [[ -e "${OPS_ROOT}" ]]; then
         echo "[ERROR] ${OPS_ROOT} exists but is not a Git repository" >&2
@@ -49,23 +49,57 @@ if ! diff -qr "${SNAPSHOT}" \
 fi
 
 ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
-if [[ ! -f "${ASCEND_ROOT}/bin/setenv.bash" ]]; then
-    echo "[ERROR] CANN setenv.bash not found under ${ASCEND_ROOT}" >&2
+if [[ -f "${ASCEND_ROOT}/bin/setenv.bash" ]]; then
+    CANN_SETENV="${ASCEND_ROOT}/bin/setenv.bash"
+elif [[ -f "${ASCEND_ROOT}/set_env.sh" ]]; then
+    CANN_SETENV="${ASCEND_ROOT}/set_env.sh"
+else
+    echo "[ERROR] CANN environment script not found under ${ASCEND_ROOT}" >&2
     exit 2
 fi
 
 export ASCEND_CUSTOM_OPP_PATH=${ASCEND_CUSTOM_OPP_PATH:-}
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}
-source "${ASCEND_ROOT}/bin/setenv.bash"
+source "${CANN_SETENV}"
 
-echo "[INFO] building only flash_attention_score_grad with one job"
+CMAKE_MIN=3.21
+if command -v cmake >/dev/null 2>&1; then
+    CMAKE_VERSION=$(cmake --version | awk 'NR == 1 {print $3}')
+else
+    CMAKE_VERSION=
+fi
+if [[ -z "${CMAKE_VERSION}" ]] || \
+   [[ "$(printf '%s\n' "${CMAKE_MIN}" "${CMAKE_VERSION}" | sort -V | sed -n '1p')" != "${CMAKE_MIN}" ]]; then
+    CMAKE_ROOT="${BUILD_ROOT}/cmake-3.28.3"
+    CMAKE_BIN="${CMAKE_ROOT}/cmake/data/bin"
+    if [[ ! -x "${CMAKE_BIN}/cmake" ]]; then
+        echo "[INFO] CMake >= ${CMAKE_MIN} is required; installing CMake 3.28.3 under ${CMAKE_ROOT}"
+        python3 -m pip install --no-cache-dir --target "${CMAKE_ROOT}" cmake==3.28.3
+    fi
+    export PATH="${CMAKE_BIN}:${PATH}"
+fi
+
+echo "[INFO] using $(cmake --version | sed -n '1p')"
+export CMAKE_BUILD_PARALLEL_LEVEL=1
+export MAKEFLAGS=-j1
+export MAX_JOBS=1
+
+BUILD_CMD=(bash build.sh --jit --pkg
+    --ops=flash_attention_score_grad
+    --soc="${SOC}"
+    --vendor_name="${VENDOR}"
+    -j1)
+if command -v ionice >/dev/null 2>&1; then
+    BUILD_CMD=(ionice -c 3 "${BUILD_CMD[@]}")
+fi
+if command -v nice >/dev/null 2>&1; then
+    BUILD_CMD=(nice -n 15 "${BUILD_CMD[@]}")
+fi
+
+echo "[INFO] building the official flash_attention_score_grad JIT package with one job"
 (
     cd "${OPS_ROOT}"
-    bash build.sh --pkg \
-        --ops=flash_attention_score_grad \
-        --soc="${SOC}" \
-        --vendor_name="${VENDOR}" \
-        -j1
+    "${BUILD_CMD[@]}"
 )
 
 PACKAGE_ROOTS=()
@@ -78,7 +112,7 @@ if [[ ${#PACKAGE_ROOTS[@]} -eq 0 ]]; then
 fi
 
 PACKAGE=$(find "${PACKAGE_ROOTS[@]}" -type f -name '*.run' -printf '%T@ %p\n' 2>/dev/null | \
-    sort -nr | head -n 1 | cut -d' ' -f2-)
+    sort -nr | sed -n '1p' | cut -d' ' -f2-)
 if [[ -z "${PACKAGE}" ]]; then
     echo "[ERROR] the official build produced no .run package" >&2
     exit 1
@@ -90,7 +124,7 @@ echo "[INFO] installing ${PACKAGE} into ${INSTALL_ROOT}"
 CUSTOM_ROOT="${INSTALL_ROOT}/vendors/${VENDOR}_transformer"
 if [[ ! -d "${CUSTOM_ROOT}" ]]; then
     CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
-        -name '*_transformer' -print | head -n 1)
+        -name '*_transformer' -print -quit)
 fi
 if [[ -z "${CUSTOM_ROOT}" || ! -f "${CUSTOM_ROOT}/bin/set_env.bash" ]]; then
     echo "[ERROR] installed custom FAG tree was not found under ${INSTALL_ROOT}" >&2
