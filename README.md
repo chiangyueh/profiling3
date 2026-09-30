@@ -185,7 +185,7 @@ tiling/
 - **Новый оператор.** Унаследовать `BaseValidator`, реализовать `get_combinations`, `is_valid` и `repair`.
 - **Другая форма задачи или другое железо.** Добавить новый `Limits`.
 
-## Official FlashAttentionScoreGrad baseline
+## Official FlashAttentionScoreGrad one-shape run
 
 The repository contains an unmodified snapshot of
 `ops-transformer v8.5.0/attention/flash_attention_score_grad`. Before adding
@@ -193,29 +193,30 @@ the optimization framework, verify this official baseline independently on an
 Ascend 910B NPU with CANN 8.5.0:
 
 ```bash
-./run_fag_baseline.sh
+./run_npu.sh
 ```
 
-The script performs one serial workflow: verify the exact upstream source,
-build only the `flash_attention_score_grad` JIT package with `-j1`, install it
-into an isolated directory, compile one official V2 example against
-`libcust_opapi.so`, and run it on NPU. JIT mode avoids precompiling every FAG
-tiling-key kernel; the NPU run compiles the kernel actually selected by the
-example. It does not use the installed `libopapi_transformer.so` and does not
-modify the official FAG host or kernel sources.
+The script performs one serial workflow for the single official V2 example
+shape `B=1, N1=N2=1, S1=S2=256, D=128, FP32, SBH`. The matching v8.5.0 host
+tiling test expects tiling key `134258996`, so the package build passes that
+exact key to the official compiler. It does not use JIT and does not compile
+all FAG tiling keys. The script then installs the isolated custom package,
+compiles the unmodified official launcher, and executes that one shape on NPU.
+The default build parallelism is one job.
 
 The v8.5.0 build files require CMake 3.21 or newer for correct object-library
 dependency ordering. If the system CMake is older, the script installs CMake
-3.28.3 locally under `out/fag_baseline`; it does not replace the system CMake.
+3.28.3 locally under `out/fag_npu`; it does not replace the system CMake.
 
 If the official `ops-transformer v8.5.0` checkout is not located at
 `../ops-transformer-official-8.5.0`, specify it explicitly:
 
 ```bash
 OPS_TRANSFORMER_ROOT=/absolute/path/to/ops-transformer-official-8.5.0 \
-./run_fag_baseline.sh
+./run_npu.sh
 ```
 
-The final status is written to `results/fag_baseline/status.txt`; the values
-printed by the official example are stored in `results/fag_baseline/run.log`,
-and the complete build/run log is `results/fag_baseline/full.log`.
+The final status is written to `results/fag_npu/status.txt`; the values printed
+by the official example are stored in `results/fag_npu/run.log`, and the
+complete build/run log is `results/fag_npu/full.log`. The compatibility entry
+`run_fag_baseline.sh` invokes the same `run_npu.sh` workflow.
