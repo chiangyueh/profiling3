@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -249,6 +250,36 @@ def _run_with_timeout(command: list[str], env: dict[str, str], timeout: int) -> 
             return 124
 
 
+def _run_with_timeout_capture(
+    command: list[str], env: dict[str, str], timeout: int
+) -> tuple[int, str]:
+    process = subprocess.Popen(
+        command,
+        env=env,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+    )
+    output = ""
+    try:
+        output, _ = process.communicate(timeout=timeout)
+        rc = process.returncode
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGINT)
+        try:
+            output, _ = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            output, _ = process.communicate()
+        rc = 124
+        print(f"TIMEOUT: {timeout}s: {' '.join(command)}")
+    if output:
+        print(output, end="" if output.endswith("\n") else "\n")
+    return rc, output
+
+
 def _read_trace(path: Path) -> list[dict[str, int | str]]:
     records: list[dict[str, int | str]] = []
     if not path.is_file():
@@ -266,6 +297,41 @@ def _read_trace(path: Path) -> list[dict[str, int | str]]:
             })
         except ValueError:
             continue
+    return records
+
+
+def _read_official_log_trace(operator: str, output: str) -> list[dict[str, int | str]]:
+    """Recover route/key from the unmodified CANN debug messages.
+
+    CANN logs the key inside TilingBaseClass::DumpTilingInfo immediately before
+    TilingRegistryNew logs whether the template was accepted.  This fallback
+    avoids rebuilding an already cached seed package solely for tracing.
+    """
+
+    records: list[dict[str, int | str]] = []
+    latest_key: int | None = None
+    key_pattern = re.compile(
+        r"(?:tiling\s*key|tilingkey|tiling\s+is)\s*(?:is|:|=)?\s*(\d+)",
+        re.IGNORECASE,
+    )
+    route_pattern = re.compile(
+        r"(Do general op tiling success|Ignore general op tiling)\s+priority=(\d+)",
+        re.IGNORECASE,
+    )
+    for line in output.splitlines():
+        key_match = key_pattern.search(line)
+        if key_match:
+            latest_key = int(key_match.group(1))
+        route_match = route_pattern.search(line)
+        if not route_match:
+            continue
+        success = route_match.group(1).lower().startswith("do general")
+        records.append({
+            "operator": "FlashAttentionScoreGrad" if operator == FAG else "FlashAttentionScore",
+            "priority": int(route_match.group(2)),
+            "status": 0 if success else 1,
+            "tiling_key": latest_key if success and latest_key is not None else 0,
+        })
     return records
 
 
@@ -314,17 +380,30 @@ def discover_route(
     env["ATTENTION_REFERENCE"] = "1"
     env["ATTENTION_DISCOVER_ONLY"] = "1"
     env["ATTENTION_ROUTE_TRACE"] = str(trace.resolve())
+    # These are official CANN logging controls.  The source already logs both
+    # the accepted template priority and its tiling key at debug level.
+    env["ASCEND_GLOBAL_LOG_LEVEL"] = "0"
+    env["ASCEND_SLOG_PRINT_TO_STDOUT"] = "1"
     try:
-        rc = _run_with_timeout(["bash", "./run_attention.sh", "-r", "npu"], env, run_timeout)
+        rc, output = _run_with_timeout_capture(
+            ["bash", "./run_attention.sh", "-r", "npu"], env, run_timeout
+        )
     except Exception as exc:
         print(f"DISCOVERY FAILED: route={case.name}, error={exc!r}")
         return None, None, _read_trace(trace)
     records = _read_trace(trace)
+    if not records:
+        records = _read_official_log_trace(case.operator, output)
     selected = [record for record in records if record["status"] == 0]
-    if rc != 0 or not selected:
+    if not selected:
         print(f"DISCOVERY FAILED: route={case.name}, exit={rc}, trace_records={len(records)}")
         return None, None, records
     terminal = selected[-1]
+    if rc != 0:
+        print(
+            f"DISCOVERY FOUND UNBUILT KEY: route={case.name}, exit={rc}, "
+            f"tiling_key={terminal['tiling_key']}"
+        )
     return int(terminal["priority"]), int(terminal["tiling_key"]), records
 
 
