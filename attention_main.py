@@ -159,13 +159,11 @@ def prepare_golden(input_params: list[base.BaseParam], domains: dict[str, list[i
     completed = subprocess.run(
         ["bash", "./run_attention.sh", "-r", "npu"],
         env=env,
-        capture_output=True,
-        text=True,
     )
     if completed.returncode != 0:
         raise RuntimeError(
-            "failed to generate the official-autotiling reference:\n"
-            f"{completed.stdout}{completed.stderr}"
+            "failed to generate the official-autotiling reference "
+            f"(exit code {completed.returncode})"
         )
     if not output.is_file() or output.stat().st_size == 0:
         raise RuntimeError("attention reference run produced no output/output.bin")
