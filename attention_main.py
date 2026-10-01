@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+import numpy as np
 import pandas as pd
 
 
@@ -73,6 +74,49 @@ FEATURES = {
 
 
 class PsoAlgo(estimator_algs.AlgoProfileEst, bf.BruteForceAlgo):
+    def _is_right(
+        self,
+        relative_tol: float = 1e-5,
+        absolute_tol: float = 1e-6,
+        error_tol: float = 1e-4,
+    ) -> bool:
+        """Compare non-deterministic FAG output with the autotiling reference."""
+        try:
+            output = np.fromfile("output/output.bin", dtype=np.float32).reshape(-1)
+            golden = np.fromfile("output/golden.bin", dtype=np.float32).reshape(-1)
+        except Exception as error:
+            if self.verbose:
+                print(f"IS_RIGHT: False, failed to read output: {error}")
+            return False
+        if output.size != golden.size:
+            if self.verbose:
+                print(f"IS_RIGHT: False, output size {output.size} != golden {golden.size}")
+            return False
+
+        finite = np.isfinite(output) & np.isfinite(golden)
+        close = finite & np.isclose(
+            output,
+            golden,
+            rtol=relative_tol,
+            atol=absolute_tol,
+        )
+        error_ratio = float((~close).sum()) / golden.size
+        if finite.any():
+            difference = np.abs(output[finite] - golden[finite])
+            max_absolute_error = float(difference.max(initial=0.0))
+            denominator = np.maximum(np.abs(golden[finite]), absolute_tol)
+            max_relative_error = float((difference / denominator).max(initial=0.0))
+        else:
+            max_absolute_error = float("inf")
+            max_relative_error = float("inf")
+        is_right = error_ratio <= error_tol
+        if self.verbose:
+            print(
+                f"IS_RIGHT: {is_right}, error ratio = {error_ratio}, "
+                f"max abs error = {max_absolute_error}, max rel error = {max_relative_error}"
+            )
+        return is_right
+
     def _get_time(self) -> float:
         """FA/FAG may launch several tasks; score the complete operator."""
         try:
@@ -203,7 +247,7 @@ def main() -> None:
             validator=validator,
             input_params=input_params,
             runner="./run_attention.sh",
-            cache_path=f"cache_{KERNEL}_{shape_key}_real.json",
+            cache_path=f"cache_{KERNEL}_{shape_key}_real_v2.json",
             verbose=True,
         )
         print(f"START: {shape}")
