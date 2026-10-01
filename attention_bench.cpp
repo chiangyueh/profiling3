@@ -1,5 +1,7 @@
 #include <acl/acl.h>
+#ifndef ATTENTION_GRAD_ONLY
 #include "aclnn_flash_attention_score.h"
+#endif
 #include "aclnn_flash_attention_score_grad.h"
 
 #include <cmath>
@@ -239,6 +241,7 @@ int CheckFeatures(const char *prefix)
     return 0;
 }
 
+#ifndef ATTENTION_GRAD_ONLY
 int RunForward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1, int64_t s2,
                int64_t d, int64_t dv, int64_t layout, aclDataType dtype, size_t typeBytes)
 {
@@ -315,6 +318,7 @@ int RunForward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1
     Destroy(q); Destroy(k); Destroy(v); Destroy(softmaxMax); Destroy(softmaxSum); Destroy(attention);
     return ret;
 }
+#endif
 
 int RunBackward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1, int64_t s2,
                 int64_t d, int64_t dv, int64_t layout, aclDataType dtype, size_t typeBytes)
@@ -436,8 +440,18 @@ int main()
     ret = aclrtCreateStream(&stream);
     if (ret != ACL_SUCCESS) return ret;
 
-    const int result = grad ? RunBackward(stream, b, n1, n2, s1, s2, d, dv, layout, dtype, dtypeBytes)
-                            : RunForward(stream, b, n1, n2, s1, s2, d, dv, layout, dtype, dtypeBytes);
+    int result = 0;
+#ifdef ATTENTION_GRAD_ONLY
+    if (!grad) {
+        std::fprintf(stderr, "[ERROR] this launcher was built for FlashAttentionScoreGrad\n");
+        result = 2;
+    } else {
+        result = RunBackward(stream, b, n1, n2, s1, s2, d, dv, layout, dtype, dtypeBytes);
+    }
+#else
+    result = grad ? RunBackward(stream, b, n1, n2, s1, s2, d, dv, layout, dtype, dtypeBytes)
+                  : RunForward(stream, b, n1, n2, s1, s2, d, dv, layout, dtype, dtypeBytes);
+#endif
     aclrtDestroyStream(stream);
     aclrtResetDevice(0);
     aclFinalize();

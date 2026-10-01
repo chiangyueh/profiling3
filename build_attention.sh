@@ -7,6 +7,7 @@ EXPECTED_COMMIT=6ead121aded45355043b502756b6592fd7c30b14
 ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
 SOC_UNIT=${ATTENTION_SOC_UNIT:-ascend910b}
 JOBS=${ATTENTION_BUILD_JOBS:-1}
+TILING_KEY=74804
 INSTALL_ROOT=${ATTENTION_OPP_INSTALL_ROOT:-"${SCRIPT_DIR}/out/attention_opp"}
 PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_attention_search.patch"
 PATCH_ACTIVE=0
@@ -47,8 +48,8 @@ fi
 (
     cd "${OPS_ROOT}"
     bash build.sh -j"${JOBS}" \
-        --ops=flash_attention_score,flash_attention_score_grad \
-        --soc="${SOC_UNIT}" --pkg
+        --ops=flash_attention_score_grad \
+        --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
 )
 
 PACKAGE=$(find "${OPS_ROOT}/output" "${OPS_ROOT}/build" -type f \
@@ -73,7 +74,7 @@ CUSTOM_INCLUDE="${CUSTOM_ROOT}/op_api/include/aclnnop"
 CUSTOM_LIBRARY="${CUSTOM_ROOT}/op_api/lib"
 TOOLKIT_LIBRARY="${ASCEND_ROOT}/lib64"
 
-g++ -O2 -std=c++17 "${SCRIPT_DIR}/attention_bench.cpp" \
+g++ -O2 -std=c++17 -DATTENTION_GRAD_ONLY "${SCRIPT_DIR}/attention_bench.cpp" \
     -I"${ASCEND_ROOT}/include" -I"${CUSTOM_INCLUDE}" \
     -L"${CUSTOM_LIBRARY}" -L"${TOOLKIT_LIBRARY}" \
     -Wl,-rpath,"${CUSTOM_LIBRARY}" -Wl,-rpath,"${TOOLKIT_LIBRARY}" \
