@@ -3,10 +3,10 @@ from __future__ import annotations
 import __future__
 import argparse
 from collections import Counter
+import copy
 from dataclasses import dataclass
 import importlib.abc
 import importlib.machinery
-import itertools
 import json
 import math
 import os
@@ -16,7 +16,6 @@ import shutil
 import signal
 import subprocess
 import sys
-from typing import Iterator
 
 import numpy as np
 import pandas as pd
@@ -51,7 +50,7 @@ if sys.version_info < (3, 10):
 
     sys.meta_path.insert(0, _TilingFinder())
 
-from tiling import base, bf, estimator_algs, limits, valids
+from tiling import base, estimator_algs, limits, pso, valids
 
 
 FA = "flash_attention_score"
@@ -104,40 +103,16 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# One source-derived representative shape for every registered ascend910b
-# terminal route. Priority 90 is an adapter: its dedicated case passes through
-# the adapter and then terminates in priority 98.
+# Start with one forward and one backward shape.  Each shape is searched by the
+# framework's PSO algorithm; more route shapes can be added after this flow is
+# verified on NPU.
 ROUTE_CASES = (
-    RouteCase("fa_drop_adapter", FA, 90, (1, 1, 1, 16, 33, 64, 64),
-              _features(DTYPE_BYTES=2, HAS_DROP=1), terminal_priority=98),
-    RouteCase("fa_varlen", FA, 94, (2, 1, 1, 128, 128, 64, 64),
-              _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1)),
-    RouteCase("fa_same_ab", FA, 95, (1, 8, 1, 128, 512, 96, 96),
-              _features(DTYPE_BYTES=2)),
     RouteCase("fa_s1s2", FA, 96, (1, 8, 1, 128, 1536, 128, 128), _features()),
-    RouteCase("fa_s1", FA, 97, (1, 8, 1, 128, 512, 128, 128),
-              _features(DTYPE_BYTES=2)),
-    RouteCase("fa_b", FA, 98, (1, 1, 1, 16, 16, 64, 64), _features(DTYPE_BYTES=2)),
-    RouteCase("fag_deterministic_bn2", FAG, 1000, (1, 1, 1, 128, 128, 128, 128),
-              _features(DETERMINISTIC=1)),
-    RouteCase("fag_mla", FAG, 1001, (2, 1, 1, 128, 128, 64, 64),
-              _features(DTYPE_BYTES=2, LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1)),
-    RouteCase("fag_basic_deterministic", FAG, 1002, (1, 1, 1, 1024, 512, 64, 64),
-              _features(DTYPE_BYTES=2, LAYOUT=valids.attention.LAYOUT_TND,
-                        DETERMINISTIC=1, HAS_ACTUAL_SEQ=1)),
-    RouteCase("fag_same_ab_deterministic", FAG, 1100, (1, 1, 1, 1024, 512, 64, 64),
-              _features(DTYPE_BYTES=2, DETERMINISTIC=1)),
-    RouteCase("fag_unpadded", FAG, 2000, (2, 1, 1, 128, 128, 64, 64),
-              _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1)),
-    RouteCase("fag_b", FAG, 10000, (1, 1, 1, 16, 16, 64, 64), _features(DTYPE_BYTES=2)),
-    RouteCase("fag_n2", FAG, 11000, (40, 32, 32, 16, 16, 128, 128),
-              _features(DTYPE_BYTES=2)),
-    RouteCase("fag_bn2", FAG, 15000, (32, 2, 1, 64, 64, 128, 128),
-              _features(DTYPE_BYTES=2)),
-    RouteCase("fag_same_ab", FAG, 15500, (1, 4, 1, 2048, 512, 128, 128),
-              _features(DTYPE_BYTES=2)),
     RouteCase("fag_generic", FAG, 16000, (1, 8, 1, 128, 1536, 128, 128), _features()),
 )
+
+SWARM_SIZE = 4
+SEARCH_STEPS = 1
 
 ROUTE_CLASSES = {
     "fa_drop_adapter": "FlashAttentionScoreTilingDropMask",
@@ -437,18 +412,26 @@ def prepare_golden(
     return True
 
 
-class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, bf.BruteForceAlgo):
-    """Execute every candidate; the validator is a prediction, never a gate."""
+class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
+    """Run the framework PSO while treating the validator as a label only."""
 
     def __init__(self, *args, case: RouteCase, tiling_key: int, report_path: Path,
                  run_timeout: int, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
         self.case = case
         self.tiling_key = tiling_key
         self.report_path = report_path
         self.run_timeout = run_timeout
         self.counts: Counter[str] = Counter()
         self.executed = 0
+        self.audit_validator = kwargs.pop("validator")
+
+        # PsoAlgo normally asks the validator for valid initial particles and
+        # BaseAlgo repairs rejected particles.  For validator auditing we must
+        # preserve the generated candidate and execute it regardless of the
+        # prediction, so the PSO receives a shallow copy with no gating rules.
+        proposal_validator = copy.copy(self.audit_validator)
+        proposal_validator.param_funcs = {}
+        super().__init__(*args, validator=proposal_validator, **kwargs)
 
     def _is_right(
         self,
@@ -491,16 +474,6 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, bf.BruteForceAlgo):
         except Exception:
             return float("inf")
 
-    def _iter_combinations(self) -> Iterator[list[base.BaseParam]]:
-        domains = self.validator.limits.domains
-        names = list(domains)
-        value_space = itertools.product(*(domains[name] for name in names)) if names else [()]
-        for values in value_space:
-            params = [base.BaseParam(name=p.name, value=p.value, is_const=True) for p in self.input_params]
-            for name, value in zip(names, values):
-                params.append(base.BaseParam(name=name, value=value, is_const=False, domain=domains[name]))
-            yield self.validator.get_all_params(params)
-
     def _execute(self, params: list[base.BaseParam], step: int) -> tuple[int, float, bool, list[dict[str, int | str]]]:
         env = dict(os.environ)
         env["ATTENTION_OPERATOR"] = self.case.operator
@@ -518,65 +491,58 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, bf.BruteForceAlgo):
         correct = rc == 0 and math.isfinite(duration) and self._is_right()
         return rc, duration, correct, _read_trace(trace)
 
-    def run(self, *args, **kwargs) -> base.BaseResult:
-        best_duration = float("inf")
-        best_params: list[base.BaseParam] = []
-        total = 1
-        for domain in self.validator.limits.domains.values():
-            total *= len(domain)
+    def _duration(self, params: list[base.BaseParam]) -> base.BaseResult:
+        params = self.audit_validator.get_all_params(params)
+        validator_error = ""
+        try:
+            predicted_valid = self.audit_validator.is_valid(params)
+        except Exception as exc:
+            predicted_valid = False
+            validator_error = f"validator: {exc!r}"
 
-        for step, params in enumerate(self._iter_combinations(), start=1):
-            validator_error = ""
-            try:
-                predicted_valid = self.validator.is_valid(params)
-            except Exception as exc:
-                predicted_valid = False
-                validator_error = f"validator: {exc!r}"
-            try:
-                rc, duration, runtime_pass, trace = self._execute(params, step)
-                error = validator_error
-            except Exception as exc:
-                rc, duration, runtime_pass, trace = 1, float("inf"), False, []
-                error = "; ".join(value for value in (validator_error, f"runtime: {exc!r}") if value)
-            category = (
-                f"validator_{'accept' if predicted_valid else 'reject'}_"
-                f"runtime_{'pass' if runtime_pass else 'fail'}"
-            )
-            self.counts[category] += 1
-            self.executed += 1
-            if runtime_pass and duration < best_duration:
-                best_duration = duration
-                best_params = params
-            selected = [record for record in trace if record["status"] == 0]
-            actual_priority = selected[-1]["priority"] if selected else None
-            actual_key = selected[-1]["tiling_key"] if selected else None
-            record = {
-                "route": self.case.name,
-                "operator": self.case.operator,
-                "expected_priority": self.case.expected_terminal_priority,
-                "actual_priority": actual_priority,
-                "expected_tiling_key": self.tiling_key,
-                "actual_tiling_key": actual_key,
-                "combination": step,
-                "total_combinations": total,
-                "validator_valid": predicted_valid,
-                "runtime_exit_code": rc,
-                "runtime_pass": runtime_pass,
-                "duration_us": None if not math.isfinite(duration) else duration,
-                "category": category,
-                "error": error,
-                "params": {param.name: param.value for param in params if not param.is_const},
-            }
-            with self.report_path.open("a") as output:
-                output.write(json.dumps(record, sort_keys=True) + "\n")
-            print(
-                f"AUDIT route={self.case.name} comb={step}/{total} "
-                f"validator={predicted_valid} runtime={runtime_pass} category={category} "
-                f"duration_us={record['duration_us']}"
-            )
+        self.executed += 1
+        try:
+            rc, duration, runtime_pass, trace = self._execute(params, self.executed)
+            error = validator_error
+        except Exception as exc:
+            rc, duration, runtime_pass, trace = 1, float("inf"), False, []
+            error = "; ".join(value for value in (validator_error, f"runtime: {exc!r}") if value)
 
-        print(f"AUDIT COUNTS route={self.case.name}: {dict(self.counts)}")
-        return base.BaseResult(best_duration, best_params)
+        category = (
+            f"validator_{'accept' if predicted_valid else 'reject'}_"
+            f"runtime_{'pass' if runtime_pass else 'fail'}"
+        )
+        self.counts[category] += 1
+        selected = [record for record in trace if record["status"] == 0]
+        actual_priority = selected[-1]["priority"] if selected else None
+        actual_key = selected[-1]["tiling_key"] if selected else None
+        record = {
+            "route": self.case.name,
+            "operator": self.case.operator,
+            "expected_priority": self.case.expected_terminal_priority,
+            "actual_priority": actual_priority,
+            "expected_tiling_key": self.tiling_key,
+            "actual_tiling_key": actual_key,
+            "candidate": self.executed,
+            "algorithm": "pso",
+            "validator_valid": predicted_valid,
+            "runtime_exit_code": rc,
+            "runtime_pass": runtime_pass,
+            "duration_us": None if not math.isfinite(duration) else duration,
+            "category": category,
+            "error": error,
+            "params": {param.name: param.value for param in params if not param.is_const},
+        }
+        with self.report_path.open("a") as output:
+            output.write(json.dumps(record, sort_keys=True) + "\n")
+        print(
+            f"AUDIT route={self.case.name} candidate={self.executed} algorithm=pso "
+            f"validator={predicted_valid} runtime={runtime_pass} category={category} "
+            f"duration_us={record['duration_us']}"
+        )
+
+        result_duration = duration if runtime_pass else float("inf")
+        return base.BaseResult(result_duration, params)
 
 
 def _select_npu() -> int:
@@ -601,8 +567,13 @@ def main() -> None:
     summaries: list[dict[str, object]] = []
 
     print(f"NPU: physical {npu_id} (launcher logical 0)")
-    print(f"ROUTES: {len(ROUTE_CASES)} (FA=6, FAG=10)")
-    print("VALIDATOR MODE: label only; every combination executes")
+    fa_count = sum(case.operator == FA for case in ROUTE_CASES)
+    fag_count = sum(case.operator == FAG for case in ROUTE_CASES)
+    print(f"ROUTES: {len(ROUTE_CASES)} (FA={fa_count}, FAG={fag_count})")
+    print(
+        f"SEARCH: colleague PSO, swarm={SWARM_SIZE}, steps={SEARCH_STEPS}; "
+        "validator labels only and every PSO candidate executes"
+    )
 
     for case in ROUTE_CASES:
         domains = get_domains(case.name)
@@ -652,11 +623,12 @@ def main() -> None:
 
         validator = get_validator(case.name, domains)
         algo = AttentionAuditAlgo(
-            is_stop=lambda results: len(results) >= 1,
+            is_stop=lambda results: len(results) >= SEARCH_STEPS,
             validator=validator,
             input_params=input_params,
+            swarm_size=SWARM_SIZE,
             runner="./run_attention.sh",
-            cache_path=str(result_dir / "unused_runtime_cache.json"),
+            cache_path=str(result_dir / f"search_cache_{case.name}.json"),
             verbose=True,
             case=case,
             tiling_key=key,
@@ -664,6 +636,7 @@ def main() -> None:
             run_timeout=run_timeout,
         )
         algo()
+        print(f"AUDIT COUNTS route={case.name}: {dict(algo.counts)}")
         route_summary["executed"] = algo.executed
         route_summary["counts"] = dict(algo.counts)
         summaries.append(route_summary)
