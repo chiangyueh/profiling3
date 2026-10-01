@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import __future__
 import argparse
-from collections import Counter
+from collections import Counter, deque
 import copy
 from dataclasses import dataclass
 import importlib.abc
@@ -16,6 +16,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 
 import numpy as np
 import pandas as pd
@@ -215,14 +216,30 @@ def _run_with_timeout(command: list[str], env: dict[str, str], timeout: int) -> 
     try:
         return process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        print(f"TIMEOUT: {timeout}s: {' '.join(command)}")
-        os.killpg(process.pid, signal.SIGINT)
+        print(f"TIMEOUT: {timeout}s: {' '.join(command)}", flush=True)
         try:
-            return process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+            os.killpg(process.pid, signal.SIGINT)
+        except ProcessLookupError:
             return 124
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print("[WARNING] timed-out process did not exit after SIGKILL", flush=True)
+        return 124
+
+
+_DISCOVERY_LOG_LINE = re.compile(
+    r"tiling\s*key|tilingkey|tiling\s+is|Do general op tiling|Ignore general op tiling|"
+    r"Cannot find binary|GetWorkspaceSize failed|\[ERROR\]|\b(?:fatal|exception|failed)\b",
+    re.IGNORECASE,
+)
 
 
 def _run_with_timeout_capture(
@@ -236,22 +253,48 @@ def _run_with_timeout_capture(
         stderr=subprocess.STDOUT,
         text=True,
         errors="replace",
+        bufsize=1,
     )
-    output = ""
-    try:
-        output, _ = process.communicate(timeout=timeout)
-        rc = process.returncode
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGINT)
+    selected_lines: deque[str] = deque(maxlen=512)
+
+    def drain_output() -> None:
+        assert process.stdout is not None
         try:
-            output, _ = process.communicate(timeout=10)
+            for line in process.stdout:
+                if _DISCOVERY_LOG_LINE.search(line):
+                    selected_lines.append(line)
+        except (OSError, ValueError):
+            pass
+
+    reader = threading.Thread(target=drain_output, daemon=True)
+    reader.start()
+    try:
+        rc = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print(f"TIMEOUT: {timeout}s: {' '.join(command)}", flush=True)
+        try:
+            os.killpg(process.pid, signal.SIGINT)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            output, _ = process.communicate()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print("[WARNING] discovery process did not exit after SIGKILL", flush=True)
         rc = 124
-        print(f"TIMEOUT: {timeout}s: {' '.join(command)}")
+
+    reader.join(timeout=2)
+    if reader.is_alive():
+        print("[WARNING] discovery log reader is still draining output", flush=True)
+    output = "".join(selected_lines)
     if output:
-        print(output, end="" if output.endswith("\n") else "\n")
+        print(output, end="" if output.endswith("\n") else "\n", flush=True)
     return rc, output
 
 
@@ -359,9 +402,15 @@ def discover_route(
     # the accepted template priority and its tiling key at debug level.
     env["ASCEND_GLOBAL_LOG_LEVEL"] = "0"
     env["ASCEND_SLOG_PRINT_TO_STDOUT"] = "1"
+    discovery_timeout = min(run_timeout, 60)
+    print(
+        f"DISCOVERY START: route={case.name}, timeout={discovery_timeout}s; "
+        "only tiling-key and route lines will be shown",
+        flush=True,
+    )
     try:
         rc, output = _run_with_timeout_capture(
-            ["bash", "./run_attention.sh", "-r", "npu"], env, run_timeout
+            ["bash", "./run_attention.sh", "-r", "npu"], env, discovery_timeout
         )
     except Exception as exc:
         print(f"DISCOVERY FAILED: route={case.name}, error={exc!r}")
