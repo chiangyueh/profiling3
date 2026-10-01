@@ -67,7 +67,16 @@ if [[ -f "${ASCEND_ROOT}/bin/setenv.bash" ]]; then
     source "${ASCEND_ROOT}/bin/setenv.bash"
 fi
 
-INSTALL_ROOT=${ATTENTION_OPP_INSTALL_ROOT:-"${CURRENT_DIR}/out/attention_opp"}
+EXPECTED_COMMIT=6ead121aded45355043b502756b6592fd7c30b14
+SOC_UNIT=${ATTENTION_SOC_UNIT:-ascend910b}
+TILING_KEY=${ATTENTION_TILING_KEY:-74804}
+CACHE_BASE=${ATTENTION_KERNEL_CACHE_ROOT:-"${CURRENT_DIR}/out/attention_cache"}
+CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/flash_attention_score_grad/${TILING_KEY}"
+INSTALL_ROOT="${CACHE_DIR}/opp"
+ATTENTION_BINARY="${CACHE_DIR}/attention_npu"
+
+bash "${CURRENT_DIR}/build_attention.sh"
+
 SET_ENV=""
 if [[ -d "${INSTALL_ROOT}/vendors" ]]; then
     SET_ENV=$(find "${INSTALL_ROOT}/vendors" -mindepth 3 -maxdepth 3 -type f \
@@ -77,8 +86,8 @@ if [[ -n "${SET_ENV}" ]]; then
     source "${SET_ENV}"
 fi
 
-if [[ ! -x "${CURRENT_DIR}/attention_npu" ]]; then
-    echo "[ERROR]: attention_npu is missing; run ./build_attention.sh first" >&2
+if [[ ! -x "${ATTENTION_BINARY}" ]]; then
+    echo "[ERROR]: cached attention evaluator is missing: ${ATTENTION_BINARY}" >&2
     exit 2
 fi
 
@@ -88,7 +97,7 @@ if [[ "${CYCLES_ONLY}" == "1" ]]; then
 fi
 
 if [[ "${ATTENTION_REFERENCE:-0}" == "1" ]]; then
-    exec "${CURRENT_DIR}/attention_npu"
+    exec "${ATTENTION_BINARY}"
 fi
 
-exec msprof op "${CURRENT_DIR}/attention_npu"
+exec msprof op "${ATTENTION_BINARY}"

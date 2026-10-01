@@ -48,6 +48,7 @@ from tiling import base, bf, estimator_algs, limits, valids
 # selection will move to the workload/autotiling registry when the exact
 # DeepSeek/Pangu cases are added; it is not a user-facing launch argument.
 KERNEL = "fag_generic"
+TILING_KEY = 74804
 
 # (B, N1, N2, S1, S2, D, DV). Replace this list with the collected
 # DeepSeek/Pangu workload shapes before starting a search campaign.
@@ -183,13 +184,13 @@ def _select_npu() -> int:
 
 def main() -> None:
     npu_id = _select_npu()
-    if not Path("attention_npu").is_file():
-        raise FileNotFoundError("attention_npu is missing; run ./build_attention.sh once before starting the search")
+    os.environ["ATTENTION_TILING_KEY"] = str(TILING_KEY)
 
     domains = get_domains(KERNEL)
     validator = get_validator(KERNEL, domains)
     print(f"NPU: physical {npu_id} (launcher logical 0)")
     print(f"KERNEL: {KERNEL}")
+    print(f"TILING_KEY: {TILING_KEY}")
     print(f"DOMAINS: {domains}")
 
     for shape in SIZES:
