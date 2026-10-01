@@ -372,12 +372,11 @@ int RunBackward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s
             scale, 1.0, allTokens, allTokens, n1, layoutName, 0, 0,
             dq.tensor, dk.tensor, dvOut.tensor, nullptr, softmaxLayout, &workspaceSize, &executor);
     } else {
-        ret = aclnnFlashAttentionScoreGradV4GetWorkspaceSize(
+        ret = aclnnFlashAttentionScoreGradV3GetWorkspaceSize(
             q.tensor, k.tensor, v.tensor, dy.tensor, nullptr, nullptr, nullptr, nullptr,
-            softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor, nullptr, nullptr, nullptr,
-            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-            scale, 1.0, allTokens, allTokens, n1, layoutName, nullptr, 0, 0, 1, 0, 0, 1,
-            dq.tensor, dk.tensor, dvOut.tensor, nullptr, nullptr, nullptr, nullptr, &workspaceSize, &executor);
+            softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor, nullptr, nullptr,
+            nullptr, nullptr, scale, 1.0, allTokens, allTokens, n1, layoutName, 0, 0, 1,
+            dq.tensor, dk.tensor, dvOut.tensor, nullptr, nullptr, &workspaceSize, &executor);
     }
     if (ret != ACL_SUCCESS) {
         std::fprintf(stderr, "[ERROR] FAG GetWorkspaceSize failed: %d, %s\n", ret, aclGetRecentErrMsg());
@@ -389,7 +388,7 @@ int RunBackward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s
         return 1;
     }
     ret = layout == 3 ? aclnnFlashAttentionUnpaddingScoreGradV4(workspace, workspaceSize, executor, stream)
-                      : aclnnFlashAttentionScoreGradV4(workspace, workspaceSize, executor, stream);
+                      : aclnnFlashAttentionScoreGradV3(workspace, workspaceSize, executor, stream);
     if (ret == ACL_SUCCESS) {
         ret = aclrtSynchronizeStream(stream);
     }

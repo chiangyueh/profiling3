@@ -60,13 +60,15 @@ fi
 
 PATCH_SHA256=$(sha256sum "${PATCH_FILE}" | awk '{print $1}')
 BENCH_SHA256=$(sha256sum "${SCRIPT_DIR}/attention_bench.cpp" | awk '{print $1}')
-EXPECTED_FINGERPRINT=$(printf '%s\n' \
+PACKAGE_FINGERPRINT=$(printf '%s\n' \
     "schema=1" \
     "commit=${EXPECTED_COMMIT}" \
     "soc=${SOC_UNIT}" \
     "operator=flash_attention_score_grad" \
     "tiling_key=${TILING_KEY}" \
-    "patch=${PATCH_SHA256}" \
+    "patch=${PATCH_SHA256}")
+EVALUATOR_FINGERPRINT=$(printf '%s\n' \
+    "${PACKAGE_FINGERPRINT}" \
     "bench=${BENCH_SHA256}")
 CACHED_CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
     -name '*_transformer' -print 2>/dev/null | head -n 1 || true)
@@ -77,7 +79,7 @@ if [[ -x "${BINARY}" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" && \
       -f "${CACHE_MANIFEST}" && \
-      "$(<"${CACHE_MANIFEST}")" == "${EXPECTED_FINGERPRINT}" ]]; then
+      "$(<"${CACHE_MANIFEST}")" == "${EVALUATOR_FINGERPRINT}" ]]; then
     echo "[INFO] cache hit: FlashAttentionScoreGrad tiling key ${TILING_KEY}"
     echo "[INFO] reusing ${BINARY}"
     exit 0
@@ -88,10 +90,10 @@ echo "[INFO] evaluator cache miss: checking package for tiling key ${TILING_KEY}
 PACKAGE=$(latest_package)
 PACKAGE_REUSABLE=0
 if [[ -n "${PACKAGE}" && -f "${PACKAGE_MANIFEST}" && \
-      "$(<"${PACKAGE_MANIFEST}")" == "${EXPECTED_FINGERPRINT}" ]]; then
+      "$(<"${PACKAGE_MANIFEST}")" == "${PACKAGE_FINGERPRINT}" ]]; then
     PACKAGE_REUSABLE=1
 elif [[ -n "${PACKAGE}" && -f "${OPS_ROOT}/build/CMakeCache.txt" && \
-        "${PACKAGE}" -nt "${PATCH_FILE}" && "${PACKAGE}" -nt "${SCRIPT_DIR}/attention_bench.cpp" ]] && \
+        "${PACKAGE}" -nt "${PATCH_FILE}" ]] && \
      grep -Eq '^ASCEND_OP_NAME(:[^=]*)?=flash_attention_score_grad$' "${OPS_ROOT}/build/CMakeCache.txt" && \
      grep -Eq "^TILING_KEY(:[^=]*)?=${TILING_KEY}$" "${OPS_ROOT}/build/CMakeCache.txt"; then
     PACKAGE_REUSABLE=1
@@ -128,7 +130,7 @@ if [[ -z "${PACKAGE}" ]]; then
 fi
 
 mkdir -p "$(dirname "${PACKAGE_MANIFEST}")"
-printf '%s\n' "${EXPECTED_FINGERPRINT}" > "${PACKAGE_MANIFEST}"
+printf '%s\n' "${PACKAGE_FINGERPRINT}" > "${PACKAGE_MANIFEST}"
 
 mkdir -p "${INSTALL_ROOT}"
 "${PACKAGE}" --quiet --install-path="${INSTALL_ROOT}"
@@ -152,7 +154,7 @@ g++ -O2 -std=c++17 -DATTENTION_GRAD_ONLY "${SCRIPT_DIR}/attention_bench.cpp" \
     -o "${BINARY}"
 
 mkdir -p "${INSTALL_ROOT}"
-printf '%s\n' "${EXPECTED_FINGERPRINT}" > "${CACHE_MANIFEST}"
+printf '%s\n' "${EVALUATOR_FINGERPRINT}" > "${CACHE_MANIFEST}"
 
 echo "[INFO] built ${BINARY}"
 echo "[INFO] custom OPP: ${CUSTOM_ROOT}"
