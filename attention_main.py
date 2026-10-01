@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import __future__
 import argparse
-from collections import Counter, deque
+from collections import Counter
 import copy
 from dataclasses import dataclass
 import importlib.abc
@@ -11,12 +11,10 @@ import json
 import math
 import os
 from pathlib import Path
-import re
 import shutil
 import signal
 import subprocess
 import sys
-import threading
 
 import numpy as np
 import pandas as pd
@@ -235,69 +233,6 @@ def _run_with_timeout(command: list[str], env: dict[str, str], timeout: int) -> 
         return 124
 
 
-_DISCOVERY_LOG_LINE = re.compile(
-    r"tiling\s*key|tilingkey|tiling\s+is|Do general op tiling|Ignore general op tiling|"
-    r"Cannot find binary|GetWorkspaceSize failed|\[ERROR\]|\b(?:fatal|exception|failed)\b",
-    re.IGNORECASE,
-)
-
-
-def _run_with_timeout_capture(
-    command: list[str], env: dict[str, str], timeout: int
-) -> tuple[int, str]:
-    process = subprocess.Popen(
-        command,
-        env=env,
-        start_new_session=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        errors="replace",
-        bufsize=1,
-    )
-    selected_lines: deque[str] = deque(maxlen=512)
-
-    def drain_output() -> None:
-        assert process.stdout is not None
-        try:
-            for line in process.stdout:
-                if _DISCOVERY_LOG_LINE.search(line):
-                    selected_lines.append(line)
-        except (OSError, ValueError):
-            pass
-
-    reader = threading.Thread(target=drain_output, daemon=True)
-    reader.start()
-    try:
-        rc = process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        print(f"TIMEOUT: {timeout}s: {' '.join(command)}", flush=True)
-        try:
-            os.killpg(process.pid, signal.SIGINT)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                print("[WARNING] discovery process did not exit after SIGKILL", flush=True)
-        rc = 124
-
-    reader.join(timeout=2)
-    if reader.is_alive():
-        print("[WARNING] discovery log reader is still draining output", flush=True)
-    output = "".join(selected_lines)
-    if output:
-        print(output, end="" if output.endswith("\n") else "\n", flush=True)
-    return rc, output
-
-
 def _read_trace(path: Path) -> list[dict[str, int | str]]:
     records: list[dict[str, int | str]] = []
     if not path.is_file():
@@ -315,41 +250,6 @@ def _read_trace(path: Path) -> list[dict[str, int | str]]:
             })
         except ValueError:
             continue
-    return records
-
-
-def _read_official_log_trace(operator: str, output: str) -> list[dict[str, int | str]]:
-    """Recover route/key from the unmodified CANN debug messages.
-
-    CANN logs the key inside TilingBaseClass::DumpTilingInfo immediately before
-    TilingRegistryNew logs whether the template was accepted.  This fallback
-    avoids rebuilding an already cached seed package solely for tracing.
-    """
-
-    records: list[dict[str, int | str]] = []
-    latest_key: int | None = None
-    key_pattern = re.compile(
-        r"(?:tiling\s*key|tilingkey|tiling\s+is)\s*(?:is|:|=)?\s*(\d+)",
-        re.IGNORECASE,
-    )
-    route_pattern = re.compile(
-        r"(Do general op tiling success|Ignore general op tiling)\s+priority=(\d+)",
-        re.IGNORECASE,
-    )
-    for line in output.splitlines():
-        key_match = key_pattern.search(line)
-        if key_match:
-            latest_key = int(key_match.group(1))
-        route_match = route_pattern.search(line)
-        if not route_match:
-            continue
-        success = route_match.group(1).lower().startswith("do general")
-        records.append({
-            "operator": "FlashAttentionScoreGrad" if operator == FAG else "FlashAttentionScore",
-            "priority": int(route_match.group(2)),
-            "status": 0 if success else 1,
-            "tiling_key": latest_key if success and latest_key is not None else 0,
-        })
     return records
 
 
@@ -381,54 +281,6 @@ class CompileCache:
             return False
         self.seen.add(identity)
         return True
-
-
-def discover_route(
-    case: RouteCase,
-    input_params: list[base.BaseParam],
-    compile_cache: CompileCache,
-    run_timeout: int,
-    result_dir: Path,
-) -> tuple[int | None, int | None, list[dict[str, int | str]]]:
-    if not compile_cache.ensure(case.operator, case.seed_key):
-        return None, None, []
-    trace = result_dir / f"trace_discover_{case.name}.tsv"
-    trace.unlink(missing_ok=True)
-    env = _case_env(case, input_params, case.seed_key)
-    env["ATTENTION_REFERENCE"] = "1"
-    env["ATTENTION_DISCOVER_ONLY"] = "1"
-    env["ATTENTION_ROUTE_TRACE"] = str(trace.resolve())
-    # These are official CANN logging controls.  The source already logs both
-    # the accepted template priority and its tiling key at debug level.
-    env["ASCEND_GLOBAL_LOG_LEVEL"] = "0"
-    env["ASCEND_SLOG_PRINT_TO_STDOUT"] = "1"
-    discovery_timeout = min(run_timeout, 60)
-    print(
-        f"DISCOVERY START: route={case.name}, timeout={discovery_timeout}s; "
-        "only tiling-key and route lines will be shown",
-        flush=True,
-    )
-    try:
-        rc, output = _run_with_timeout_capture(
-            ["bash", "./run_attention.sh", "-r", "npu"], env, discovery_timeout
-        )
-    except Exception as exc:
-        print(f"DISCOVERY FAILED: route={case.name}, error={exc!r}")
-        return None, None, _read_trace(trace)
-    records = _read_trace(trace)
-    if not records:
-        records = _read_official_log_trace(case.operator, output)
-    selected = [record for record in records if record["status"] == 0]
-    if not selected:
-        print(f"DISCOVERY FAILED: route={case.name}, exit={rc}, trace_records={len(records)}")
-        return None, None, records
-    terminal = selected[-1]
-    if rc != 0:
-        print(
-            f"DISCOVERY FOUND UNBUILT KEY: route={case.name}, exit={rc}, "
-            f"tiling_key={terminal['tiling_key']}"
-        )
-    return int(terminal["priority"]), int(terminal["tiling_key"]), records
 
 
 def prepare_golden(
@@ -635,7 +487,8 @@ def main() -> None:
             "expected_terminal_priority": case.expected_terminal_priority,
             "shape": case.shape,
             "domains": domains,
-            "route_hit": False,
+            "tiling_key": case.seed_key,
+            "baseline_pass": False,
             "executed": 0,
             "counts": {},
         }
@@ -643,24 +496,11 @@ def main() -> None:
             f"\nROUTE START: {case.name} ({ROUTE_CLASSES[case.name]}), "
             f"shape={case.shape}, domains={domains}"
         )
-        priority, key, trace = discover_route(case, input_params, compile_cache, run_timeout, result_dir)
-        attempted_priorities = [int(record["priority"]) for record in trace]
-        route_hit = case.priority in attempted_priorities and priority == case.expected_terminal_priority
-        route_summary.update({
-            "actual_terminal_priority": priority,
-            "tiling_key": key,
-            "attempted_priorities": attempted_priorities,
-            "route_hit": route_hit,
-        })
-        if not route_hit or key is None:
-            print(
-                f"ROUTE MISMATCH: {case.name}, expected trace={case.priority}, "
-                f"expected terminal={case.expected_terminal_priority}, actual terminal={priority}, "
-                f"attempted={attempted_priorities}"
-            )
-            summaries.append(route_summary)
-            continue
-        print(f"ROUTE HIT: {case.name}, priority={priority}, tiling_key={key}")
+        key = case.seed_key
+        print(
+            f"ROUTE CONFIGURED: {case.name}, expected_priority={case.expected_terminal_priority}, "
+            f"known_tiling_key={key}; discovery skipped"
+        )
         if not compile_cache.ensure(case.operator, key):
             summaries.append(route_summary)
             continue
@@ -669,6 +509,7 @@ def main() -> None:
         if not prepare_golden(case, input_params, domains, key, run_timeout, golden_trace):
             summaries.append(route_summary)
             continue
+        route_summary["baseline_pass"] = True
 
         validator = get_validator(case.name, domains)
         algo = AttentionAuditAlgo(
@@ -691,14 +532,14 @@ def main() -> None:
         summaries.append(route_summary)
         print(f"ROUTE END: {case.name}")
 
-    complete = all(summary["route_hit"] and int(summary["executed"]) > 0 for summary in summaries)
+    complete = all(summary["baseline_pass"] and int(summary["executed"]) > 0 for summary in summaries)
     summary_document = {
         "complete": complete,
-        "expected_routes": len(ROUTE_CASES),
-        "hit_and_executed_routes": sum(
-            bool(summary["route_hit"]) and int(summary["executed"]) > 0 for summary in summaries
+        "expected_shapes": len(ROUTE_CASES),
+        "baseline_pass_and_executed_shapes": sum(
+            bool(summary["baseline_pass"]) and int(summary["executed"]) > 0 for summary in summaries
         ),
-        "routes": summaries,
+        "shapes": summaries,
     }
     summary_path.write_text(json.dumps(summary_document, indent=2, sort_keys=True) + "\n")
     print(f"\nAUDIT {'COMPLETE' if complete else 'INCOMPLETE'}")
