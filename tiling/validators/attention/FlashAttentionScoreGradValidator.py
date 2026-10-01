@@ -6,12 +6,156 @@ from tiling.limits import AttentionLimits
 from .AttentionValidator import AttentionValidator, LAYOUT_BNSD, LAYOUT_TND
 
 
+FAG_ROUTE_DETERMINISTIC_BN2 = 1000
 FAG_ROUTE_MLA = 1001
+FAG_ROUTE_BASIC_DETERMINISTIC = 1002
 FAG_ROUTE_SAME_AB_DETERMINISTIC = 1100
+FAG_ROUTE_UNPADDED = 2000
+FAG_ROUTE_B = 10000
+FAG_ROUTE_N2 = 11000
+FAG_ROUTE_BN2 = 15000
 FAG_ROUTE_SAME_AB = 15500
 FAG_ROUTE_GENERIC = 16000
 
 _GENERIC_RATIO_PAIRS = {(1, 8), (1, 16), (4, 2), (4, 4)}
+
+
+class _FlashAttentionScoreGradRouteValidator(AttentionValidator):
+    """Route validator used where the current search hook has no free tile."""
+
+    route = 0
+
+    def __init__(self, limits: AttentionLimits) -> None:
+        super().__init__(limits, "FAG", {"route": (self._route_is_valid, self._repair_route)})
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        raise NotImplementedError
+
+    @staticmethod
+    def _repair_route(params: dict[str, BaseParam]) -> dict[str, BaseParam]:
+        return {}
+
+    def get_derived_params(self, params: list[BaseParam]) -> list[BaseParam]:
+        values = self._values(params)
+        derived = self._common_derived(values)
+        if derived:
+            derived["FAG_ROUTE"] = self.route
+        return self._derived_params(derived)
+
+
+def _fag_plain(params: dict[str, BaseParam]) -> bool:
+    return all(
+        params.get(name) is None or params[name].value == 0
+        for name in (
+            "FAG_HAS_MASK",
+            "FAG_HAS_PSE",
+            "FAG_HAS_DROP",
+            "FAG_HAS_ROPE",
+            "FAG_HAS_SINK",
+        )
+    )
+
+
+def _hits_b_route(params: dict[str, BaseParam]) -> bool:
+    if params["FAG_DTYPE_BYTES"].value == 4 or params["FAG_LAYOUT"].value == LAYOUT_TND:
+        return False
+    s1 = params["FAG_S1"].value
+    limit = 8192 if s1 < 4 else 6144
+    product = (
+        params["FAG_N1"].value
+        * AttentionValidator._align_up(s1, 16)
+        * AttentionValidator._align_up(params["FAG_S2"].value, 16)
+    )
+    return product <= limit
+
+
+class FlashAttentionScoreGradDeterministicBn2Validator(_FlashAttentionScoreGradRouteValidator):
+    route = FAG_ROUTE_DETERMINISTIC_BN2
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        return (
+            all(self._shape_is_valid(params))
+            and self._value(params, "FAG_DETERMINISTIC", 0) == 1
+            and self._value(params, "FAG_HAS_ROPE", 0) == 0
+            and _fag_plain(params)
+            and (
+                params["FAG_DTYPE_BYTES"].value == 4
+                or (params["FAG_S1"].value < 1024 and params["FAG_S2"].value < 1024)
+            )
+        )
+
+
+class FlashAttentionScoreGradBasicDeterministicValidator(_FlashAttentionScoreGradRouteValidator):
+    route = FAG_ROUTE_BASIC_DETERMINISTIC
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        return (
+            all(self._shape_is_valid(params))
+            and params["FAG_LAYOUT"].value == LAYOUT_TND
+            and params["FAG_DTYPE_BYTES"].value == 2
+            and self._value(params, "FAG_DETERMINISTIC", 0) == 1
+            and max(params["FAG_S1"].value, params["FAG_S2"].value) >= 1024
+            and params["FAG_D"].value == params["FAG_DV"].value
+            and params["FAG_D"].value <= 128
+            and params["FAG_D"].value % 16 == 0
+            and _fag_plain(params)
+        )
+
+
+class FlashAttentionScoreGradBValidator(_FlashAttentionScoreGradRouteValidator):
+    route = FAG_ROUTE_B
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        return (
+            all(self._shape_is_valid(params))
+            and self._value(params, "FAG_DETERMINISTIC", 0) == 0
+            and _fag_plain(params)
+            and _hits_b_route(params)
+        )
+
+
+class FlashAttentionScoreGradN2Validator(_FlashAttentionScoreGradRouteValidator):
+    route = FAG_ROUTE_N2
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        if (
+            not all(self._shape_is_valid(params))
+            or self._value(params, "FAG_DETERMINISTIC", 0) != 0
+            or params["FAG_DTYPE_BYTES"].value == 4
+            or params["FAG_LAYOUT"].value == LAYOUT_TND
+            or params["FAG_N1"].value != params["FAG_N2"].value
+            or not _fag_plain(params)
+            or _hits_b_route(params)
+        ):
+            return False
+        s2_bytes = self._align_up(params["FAG_S2"].value, 16) * params["FAG_DTYPE_BYTES"].value
+        return s2_bytes <= 1536 and params["FAG_S1"].value * s2_bytes <= 32768
+
+
+class FlashAttentionScoreGradBn2Validator(_FlashAttentionScoreGradRouteValidator):
+    route = FAG_ROUTE_BN2
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        if (
+            not all(self._shape_is_valid(params))
+            or self._value(params, "FAG_DETERMINISTIC", 0) != 0
+            or params["FAG_LAYOUT"].value == LAYOUT_TND
+            or max(params["FAG_S1"].value, params["FAG_S2"].value) >= 1024
+            or not _fag_plain(params)
+            or _hits_b_route(params)
+        ):
+            return False
+        g = params["FAG_N1"].value // params["FAG_N2"].value
+        bn2 = params["FAG_B"].value * params["FAG_N2"].value
+        if g == 1:
+            s2_bytes = self._align_up(params["FAG_S2"].value, 16) * params["FAG_DTYPE_BYTES"].value
+            if s2_bytes <= 1536 and params["FAG_S1"].value * s2_bytes <= 32768:
+                return False
+        if g > 1 and bn2 * 2 <= self.limits.max_cores:
+            return False
+        if bn2 < self.limits.max_cores and max(params["FAG_S1"].value, params["FAG_S2"].value) > 768:
+            return False
+        return True
 
 
 class FlashAttentionScoreGradMlaValidator(AttentionValidator):
@@ -345,3 +489,44 @@ class FlashAttentionScoreGradSameABValidator(AttentionValidator):
             }
         )
         return self._derived_params(derived)
+
+
+class FlashAttentionScoreGradSameABDeterministicValidator(FlashAttentionScoreGradSameABValidator):
+    def _same_ab_route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        return (
+            super()._same_ab_route_is_valid(params)
+            and self._value(params, "FAG_DETERMINISTIC", 0) == 1
+            and params["FAG_DTYPE_BYTES"].value == 2
+            and max(params["FAG_S1"].value, params["FAG_S2"].value) >= 1024
+            and params["FAG_LAYOUT"].value != LAYOUT_TND
+            and _fag_plain(params)
+        )
+
+
+class FlashAttentionScoreGradUnpaddedValidator(FlashAttentionScoreGradGenericValidator):
+    """Priority-2000 TND route with the Generic tile controls."""
+
+    def _generic_route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        mla_would_preempt = (
+            params["FAG_DTYPE_BYTES"].value == 2
+            and params["FAG_D"].value == params["FAG_DV"].value
+            and params["FAG_D"].value <= 128
+            and params["FAG_D"].value % 16 == 0
+            and params["FAG_S1"].value == params["FAG_S2"].value
+            and self._value(params, "FAG_EQUAL_ACTUAL_SEQ", 1) == 1
+        )
+        return (
+            all(self._shape_is_valid(params))
+            and params["FAG_LAYOUT"].value == LAYOUT_TND
+            and self._value(params, "FAG_HAS_ACTUAL_SEQ", 0) == 1
+            and self._value(params, "FAG_DETERMINISTIC", 0) == 0
+            and max(params["FAG_S1"].value, params["FAG_S2"].value) < 1024
+            and not mla_would_preempt
+            and _fag_plain(params)
+        )
+
+    def get_derived_params(self, params: list[BaseParam]) -> list[BaseParam]:
+        derived = super().get_derived_params(params)
+        return [p for p in derived if p.name != "FAG_ROUTE"] + [
+            self._make_param("FAG_ROUTE", FAG_ROUTE_UNPADDED, True)
+        ]

@@ -8,8 +8,9 @@ ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
 SOC_UNIT=${ATTENTION_SOC_UNIT:-ascend910b}
 JOBS=${ATTENTION_BUILD_JOBS:-1}
 TILING_KEY=${ATTENTION_TILING_KEY:-74804}
+OPERATOR=${ATTENTION_OPERATOR:-flash_attention_score_grad}
 CACHE_BASE=${ATTENTION_KERNEL_CACHE_ROOT:-"${SCRIPT_DIR}/out/attention_cache"}
-CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/flash_attention_score_grad/${TILING_KEY}"
+CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/${OPERATOR}/${TILING_KEY}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/attention_npu"
 PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_attention_search.patch"
@@ -52,6 +53,11 @@ if [[ ! "${TILING_KEY}" =~ ^[0-9]+$ ]]; then
     exit 2
 fi
 
+if [[ "${OPERATOR}" != "flash_attention_score" && "${OPERATOR}" != "flash_attention_score_grad" ]]; then
+    echo "[ERROR] ATTENTION_OPERATOR must be flash_attention_score or flash_attention_score_grad: ${OPERATOR}" >&2
+    exit 2
+fi
+
 if [[ "$(git -C "${OPS_ROOT}" rev-parse HEAD)" != "${EXPECTED_COMMIT}" ]]; then
     echo "[ERROR] build_attention.sh requires ops-transformer v8.5.0 (${EXPECTED_COMMIT})" >&2
     echo "[ERROR] current checkout: ${OPS_ROOT} ($(git -C "${OPS_ROOT}" rev-parse HEAD))" >&2
@@ -64,7 +70,7 @@ PACKAGE_FINGERPRINT=$(printf '%s\n' \
     "schema=1" \
     "commit=${EXPECTED_COMMIT}" \
     "soc=${SOC_UNIT}" \
-    "operator=flash_attention_score_grad" \
+    "operator=${OPERATOR}" \
     "tiling_key=${TILING_KEY}" \
     "patch=${PATCH_SHA256}")
 EVALUATOR_FINGERPRINT=$(printf '%s\n' \
@@ -76,16 +82,16 @@ CACHED_CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -typ
 if [[ -x "${BINARY}" && \
       -n "${CACHED_CUSTOM_ROOT}" && \
       -f "${CACHED_CUSTOM_ROOT}/bin/set_env.bash" && \
-      -f "${CACHED_CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score_grad.h" && \
+      -f "${CACHED_CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_${OPERATOR}.h" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" && \
       -f "${CACHE_MANIFEST}" && \
       "$(<"${CACHE_MANIFEST}")" == "${EVALUATOR_FINGERPRINT}" ]]; then
-    echo "[INFO] cache hit: FlashAttentionScoreGrad tiling key ${TILING_KEY}"
+    echo "[INFO] cache hit: ${OPERATOR} tiling key ${TILING_KEY}"
     echo "[INFO] reusing ${BINARY}"
     exit 0
 fi
 
-echo "[INFO] evaluator cache miss: checking package for tiling key ${TILING_KEY}"
+echo "[INFO] evaluator cache miss: checking ${OPERATOR} package for tiling key ${TILING_KEY}"
 
 PACKAGE=$(latest_package)
 PACKAGE_REUSABLE=0
@@ -94,7 +100,7 @@ if [[ -n "${PACKAGE}" && -f "${PACKAGE_MANIFEST}" && \
     PACKAGE_REUSABLE=1
 elif [[ -n "${PACKAGE}" && -f "${OPS_ROOT}/build/CMakeCache.txt" && \
         "${PACKAGE}" -nt "${PATCH_FILE}" ]] && \
-     grep -Eq '^ASCEND_OP_NAME(:[^=]*)?=flash_attention_score_grad$' "${OPS_ROOT}/build/CMakeCache.txt" && \
+     grep -Eq "^ASCEND_OP_NAME(:[^=]*)?=${OPERATOR}$" "${OPS_ROOT}/build/CMakeCache.txt" && \
      grep -Eq "^TILING_KEY(:[^=]*)?=${TILING_KEY}$" "${OPS_ROOT}/build/CMakeCache.txt"; then
     PACKAGE_REUSABLE=1
 fi
@@ -102,7 +108,7 @@ fi
 if [[ "${PACKAGE_REUSABLE}" == "1" ]]; then
     echo "[INFO] reusing completed single-key package: ${PACKAGE}"
 else
-    echo "[INFO] package cache miss: compiling FlashAttentionScoreGrad tiling key ${TILING_KEY} once"
+    echo "[INFO] package cache miss: compiling ${OPERATOR} tiling key ${TILING_KEY} once"
     if git -C "${OPS_ROOT}" apply --unidiff-zero --check "${PATCH_FILE}" 2>/dev/null; then
         git -C "${OPS_ROOT}" apply --unidiff-zero "${PATCH_FILE}"
         PATCH_ACTIVE=1
@@ -118,7 +124,7 @@ else
     (
         cd "${OPS_ROOT}"
         bash build.sh -j"${JOBS}" \
-            --ops=flash_attention_score_grad \
+            --ops="${OPERATOR}" \
             --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
     )
     PACKAGE=$(latest_package)
@@ -146,7 +152,12 @@ CUSTOM_INCLUDE="${CUSTOM_ROOT}/op_api/include/aclnnop"
 CUSTOM_LIBRARY="${CUSTOM_ROOT}/op_api/lib"
 TOOLKIT_LIBRARY="${ASCEND_ROOT}/lib64"
 
-g++ -O2 -std=c++17 -DATTENTION_GRAD_ONLY "${SCRIPT_DIR}/attention_bench.cpp" \
+MODE_DEFINE=-DATTENTION_GRAD_ONLY
+if [[ "${OPERATOR}" == "flash_attention_score" ]]; then
+    MODE_DEFINE=-DATTENTION_FORWARD_ONLY
+fi
+
+g++ -O2 -std=c++17 "${MODE_DEFINE}" "${SCRIPT_DIR}/attention_bench.cpp" \
     -I"${ASCEND_ROOT}/include" -I"${CUSTOM_INCLUDE}" \
     -L"${CUSTOM_LIBRARY}" -L"${TOOLKIT_LIBRARY}" \
     -Wl,-rpath,"${CUSTOM_LIBRARY}" -Wl,-rpath,"${TOOLKIT_LIBRARY}" \

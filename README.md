@@ -209,12 +209,31 @@ evaluation inherits that selection:
 python3 main.py --id=3
 ```
 
-This uses the same framework flow as the Matmul example. One
-`BruteForceAlgo.run()` enumerates the tiling domain, the FA/FAG validator drops
-illegal candidates, and `run_attention.sh` measures every accepted candidate
-on the selected NPU. The operator is built once; changing a candidate does not
-recompile it. `run_npu.sh` remains only the independent one-shape official FAG
-baseline and is not the search entry point.
+This uses the same framework entry as the Matmul example, but runs the
+validator in audit mode. The ascend910b route corpus contains all six
+registered FA priorities and all ten registered FAG priorities. Official host
+autotiling first records the route priority and tiling key for each
+representative shape. A route is not counted as covered unless the recorded
+priority matches it.
+
+The validator labels each candidate but does not filter or repair it. Every
+candidate is executed and recorded as one of four outcomes:
+
+- validator accept / runtime pass;
+- validator accept / runtime fail;
+- validator reject / runtime pass;
+- validator reject / runtime fail.
+
+A failed candidate or route does not stop later candidates or routes. Detailed
+records are written to `results/attention_audit/validator_audit.jsonl`, and
+route coverage is written to `results/attention_audit/summary.json`.
+
+Kernel packages are cached by `ops-transformer commit + SoC + operator +
+tiling_key`. On the first encounter with a key, only that key is compiled. All
+later shapes and tilings using the same key reuse the cached package. Candidate
+tiling parameters do not trigger recompilation. `run_npu.sh` remains only the
+independent one-shape official FAG baseline and is not the audit/search entry
+point.
 
 `build_attention.sh` requires the `v8.5.0` checkout at
 `../ops-transformer-official-8.5.0` by default. A different location can be

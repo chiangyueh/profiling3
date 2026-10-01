@@ -6,9 +6,12 @@ from tiling.limits import AttentionLimits
 from .AttentionValidator import AttentionValidator, LAYOUT_TND
 
 
+FA_ROUTE_DROP_ADAPTER = 90
 FA_ROUTE_VARLEN = 94
 FA_ROUTE_SAME_AB = 95
 FA_ROUTE_GENERAL = 96
+FA_ROUTE_S1 = 97
+FA_ROUTE_B = 98
 
 
 class _FlashAttentionScoreTilingValidator(AttentionValidator):
@@ -138,6 +141,102 @@ class FlashAttentionScoreGeneralValidator(_FlashAttentionScoreTilingValidator):
         derived.update(self._dense_derived(values))
         derived["FA_ROUTE"] = FA_ROUTE_GENERAL
         return self._derived_params(derived)
+
+
+def _same_ab_shape(params: dict[str, BaseParam]) -> bool:
+    dtype_bytes = params["FA_DTYPE_BYTES"].value
+    s2 = params["FA_S2"].value
+    d = params["FA_D"].value
+    return dtype_bytes != 4 and (
+        ((d % 16 != 0 or d == 96) and s2 >= 512)
+        or (s2 > 1024 and 128 < d < 196)
+        or (d == 64 and s2 % 64 != 0 and 2048 < s2 < 18432)
+    )
+
+
+class FlashAttentionScoreSameABValidator(_FlashAttentionScoreTilingValidator):
+    """Validator for priority-95 ``flash_attention_score_s1s2_*_sab``."""
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        return (
+            all(self._shape_is_valid(params))
+            and params["FA_LAYOUT"].value != LAYOUT_TND
+            and _same_ab_shape(params)
+        )
+
+    def get_derived_params(self, params: list[BaseParam]) -> list[BaseParam]:
+        values = self._values(params)
+        derived = self._common_derived(values)
+        if derived:
+            derived.update(self._dense_derived(values))
+            derived["FA_ROUTE"] = FA_ROUTE_SAME_AB
+        return self._derived_params(derived)
+
+
+class FlashAttentionScoreS1Validator(_FlashAttentionScoreTilingValidator):
+    """Validator for priority-97 ``flash_attention_score_s1_bn2gs1``."""
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        if not all(self._shape_is_valid(params)) or params["FA_LAYOUT"].value == LAYOUT_TND:
+            return False
+        if _same_ab_shape(params) or params["FA_S2"].value > 1024:
+            return False
+        s1_align = self._align_up(params["FA_S1"].value, 16)
+        s2_align = self._align_up(params["FA_S2"].value, 16)
+        d_align = self._align_up(params["FA_D"].value, 16)
+        bytes_per_element = params["FA_DTYPE_BYTES"].value
+        n1 = params["FA_N1"].value
+        l1_a = n1 * ((s1_align + s2_align) * d_align + s2_align) * bytes_per_element
+        l1_b = n1 * (s1_align + d_align) * s2_align * bytes_per_element
+        work = n1 * s1_align * s2_align * bytes_per_element
+        return params["FA_S2"].value > 128 or l1_a >= self.limits.L1_size or l1_b >= self.limits.L1_size or work > 128 * 1024
+
+    def get_derived_params(self, params: list[BaseParam]) -> list[BaseParam]:
+        values = self._values(params)
+        derived = self._common_derived(values)
+        if derived:
+            derived.update(self._dense_derived(values))
+            derived["FA_ROUTE"] = FA_ROUTE_S1
+        return self._derived_params(derived)
+
+
+class FlashAttentionScoreBValidator(_FlashAttentionScoreTilingValidator):
+    """Validator for priority-98 ``flash_attention_score_b``."""
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        if not all(self._shape_is_valid(params)) or params["FA_LAYOUT"].value == LAYOUT_TND:
+            return False
+        if _same_ab_shape(params) or params["FA_S2"].value > 128:
+            return False
+        s1_align = self._align_up(params["FA_S1"].value, 16)
+        s2_align = self._align_up(params["FA_S2"].value, 16)
+        work = params["FA_N1"].value * s1_align * s2_align * params["FA_DTYPE_BYTES"].value
+        return work <= 128 * 1024
+
+    def get_derived_params(self, params: list[BaseParam]) -> list[BaseParam]:
+        values = self._values(params)
+        derived = self._common_derived(values)
+        if derived:
+            derived.update(self._dense_derived(values))
+            derived["FA_ROUTE"] = FA_ROUTE_B
+        return self._derived_params(derived)
+
+
+class FlashAttentionScoreDropAdapterValidator(FlashAttentionScoreBValidator):
+    """Validator for the priority-90 drop-mask adapter plus its terminal route."""
+
+    def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        adapter = self._value(params, "FA_HAS_DROP", 0) == 1 and (
+            params["FA_S2"].value % 8 != 0
+            or (params["FA_LAYOUT"].value == LAYOUT_TND and params["FA_B"].value > 1)
+        )
+        return adapter and super()._route_is_valid(params)
+
+    def get_derived_params(self, params: list[BaseParam]) -> list[BaseParam]:
+        derived = super().get_derived_params(params)
+        return [p for p in derived if p.name != "FA_ROUTE"] + [
+            self._make_param("FA_ROUTE", FA_ROUTE_DROP_ADAPTER, True)
+        ]
 
 
 class FlashAttentionScoreVarLenValidator(_FlashAttentionScoreTilingValidator):

@@ -2,7 +2,9 @@
 #ifndef ATTENTION_GRAD_ONLY
 #include "aclnn_flash_attention_score.h"
 #endif
+#ifndef ATTENTION_FORWARD_ONLY
 #include "aclnn_flash_attention_score_grad.h"
+#endif
 
 #include <cmath>
 #include <cstdint>
@@ -230,7 +232,7 @@ void Destroy(Tensor &value)
 
 int CheckFeatures(const char *prefix)
 {
-    const char *unsupported[] = {"HAS_MASK", "HAS_PSE", "HAS_DROP", "HAS_ROPE", "HAS_SINK", "HAS_START_IDX"};
+    const char *unsupported[] = {"HAS_MASK", "HAS_PSE", "HAS_ROPE", "HAS_SINK", "HAS_START_IDX"};
     for (const char *feature : unsupported) {
         const std::string name = std::string(prefix) + "_" + feature;
         if (EnvI64(name.c_str(), 0) != 0) {
@@ -248,7 +250,7 @@ int RunForward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1
     if (CheckFeatures("FA") != 0) {
         return 2;
     }
-    Tensor q, k, v, softmaxMax, softmaxSum, attention;
+    Tensor q, k, v, dropMask, softmaxMax, softmaxSum, attention;
     if (MakeTensor(DataShape(layout, b, n1, s1, d), dtype, typeBytes, q) != ACL_SUCCESS ||
         MakeTensor(DataShape(layout, b, n2, s2, d), dtype, typeBytes, k) != ACL_SUCCESS ||
         MakeTensor(DataShape(layout, b, n2, s2, dv), dtype, typeBytes, v) != ACL_SUCCESS ||
@@ -261,6 +263,15 @@ int RunForward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1
         FillData(v, dtype, 0.03F) != ACL_SUCCESS) {
         return 1;
     }
+
+    const bool hasDrop = EnvI64("FA_HAS_DROP", 0) != 0;
+    if (hasDrop) {
+        const int64_t dropElements = (b * n1 * s1 * s2 + 7) / 8;
+        if (MakeTensor({dropElements}, ACL_UINT8, sizeof(uint8_t), dropMask) != ACL_SUCCESS) {
+            return 1;
+        }
+    }
+    const double keepProb = hasDrop ? 0.9 : 1.0;
 
     const double scale = 1.0 / std::sqrt(static_cast<double>(d));
     const int64_t allTokens = std::numeric_limits<int32_t>::max();
@@ -283,13 +294,13 @@ int RunForward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1
         actualKv = aclCreateIntArray(actualKvData.data(), actualKvData.size());
         char softmaxLayout[] = "same_as_input";
         ret = aclnnFlashAttentionVarLenScoreV4GetWorkspaceSize(
-            q.tensor, k.tensor, v.tensor, nullptr, nullptr, nullptr, nullptr, nullptr, actualQ, actualKv,
-            scale, 1.0, allTokens, allTokens, n1, layoutName, 0, 0, softmaxLayout,
+            q.tensor, k.tensor, v.tensor, nullptr, dropMask.tensor, nullptr, nullptr, nullptr, actualQ, actualKv,
+            scale, keepProb, allTokens, allTokens, n1, layoutName, 0, 0, softmaxLayout,
             softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor, &workspaceSize, &executor);
     } else {
         ret = aclnnFlashAttentionScoreV2GetWorkspaceSize(
-            q.tensor, k.tensor, v.tensor, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-            scale, 1.0, allTokens, allTokens, n1, layoutName, 0, 0, 1,
+            q.tensor, k.tensor, v.tensor, nullptr, dropMask.tensor, nullptr, nullptr, nullptr, nullptr, nullptr,
+            scale, keepProb, allTokens, allTokens, n1, layoutName, 0, 0, 1,
             softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor, &workspaceSize, &executor);
     }
     if (ret != ACL_SUCCESS) {
@@ -298,32 +309,39 @@ int RunForward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1
     }
 
     void *workspace = nullptr;
-    if (workspaceSize != 0 && aclrtMalloc(&workspace, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
-        return 1;
-    }
-    ret = layout == 3 ? aclnnFlashAttentionVarLenScoreV4(workspace, workspaceSize, executor, stream)
-                      : aclnnFlashAttentionScoreV2(workspace, workspaceSize, executor, stream);
-    if (ret == ACL_SUCCESS) {
-        ret = aclrtSynchronizeStream(stream);
-    }
-    if (ret != ACL_SUCCESS) {
-        std::fprintf(stderr, "[ERROR] FA execution failed: %d, %s\n", ret, aclGetRecentErrMsg());
-    } else {
-        ret = DumpOutputs({&attention}, dtype);
+    if (EnvI64("ATTENTION_DISCOVER_ONLY", 0) == 0) {
+        if (workspaceSize != 0 && aclrtMalloc(&workspace, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
+            return 1;
+        }
+        ret = layout == 3 ? aclnnFlashAttentionVarLenScoreV4(workspace, workspaceSize, executor, stream)
+                          : aclnnFlashAttentionScoreV2(workspace, workspaceSize, executor, stream);
+        if (ret == ACL_SUCCESS) {
+            ret = aclrtSynchronizeStream(stream);
+        }
+        if (ret != ACL_SUCCESS) {
+            std::fprintf(stderr, "[ERROR] FA execution failed: %d, %s\n", ret, aclGetRecentErrMsg());
+        } else {
+            ret = DumpOutputs({&attention}, dtype);
+        }
     }
 
     if (workspace != nullptr) aclrtFree(workspace);
     if (actualQ != nullptr) aclDestroyIntArray(actualQ);
     if (actualKv != nullptr) aclDestroyIntArray(actualKv);
-    Destroy(q); Destroy(k); Destroy(v); Destroy(softmaxMax); Destroy(softmaxSum); Destroy(attention);
+    Destroy(q); Destroy(k); Destroy(v); Destroy(dropMask); Destroy(softmaxMax); Destroy(softmaxSum); Destroy(attention);
     return ret;
 }
 #endif
 
+#ifndef ATTENTION_FORWARD_ONLY
 int RunBackward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1, int64_t s2,
                 int64_t d, int64_t dv, int64_t layout, aclDataType dtype, size_t typeBytes)
 {
     if (CheckFeatures("FAG") != 0) {
+        return 2;
+    }
+    if (EnvI64("FAG_HAS_DROP", 0) != 0) {
+        std::fprintf(stderr, "[ERROR] the bundled backward benchmark does not construct FAG_HAS_DROP inputs\n");
         return 2;
     }
     Tensor q, k, v, dy, softmaxMax, softmaxSum, attention, dq, dk, dvOut;
@@ -384,18 +402,20 @@ int RunBackward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s
     }
 
     void *workspace = nullptr;
-    if (workspaceSize != 0 && aclrtMalloc(&workspace, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
-        return 1;
-    }
-    ret = layout == 3 ? aclnnFlashAttentionUnpaddingScoreGradV4(workspace, workspaceSize, executor, stream)
-                      : aclnnFlashAttentionScoreGradV3(workspace, workspaceSize, executor, stream);
-    if (ret == ACL_SUCCESS) {
-        ret = aclrtSynchronizeStream(stream);
-    }
-    if (ret != ACL_SUCCESS) {
-        std::fprintf(stderr, "[ERROR] FAG execution failed: %d, %s\n", ret, aclGetRecentErrMsg());
-    } else {
-        ret = DumpOutputs({&dq, &dk, &dvOut}, dtype);
+    if (EnvI64("ATTENTION_DISCOVER_ONLY", 0) == 0) {
+        if (workspaceSize != 0 && aclrtMalloc(&workspace, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
+            return 1;
+        }
+        ret = layout == 3 ? aclnnFlashAttentionUnpaddingScoreGradV4(workspace, workspaceSize, executor, stream)
+                          : aclnnFlashAttentionScoreGradV3(workspace, workspaceSize, executor, stream);
+        if (ret == ACL_SUCCESS) {
+            ret = aclrtSynchronizeStream(stream);
+        }
+        if (ret != ACL_SUCCESS) {
+            std::fprintf(stderr, "[ERROR] FAG execution failed: %d, %s\n", ret, aclGetRecentErrMsg());
+        } else {
+            ret = DumpOutputs({&dq, &dk, &dvOut}, dtype);
+        }
     }
 
     if (workspace != nullptr) aclrtFree(workspace);
@@ -405,6 +425,7 @@ int RunBackward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s
     Destroy(attention); Destroy(dq); Destroy(dk); Destroy(dvOut);
     return ret;
 }
+#endif
 
 }  // namespace
 
@@ -435,6 +456,11 @@ int main()
     if (ret != ACL_SUCCESS) return ret;
     ret = aclrtSetDevice(0);
     if (ret != ACL_SUCCESS) return ret;
+    ret = aclrtCtxSetSysParamOpt(ACL_OPT_DETERMINISTIC, parameter("DETERMINISTIC", 0));
+    if (ret != ACL_SUCCESS) {
+        std::fprintf(stderr, "[ERROR] failed to set deterministic mode: %d\n", ret);
+        return ret;
+    }
     aclrtStream stream = nullptr;
     ret = aclrtCreateStream(&stream);
     if (ret != ACL_SUCCESS) return ret;
@@ -446,6 +472,13 @@ int main()
         result = 2;
     } else {
         result = RunBackward(stream, b, n1, n2, s1, s2, d, dv, layout, dtype, dtypeBytes);
+    }
+#elif defined(ATTENTION_FORWARD_ONLY)
+    if (grad) {
+        std::fprintf(stderr, "[ERROR] this launcher was built for FlashAttentionScore\n");
+        result = 2;
+    } else {
+        result = RunForward(stream, b, n1, n2, s1, s2, d, dv, layout, dtype, dtypeBytes);
     }
 #else
     result = grad ? RunBackward(stream, b, n1, n2, s1, s2, d, dv, layout, dtype, dtypeBytes)

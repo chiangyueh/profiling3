@@ -92,3 +92,28 @@ diff --git a/attention/flash_attention_score_grad/op_host/arch32/flash_attention
 +    ReadPositiveSearchEnv("FAG_S1_CV_INNER", fBaseParams.s1CvInner);
 +    ReadPositiveSearchEnv("FAG_S2_CV_INNER", fBaseParams.s2CvInner);
 +
+diff --git a/common/include/tiling_base/tiling_templates_registry.h b/common/include/tiling_base/tiling_templates_registry.h
+--- a/common/include/tiling_base/tiling_templates_registry.h
++++ b/common/include/tiling_base/tiling_templates_registry.h
+@@ -15,0 +16,2 @@
++#include <cstdlib>
++#include <fstream>
+@@ -35,0 +38,15 @@ using TilingClassCase = std::unique_ptr<TilingBaseClass> (*)(gert::TilingContext*);
++inline void TraceAttentionTiling(const char* opType, int32_t priority, ge::graphStatus status,
++                                 gert::TilingContext* context)
++{
++    const char* path = std::getenv("ATTENTION_ROUTE_TRACE");
++    if (path == nullptr || *path == '\0' ||
++        (std::string(opType) != "FlashAttentionScore" && std::string(opType) != "FlashAttentionScoreGrad")) {
++        return;
++    }
++    std::ofstream output(path, std::ios::app);
++    if (output.is_open()) {
++        output << opType << '\t' << priority << '\t' << static_cast<int32_t>(status) << '\t'
++               << context->GetTilingKey() << '\n';
++    }
++}
++
+@@ -121 +138,2 @@ class TilingRegistryNew {
+                 ge::graphStatus status = tilingTemplate->DoTiling();
++                TraceAttentionTiling(op_type, it->first, status, context);
