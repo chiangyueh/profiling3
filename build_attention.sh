@@ -14,7 +14,23 @@ INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/attention_npu"
 PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_attention_search.patch"
 CACHE_MANIFEST="${CACHE_DIR}/build_manifest.txt"
+PACKAGE_MANIFEST="${OPS_ROOT}/build/attention_search_package_manifest.txt"
 PATCH_ACTIVE=0
+
+latest_package() {
+    local roots=()
+    local root
+    for root in "${OPS_ROOT}/output" "${OPS_ROOT}/build" "${OPS_ROOT}/build_out"; do
+        [[ -d "${root}" ]] && roots+=("${root}")
+    done
+    if [[ ${#roots[@]} -eq 0 ]]; then
+        return 0
+    fi
+    find "${roots[@]}" -type f \
+        \( -name 'cann-ops-transformer-*_linux-*.run' -o \
+           -name 'cann-ops-transformer-*-linux-*.run' \) \
+        -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-
+}
 
 restore_official_source() {
     if [[ "${PATCH_ACTIVE}" == "1" ]] && \
@@ -67,34 +83,52 @@ if [[ -x "${BINARY}" && \
     exit 0
 fi
 
-echo "[INFO] cache miss: compiling FlashAttentionScoreGrad tiling key ${TILING_KEY} once"
+echo "[INFO] evaluator cache miss: checking package for tiling key ${TILING_KEY}"
 
-if git -C "${OPS_ROOT}" apply --unidiff-zero --check "${PATCH_FILE}" 2>/dev/null; then
-    git -C "${OPS_ROOT}" apply --unidiff-zero "${PATCH_FILE}"
-    PATCH_ACTIVE=1
-    echo "[INFO] applied FA/FAG search-parameter hook"
-elif git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
-    PATCH_ACTIVE=1
-    echo "[INFO] FA/FAG search-parameter hook is already applied"
-else
-    echo "[ERROR] the FA/FAG patch does not match this ops-transformer revision" >&2
-    exit 1
+PACKAGE=$(latest_package)
+PACKAGE_REUSABLE=0
+if [[ -n "${PACKAGE}" && -f "${PACKAGE_MANIFEST}" && \
+      "$(<"${PACKAGE_MANIFEST}")" == "${EXPECTED_FINGERPRINT}" ]]; then
+    PACKAGE_REUSABLE=1
+elif [[ -n "${PACKAGE}" && -f "${OPS_ROOT}/build/CMakeCache.txt" && \
+        "${PACKAGE}" -nt "${PATCH_FILE}" && "${PACKAGE}" -nt "${SCRIPT_DIR}/attention_bench.cpp" ]] && \
+     grep -Eq '^ASCEND_OP_NAME(:[^=]*)?=flash_attention_score_grad$' "${OPS_ROOT}/build/CMakeCache.txt" && \
+     grep -Eq "^TILING_KEY(:[^=]*)?=${TILING_KEY}$" "${OPS_ROOT}/build/CMakeCache.txt"; then
+    PACKAGE_REUSABLE=1
 fi
 
-(
-    cd "${OPS_ROOT}"
-    bash build.sh -j"${JOBS}" \
-        --ops=flash_attention_score_grad \
-        --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
-)
+if [[ "${PACKAGE_REUSABLE}" == "1" ]]; then
+    echo "[INFO] reusing completed single-key package: ${PACKAGE}"
+else
+    echo "[INFO] package cache miss: compiling FlashAttentionScoreGrad tiling key ${TILING_KEY} once"
+    if git -C "${OPS_ROOT}" apply --unidiff-zero --check "${PATCH_FILE}" 2>/dev/null; then
+        git -C "${OPS_ROOT}" apply --unidiff-zero "${PATCH_FILE}"
+        PATCH_ACTIVE=1
+        echo "[INFO] applied FA/FAG search-parameter hook"
+    elif git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
+        PATCH_ACTIVE=1
+        echo "[INFO] FA/FAG search-parameter hook is already applied"
+    else
+        echo "[ERROR] the FA/FAG patch does not match this ops-transformer revision" >&2
+        exit 1
+    fi
 
-PACKAGE=$(find "${OPS_ROOT}/output" "${OPS_ROOT}/build" -type f \
-    -name 'cann-ops-transformer-*-linux-*.run' -printf '%T@ %p\n' 2>/dev/null | \
-    sort -nr | head -n 1 | cut -d' ' -f2-)
+    (
+        cd "${OPS_ROOT}"
+        bash build.sh -j"${JOBS}" \
+            --ops=flash_attention_score_grad \
+            --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
+    )
+    PACKAGE=$(latest_package)
+fi
+
 if [[ -z "${PACKAGE}" ]]; then
     echo "[ERROR] custom operator .run package was not produced" >&2
     exit 1
 fi
+
+mkdir -p "$(dirname "${PACKAGE_MANIFEST}")"
+printf '%s\n' "${EXPECTED_FINGERPRINT}" > "${PACKAGE_MANIFEST}"
 
 mkdir -p "${INSTALL_ROOT}"
 "${PACKAGE}" --quiet --install-path="${INSTALL_ROOT}"
