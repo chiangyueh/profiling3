@@ -24,6 +24,8 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
             {
                 "route": (self._route_is_valid, self._repair_route),
                 "tile_geometry": (self._tile_is_valid, self._repair_tile),
+                "local_memory": (self._local_memory_is_valid, self._repair_tile),
+                "parallel_window": (self._parallel_window_is_valid, self._repair_tile),
             },
         )
 
@@ -40,23 +42,47 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
         s1_base, s2_base, n_ratio = (params[name].value for name in self.tile_names)
         if s1_base <= 0 or s2_base <= 0 or n_ratio <= 0:
             return (False,)
+        s1_align = self._align_up(params["FA_S1"].value, 16)
         s2_align = self._align_up(params["FA_S2"].value, 16)
         tail = s2_align % s2_base or s2_base
         has_drop = self._value(params, "FA_HAS_DROP", 0) == 1
         return (
             s1_base > 0 and s1_base % 16 == 0,
             s2_base > 0 and s2_base % 16 == 0,
+            s1_base <= s1_align,
+            s2_base <= s2_align,
             n_ratio > 0,
             not has_drop or (s2_base > 32 and tail > 32),
         )
 
+    def _local_memory_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
+        if any(name not in params for name in self.tile_names[:2]):
+            return (False,)
+        s1_base = params["FA_S1_BASE"].value
+        s2_base = params["FA_S2_BASE"].value
+        # flash_attention_score_tiling_general.cpp uses a two-times FP32 API
+        # buffer for the split-S1/S2 families. L0C holds one FP32 score tile.
+        api_ub = 2 * s1_base * s2_base * 4
+        score_l0c = s1_base * s2_base * 4
+        return (
+            api_ub <= self.limits.UB_size,
+            score_l0c <= self.limits.L0C_size,
+        )
+
+    def _parallel_window_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        if any(name not in params for name in self.tile_names):
+            return False
+        if params["FA_S2_BASE"].value <= 0:
+            return False
+        s2_outer = self._ceil_div(params["FA_S2"].value, params["FA_S2_BASE"].value)
+        return params["FA_N_RATIO"].value <= s2_outer
+
     def _all_tile_constraints(self, params: dict[str, BaseParam]) -> bool:
-        # The search hook is applied in SetCoreParams, after the official host
-        # MatchTemplate path has already selected a memory-safe kernel tile.
-        # Bases larger than the logical shape become tail-only tiles, and the
-        # host clamps N_RATIO to the available outer count.  The NPU audit in
-        # 11.txt confirms those configurations execute with exact output.
-        return all(self._tile_is_valid(params))
+        return (
+            all(self._tile_is_valid(params))
+            and all(self._local_memory_is_valid(params))
+            and self._parallel_window_is_valid(params)
+        )
 
     def _repair_tile(self, params: dict[str, BaseParam]) -> dict[str, BaseParam]:
         return self._repair_names(params, self.tile_names, self._all_tile_constraints)
