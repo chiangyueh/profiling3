@@ -213,12 +213,12 @@ python3 main.py --id=3
 This uses the same framework entry as the Matmul example, but runs the
 validator in audit mode. The ascend910b route corpus contains all six
 registered FA priorities and all ten registered FAG priorities. `main.py`
-first builds/checks only the FA Host cache and discovers its six routes, then
-builds/checks only the FAG Host cache and discovers its ten routes. It records
-the route priority and exact tiling key for each representative shape without
-using a seed NPU package. Only then is
-each distinct key compiled once (or loaded from the existing kernel cache). A
-route is not counted as covered unless the recorded priority matches it.
+processes one route at a time. For each route it obtains the official Host
+tiling result, compiles or loads that route's single-key kernel, runs the
+baseline and completes the validator audit before starting the next route.
+FA and FAG have independent Host caches and are never passed to one build
+command together. A route is not counted as covered unless the recorded
+priority matches it.
 
 The validator labels each candidate but does not filter or repair it. Every
 candidate is executed and recorded as one of four outcomes:

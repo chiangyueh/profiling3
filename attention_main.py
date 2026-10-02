@@ -557,19 +557,11 @@ def main() -> None:
         f"SEARCH: colleague PSO, swarm={SWARM_SIZE}, steps={SEARCH_STEPS}; "
         "validator labels only and every PSO candidate executes"
     )
-    discovered_keys: dict[str, int] = {}
-    summary_by_route: dict[str, dict[str, object]] = {}
+    host_available: dict[str, bool] = {}
 
-    # ROUTE_CASES is ordered FA then FAG. Build/cache one operator immediately
-    # before discovering only that operator's routes; never build both at once.
-    current_operator = ""
-    for case in ROUTE_CASES:
-        if case.operator != current_operator:
-            host_mode = "backward" if case.grad else "forward"
-            if not ensure_host_tiling(host_mode):
-                print(f"AUDIT INCOMPLETE: official {case.operator} Host tiling probe is unavailable")
-                return
-            current_operator = case.operator
+    # Complete exactly one route before starting the next: Host tiling, one-key
+    # kernel cache, baseline and validator audit are never batched across cases.
+    for case_index, case in enumerate(ROUTE_CASES, start=1):
         domains = get_domains(case.name)
         input_params = get_input_params(case)
         route_summary: dict[str, object] = {
@@ -586,11 +578,19 @@ def main() -> None:
             "counts": {},
         }
         summaries.append(route_summary)
-        summary_by_route[case.name] = route_summary
         print(
-            f"\nROUTE DISCOVERY: {case.name} ({ROUTE_CLASSES[case.name]}), "
+            f"\nCASE START: {case_index}/{len(ROUTE_CASES)} {case.name} "
+            f"({ROUTE_CLASSES[case.name]}), "
             f"shape={case.shape}, domains={domains}"
         )
+
+        if case.operator not in host_available:
+            host_mode = "backward" if case.grad else "forward"
+            host_available[case.operator] = ensure_host_tiling(host_mode)
+        if not host_available[case.operator]:
+            print(f"CASE END: {case.name}, Host tiling probe unavailable")
+            continue
+
         priority, key, trace = discover_route(case, input_params, run_timeout, result_dir)
         attempted_priorities = [int(record["priority"]) for record in trace]
         route_hit = case.priority in attempted_priorities and priority == case.expected_terminal_priority
@@ -606,27 +606,17 @@ def main() -> None:
                 f"expected terminal={case.expected_terminal_priority}, actual terminal={priority}, "
                 f"attempted={attempted_priorities}"
             )
+            print(f"CASE END: {case.name}, route mismatch")
             continue
         print(f"ROUTE HIT: {case.name}, priority={priority}, tiling_key={key}")
-        discovered_keys[case.name] = key
-
-    print(
-        f"\nHOST DISCOVERY COMPLETE: {len(discovered_keys)}/{len(ROUTE_CASES)} routes matched; "
-        "starting cached single-key NPU validation"
-    )
-    for case in ROUTE_CASES:
-        if case.name not in discovered_keys:
-            continue
-        key = discovered_keys[case.name]
-        domains = get_domains(case.name)
-        input_params = get_input_params(case)
-        route_summary = summary_by_route[case.name]
-        print(f"\nROUTE AUDIT START: {case.name}, tiling_key={key}")
+        print(f"ROUTE AUDIT START: {case.name}, tiling_key={key}")
         if not compile_cache.ensure(case.operator, key):
+            print(f"CASE END: {case.name}, kernel compile unavailable")
             continue
         golden_trace = result_dir / f"trace_golden_{case.name}.tsv"
         golden_trace.unlink(missing_ok=True)
         if not prepare_golden(case, input_params, domains, key, run_timeout, golden_trace):
+            print(f"CASE END: {case.name}, baseline failed")
             continue
         route_summary["baseline_pass"] = True
 
@@ -648,7 +638,7 @@ def main() -> None:
         print(f"AUDIT COUNTS route={case.name}: {dict(algo.counts)}")
         route_summary["executed"] = algo.executed
         route_summary["counts"] = dict(algo.counts)
-        print(f"ROUTE END: {case.name}")
+        print(f"CASE END: {case.name}")
 
     complete = all(
         summary["route_hit"] and summary["baseline_pass"] and int(summary["executed"]) > 0

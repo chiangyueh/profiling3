@@ -53,7 +53,7 @@ if [[ "$(git -C "$OPS_ROOT" rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then
 fi
 
 FINGERPRINT=$(printf '%s\n' \
-    "schema=3" \
+    "schema=4" \
     "commit=$EXPECTED_COMMIT" \
     "operator=$OPERATOR" \
     "search_patch=$(sha256sum "$SEARCH_PATCH" | awk '{print $1}')" \
@@ -119,7 +119,7 @@ build_host_probe() {
     (
         cd "$OPS_ROOT"
         bash build.sh -j"$JOBS" -u --ophost --noexec \
-            --ccache false --soc=ascend910b --ops="$OPERATOR"
+            --disable_asan --ccache false --soc=ascend910b --ops="$OPERATOR"
     )
 
     local built_bin
