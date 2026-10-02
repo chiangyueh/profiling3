@@ -188,10 +188,12 @@ tiling/
 ## FA/FAG official autotiling extraction (CANN v8.5.0)
 
 Before defining a validator, collect the route and the tiling packet emitted by
-the official host code. Build the CPU-only Host probe once (one build job):
+the official host code. FA and FAG are built separately (one build job each)
+and use independent caches:
 
 ```bash
-bash get_tiling.sh build
+bash get_tiling.sh build-forward
+bash get_tiling.sh build-backward
 ```
 
 `bash get_tiling.sh forward` and `bash get_tiling.sh backward` then run one
@@ -200,7 +202,7 @@ They print its route, tiling key, block count, workspace and encoded tiling
 data, but never run an NPU kernel. The Host executable and its build-local
 libraries are cached under `out/attention_host`; later calls do not rebuild it.
 
-The extraction command above is host-only and does not select an NPU. The
+The extraction commands above are host-only and do not select an NPU. The
 actual FA/FAG search requires an explicit physical NPU ID; every child latency
 evaluation inherits that selection:
 
@@ -211,8 +213,10 @@ python3 main.py --id=3
 This uses the same framework entry as the Matmul example, but runs the
 validator in audit mode. The ascend910b route corpus contains all six
 registered FA priorities and all ten registered FAG priorities. `main.py`
-first checks the Host cache and records the route priority and exact tiling key
-for each representative shape without using a seed NPU package. Only then is
+first builds/checks only the FA Host cache and discovers its six routes, then
+builds/checks only the FAG Host cache and discovers its ten routes. It records
+the route priority and exact tiling key for each representative shape without
+using a seed NPU package. Only then is
 each distinct key compiled once (or loaded from the existing kernel cache). A
 route is not counted as covered unless the recorded priority matches it.
 

@@ -345,12 +345,17 @@ def discover_route(
     return int(terminal["priority"]), int(terminal["tiling_key"]), records
 
 
-def ensure_host_tiling() -> bool:
-    """Build/cache the CPU Host probe before any single-key NPU package build."""
+def ensure_host_tiling(mode: str) -> bool:
+    """Build/cache one CPU Host probe before that operator's route discovery."""
 
-    print("HOST TILING BUILD CHECK: CPU-only, cached after the first successful build", flush=True)
+    operator = FA if mode == "forward" else FAG
+    print(
+        f"HOST TILING BUILD CHECK: operator={operator}, CPU-only, "
+        "cached after the first successful build",
+        flush=True,
+    )
     try:
-        completed = subprocess.run(["bash", "./get_tiling.sh", "build"])
+        completed = subprocess.run(["bash", "./get_tiling.sh", f"build-{mode}"])
     except Exception as exc:
         print(f"HOST TILING BUILD FAILED: {exc!r}")
         return False
@@ -552,16 +557,19 @@ def main() -> None:
         f"SEARCH: colleague PSO, swarm={SWARM_SIZE}, steps={SEARCH_STEPS}; "
         "validator labels only and every PSO candidate executes"
     )
-    if not ensure_host_tiling():
-        print("AUDIT INCOMPLETE: official Host tiling probe is unavailable")
-        return
-
     discovered_keys: dict[str, int] = {}
     summary_by_route: dict[str, dict[str, object]] = {}
 
-    # Discover all official routes and keys before touching any NPU package.
-    # This keeps Host autotiling independent of kernel compilation state.
+    # ROUTE_CASES is ordered FA then FAG. Build/cache one operator immediately
+    # before discovering only that operator's routes; never build both at once.
+    current_operator = ""
     for case in ROUTE_CASES:
+        if case.operator != current_operator:
+            host_mode = "backward" if case.grad else "forward"
+            if not ensure_host_tiling(host_mode):
+                print(f"AUDIT INCOMPLETE: official {case.operator} Host tiling probe is unavailable")
+                return
+            current_operator = case.operator
         domains = get_domains(case.name)
         input_params = get_input_params(case)
         route_summary: dict[str, object] = {

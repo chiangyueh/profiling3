@@ -5,7 +5,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 OPS_ROOT=${OPS_TRANSFORMER_ROOT:-"$SCRIPT_DIR/../ops-transformer-official-8.5.0"}
 EXPECTED_COMMIT=6ead121aded45355043b502756b6592fd7c30b14
 JOBS=${ATTENTION_BUILD_JOBS:-1}
-MODE=${1:-build}
+MODE=${1:-}
 
 SEARCH_PATCH="$SCRIPT_DIR/patches/ops_transformer_attention_search.patch"
 BUILD_PATCH="$SCRIPT_DIR/patches/ops_transformer_host_jobs.patch"
@@ -13,24 +13,30 @@ FA_SOURCE="$SCRIPT_DIR/host_probe/test_flash_attention_score_search_tiling.cpp"
 FAG_SOURCE="$SCRIPT_DIR/host_probe/test_flash_attention_score_grad_search_tiling.cpp"
 FA_DEST="$OPS_ROOT/attention/flash_attention_score/tests/ut/op_host/arch32/test_flash_attention_score_search_tiling.cpp"
 FAG_DEST="$OPS_ROOT/attention/flash_attention_score_grad/tests/ut/op_host/arch32/test_flash_attention_score_grad_search_tiling.cpp"
-CACHE_DIR=${ATTENTION_HOST_CACHE_ROOT:-"$SCRIPT_DIR/out/attention_host/$EXPECTED_COMMIT"}
-CACHE_BIN="$CACHE_DIR/transformer_op_host_ut"
-CACHE_MANIFEST="$CACHE_DIR/build_manifest.txt"
+CACHE_ROOT=${ATTENTION_HOST_CACHE_ROOT:-"$SCRIPT_DIR/out/attention_host/$EXPECTED_COMMIT"}
 
 case "$MODE" in
-    build)
-        ;;
-    forward)
+    build-forward|forward)
+        OPERATOR=flash_attention_score
+        PROBE_SOURCE="$FA_SOURCE"
+        PROBE_DEST="$FA_DEST"
         FILTER=AttentionHostTiling.Forward
         ;;
-    backward)
+    build-backward|backward)
+        OPERATOR=flash_attention_score_grad
+        PROBE_SOURCE="$FAG_SOURCE"
+        PROBE_DEST="$FAG_DEST"
         FILTER=AttentionHostTiling.Backward
         ;;
     *)
-        echo "usage: $0 [build|forward|backward]" >&2
+        echo "usage: $0 {build-forward|forward|build-backward|backward}" >&2
         exit 2
         ;;
 esac
+
+CACHE_DIR="$CACHE_ROOT/$OPERATOR"
+CACHE_BIN="$CACHE_DIR/transformer_op_host_ut"
+CACHE_MANIFEST="$CACHE_DIR/build_manifest.txt"
 
 if [[ ! "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
     echo "[ERROR] ATTENTION_BUILD_JOBS must be a positive integer: $JOBS" >&2
@@ -47,12 +53,12 @@ if [[ "$(git -C "$OPS_ROOT" rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then
 fi
 
 FINGERPRINT=$(printf '%s\n' \
-    "schema=2" \
+    "schema=3" \
     "commit=$EXPECTED_COMMIT" \
+    "operator=$OPERATOR" \
     "search_patch=$(sha256sum "$SEARCH_PATCH" | awk '{print $1}')" \
     "build_patch=$(sha256sum "$BUILD_PATCH" | awk '{print $1}')" \
-    "fa_probe=$(sha256sum "$FA_SOURCE" | awk '{print $1}')" \
-    "fag_probe=$(sha256sum "$FAG_SOURCE" | awk '{print $1}')")
+    "probe=$(sha256sum "$PROBE_SOURCE" | awk '{print $1}')")
 
 SEARCH_APPLIED=0
 BUILD_PATCH_APPLIED=0
@@ -60,7 +66,7 @@ PROBES_INSTALLED=0
 
 restore_source() {
     if [[ "$PROBES_INSTALLED" == "1" ]]; then
-        rm -f -- "$FA_DEST" "$FAG_DEST"
+        rm -f -- "$PROBE_DEST"
     fi
     if [[ "$BUILD_PATCH_APPLIED" == "1" ]] && \
        git -C "$OPS_ROOT" apply --reverse --check "$BUILD_PATCH" >/dev/null 2>&1; then
@@ -79,7 +85,7 @@ build_host_probe() {
         return
     fi
 
-    echo "[INFO] Host tiling cache miss: building the two official Host tiling modules once"
+    echo "[INFO] Host tiling cache miss: building only $OPERATOR"
     echo "[INFO] This is CPU-only; it does not select or run an NPU"
     trap restore_source EXIT INT TERM
 
@@ -103,22 +109,17 @@ build_host_probe() {
         fi
     fi
 
-    if [[ -e "$FA_DEST" ]] && ! cmp -s -- "$FA_SOURCE" "$FA_DEST"; then
-        echo "[ERROR] a different file already exists at: $FA_DEST" >&2
+    if [[ -e "$PROBE_DEST" ]] && ! cmp -s -- "$PROBE_SOURCE" "$PROBE_DEST"; then
+        echo "[ERROR] a different file already exists at: $PROBE_DEST" >&2
         exit 1
     fi
-    if [[ -e "$FAG_DEST" ]] && ! cmp -s -- "$FAG_SOURCE" "$FAG_DEST"; then
-        echo "[ERROR] a different file already exists at: $FAG_DEST" >&2
-        exit 1
-    fi
-    [[ -e "$FA_DEST" ]] || cp -- "$FA_SOURCE" "$FA_DEST"
-    [[ -e "$FAG_DEST" ]] || cp -- "$FAG_SOURCE" "$FAG_DEST"
+    [[ -e "$PROBE_DEST" ]] || cp -- "$PROBE_SOURCE" "$PROBE_DEST"
     PROBES_INSTALLED=1
 
     (
         cd "$OPS_ROOT"
         bash build.sh -j"$JOBS" -u --ophost --noexec \
-            --soc=ascend910b --ops=flash_attention_score,flash_attention_score_grad
+            --ccache false --soc=ascend910b --ops="$OPERATOR"
     )
 
     local built_bin
@@ -165,7 +166,7 @@ build_host_probe() {
 
 build_host_probe
 
-if [[ "$MODE" == "build" ]]; then
+if [[ "$MODE" == build-* ]]; then
     exit 0
 fi
 
