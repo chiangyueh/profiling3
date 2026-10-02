@@ -52,13 +52,19 @@ if [[ "$(git -C "$OPS_ROOT" rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then
     exit 2
 fi
 
-FINGERPRINT=$(printf '%s\n' \
-    "schema=4" \
-    "commit=$EXPECTED_COMMIT" \
-    "operator=$OPERATOR" \
-    "search_patch=$(sha256sum "$SEARCH_PATCH" | awk '{print $1}')" \
-    "build_patch=$(sha256sum "$BUILD_PATCH" | awk '{print $1}')" \
-    "probe=$(sha256sum "$PROBE_SOURCE" | awk '{print $1}')")
+make_fingerprint() {
+    local operator=$1
+    local probe_source=$2
+    printf '%s\n' \
+        "schema=4" \
+        "commit=$EXPECTED_COMMIT" \
+        "operator=$operator" \
+        "search_patch=$(sha256sum "$SEARCH_PATCH" | awk '{print $1}')" \
+        "build_patch=$(sha256sum "$BUILD_PATCH" | awk '{print $1}')" \
+        "probe=$(sha256sum "$probe_source" | awk '{print $1}')"
+}
+
+FINGERPRINT=$(make_fingerprint "$OPERATOR" "$PROBE_SOURCE")
 
 SEARCH_APPLIED=0
 BUILD_PATCH_APPLIED=0
@@ -78,7 +84,104 @@ restore_source() {
     fi
 }
 
+locate_host_binary() {
+    local expected="$OPS_ROOT/build/tests/ut/framework_normal/op_host/transformer_op_host_ut"
+    if [[ -f "$expected" ]]; then
+        printf '%s\n' "$expected"
+        return 0
+    fi
+    if [[ -d "$OPS_ROOT/build" ]]; then
+        find "$OPS_ROOT/build" \( -type f -o -type l \) \
+            -name transformer_op_host_ut -print -quit 2>/dev/null
+    fi
+    return 0
+}
+
+cache_host_probe() {
+    local built_bin=$1
+    local cache_dir=$2
+    local cache_manifest=$3
+    local fingerprint=$4
+    local cache_bin="$cache_dir/transformer_op_host_ut"
+
+    mkdir -p "$cache_dir"
+    cp -- "$built_bin" "$cache_bin"
+    chmod +x "$cache_bin"
+
+    # The UT executable links the Host tiling implementation as a shared
+    # library. Cache every dependency that resolves inside this build tree so
+    # later single-key kernel builds cannot overwrite the Host probe runtime.
+    declare -A copied_deps=()
+    local dependency_queue=("$built_bin")
+    local host_library
+    host_library=$(find "$OPS_ROOT/build" -type f -name 'libophost_transformer_ut.so*' -print -quit 2>/dev/null)
+    if [[ -n "$host_library" ]]; then
+        copied_deps[$host_library]=1
+        cp -- "$host_library" "$cache_dir/$(basename -- "$host_library")"
+        dependency_queue+=("$host_library")
+    fi
+    local dependency_index=0
+    while (( dependency_index < ${#dependency_queue[@]} )); do
+        local object=${dependency_queue[$dependency_index]}
+        dependency_index=$((dependency_index + 1))
+        while IFS= read -r dependency; do
+            [[ "$dependency" == "$OPS_ROOT/build/"* ]] || continue
+            [[ -f "$dependency" ]] || continue
+            [[ -z "${copied_deps[$dependency]:-}" ]] || continue
+            copied_deps[$dependency]=1
+            cp -- "$dependency" "$cache_dir/$(basename -- "$dependency")"
+            dependency_queue+=("$dependency")
+        done < <(ldd "$object" 2>/dev/null | awk '/=> \/.*\// {print $3} /^\// {print $1}')
+    done
+    printf '%s\n' "$fingerprint" > "$cache_manifest"
+    echo "[INFO] cached Host tiling executable: $cache_bin"
+}
+
+adopt_existing_host_probe() {
+    local built_bin
+    built_bin=$(locate_host_binary)
+    [[ -n "$built_bin" ]] || return 0
+
+    local cmake_cache="$OPS_ROOT/build/CMakeCache.txt"
+    [[ -f "$cmake_cache" ]] || return 0
+    local built_operator
+    built_operator=$(sed -n 's/^ASCEND_OP_NAME\(:[^=]*\)\?=//p' "$cmake_cache" | tail -n 1)
+
+    local probe_source probe_object
+    case "$built_operator" in
+        flash_attention_score)
+            probe_source=$FA_SOURCE
+            probe_object=test_flash_attention_score_search_tiling.cpp.o
+            ;;
+        flash_attention_score_grad)
+            probe_source=$FAG_SOURCE
+            probe_object=test_flash_attention_score_grad_search_tiling.cpp.o
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+    [[ -n "$(find "$OPS_ROOT/build" -type f -name "$probe_object" -print -quit 2>/dev/null)" ]] || return 0
+
+    local cache_dir="$CACHE_ROOT/$built_operator"
+    local cache_manifest="$cache_dir/build_manifest.txt"
+    local fingerprint
+    fingerprint=$(make_fingerprint "$built_operator" "$probe_source")
+    if [[ -x "$cache_dir/transformer_op_host_ut" && -f "$cache_manifest" && \
+          "$(<"$cache_manifest")" == "$fingerprint" ]]; then
+        return 0
+    fi
+
+    echo "[INFO] adopting completed $built_operator Host build left by the previous run"
+    cache_host_probe "$built_bin" "$cache_dir" "$cache_manifest" "$fingerprint"
+}
+
 build_host_probe() {
+    # A previous version could finish linking and then fail to locate the
+    # executable because it also required execute permission. Preserve that
+    # completed build before build.sh cleans the shared build directory.
+    adopt_existing_host_probe
+
     if [[ -x "$CACHE_BIN" && -f "$CACHE_MANIFEST" && \
           "$(<"$CACHE_MANIFEST")" == "$FINGERPRINT" ]]; then
         echo "[INFO] Host tiling cache hit: $CACHE_BIN"
@@ -123,42 +226,13 @@ build_host_probe() {
     )
 
     local built_bin
-    built_bin=$(find "$OPS_ROOT/build" -type f -name transformer_op_host_ut -perm -111 | head -n 1)
-    if [[ -z "$built_bin" ]]; then
+    built_bin=$(locate_host_binary)
+    if [[ -z "$built_bin" || ! -f "$built_bin" ]]; then
         echo "[ERROR] transformer_op_host_ut was not produced" >&2
+        find "$OPS_ROOT/build" -name 'transformer_op_host_ut*' -ls >&2 2>/dev/null || true
         exit 1
     fi
-    mkdir -p "$CACHE_DIR"
-    cp -- "$built_bin" "$CACHE_BIN"
-    chmod +x "$CACHE_BIN"
-
-    # The UT executable links the Host tiling implementation as a shared
-    # library. Cache every dependency that resolves inside this build tree so
-    # later single-key kernel builds cannot overwrite the Host probe runtime.
-    declare -A copied_deps=()
-    local dependency_queue=("$built_bin")
-    local host_library
-    host_library=$(find "$OPS_ROOT/build" -type f -name 'libophost_transformer_ut.so*' | head -n 1)
-    if [[ -n "$host_library" ]]; then
-        copied_deps[$host_library]=1
-        cp -- "$host_library" "$CACHE_DIR/$(basename -- "$host_library")"
-        dependency_queue+=("$host_library")
-    fi
-    local dependency_index=0
-    while (( dependency_index < ${#dependency_queue[@]} )); do
-        local object=${dependency_queue[$dependency_index]}
-        dependency_index=$((dependency_index + 1))
-        while IFS= read -r dependency; do
-            [[ "$dependency" == "$OPS_ROOT/build/"* ]] || continue
-            [[ -f "$dependency" ]] || continue
-            [[ -z "${copied_deps[$dependency]:-}" ]] || continue
-            copied_deps[$dependency]=1
-            cp -- "$dependency" "$CACHE_DIR/$(basename -- "$dependency")"
-            dependency_queue+=("$dependency")
-        done < <(ldd "$object" 2>/dev/null | awk '/=> \/.*\// {print $3} /^\// {print $1}')
-    done
-    printf '%s\n' "$FINGERPRINT" > "$CACHE_MANIFEST"
-    echo "[INFO] cached Host tiling executable: $CACHE_BIN"
+    cache_host_probe "$built_bin" "$CACHE_DIR" "$CACHE_MANIFEST" "$FINGERPRINT"
 
     restore_source
     trap - EXIT INT TERM
