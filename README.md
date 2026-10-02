@@ -188,18 +188,17 @@ tiling/
 ## FA/FAG official autotiling extraction (CANN v8.5.0)
 
 Before defining a validator, collect the route and the tiling packet emitted by
-the official host code. Backward is the default and builds with one job:
+the official host code. Build the CPU-only Host probe once (one build job):
 
 ```bash
-bash get_tiling.sh backward
+bash get_tiling.sh build
 ```
 
-Use `bash get_tiling.sh forward` for FA. The script builds host unit tests only;
-it does not run an NPU kernel. It writes the raw log to `autotiling_run.log` and
-the decoded records to `autotiling_results.json`. The decoder recognizes the
-verified FAG `fag_s1s2_bn2` packet, including its vector tile, ownership tile,
-core count and S1/S2 outer counts. Workload-specific DeepSeek/Pangu cases must
-be added only after their exact shapes and attributes are available.
+`bash get_tiling.sh forward` and `bash get_tiling.sh backward` then run one
+environment-specified FA/FAG shape through the official Host tiling function.
+They print its route, tiling key, block count, workspace and encoded tiling
+data, but never run an NPU kernel. The Host executable and its build-local
+libraries are cached under `out/attention_host`; later calls do not rebuild it.
 
 The extraction command above is host-only and does not select an NPU. The
 actual FA/FAG search requires an explicit physical NPU ID; every child latency
@@ -211,10 +210,11 @@ python3 main.py --id=3
 
 This uses the same framework entry as the Matmul example, but runs the
 validator in audit mode. The ascend910b route corpus contains all six
-registered FA priorities and all ten registered FAG priorities. Official host
-autotiling first records the route priority and tiling key for each
-representative shape. A route is not counted as covered unless the recorded
-priority matches it.
+registered FA priorities and all ten registered FAG priorities. `main.py`
+first checks the Host cache and records the route priority and exact tiling key
+for each representative shape without using a seed NPU package. Only then is
+each distinct key compiled once (or loaded from the existing kernel cache). A
+route is not counted as covered unless the recorded priority matches it.
 
 The validator labels each candidate but does not filter or repair it. Every
 candidate is executed and recorded as one of four outcomes:

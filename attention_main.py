@@ -54,8 +54,6 @@ from tiling import base, estimator_algs, limits, pso, valids
 
 FA = "flash_attention_score"
 FAG = "flash_attention_score_grad"
-FA_SEED_KEY = 1144284208
-FAG_SEED_KEY = 74804
 
 DEFAULT_FEATURES = {
     "DTYPE_BYTES": 4,
@@ -86,10 +84,6 @@ class RouteCase:
     @property
     def grad(self) -> bool:
         return self.operator == FAG
-
-    @property
-    def seed_key(self) -> int:
-        return FAG_SEED_KEY if self.grad else FA_SEED_KEY
 
     @property
     def expected_terminal_priority(self) -> int:
@@ -228,10 +222,13 @@ def get_input_params(case: RouteCase) -> list[base.BaseParam]:
     return [base.BaseParam(name=name, value=value, is_const=True) for name, value in values.items()]
 
 
-def _case_env(case: RouteCase, input_params: list[base.BaseParam], key: int) -> dict[str, str]:
+def _case_env(case: RouteCase, input_params: list[base.BaseParam], key: int | None = None) -> dict[str, str]:
     env = dict(os.environ)
     env["ATTENTION_OPERATOR"] = case.operator
-    env["ATTENTION_TILING_KEY"] = str(key)
+    if key is not None:
+        env["ATTENTION_TILING_KEY"] = str(key)
+    else:
+        env.pop("ATTENTION_TILING_KEY", None)
     for param in input_params:
         env[param.name] = str(param.value)
     return env
@@ -314,35 +311,53 @@ class CompileCache:
 def discover_route(
     case: RouteCase,
     input_params: list[base.BaseParam],
-    compile_cache: CompileCache,
     run_timeout: int,
     result_dir: Path,
 ) -> tuple[int | None, int | None, list[dict[str, int | str]]]:
-    """Run only official Host autotiling and read its route/key trace."""
+    """Run the official CPU-only Host tiling function and read route/key trace."""
 
-    if not compile_cache.ensure(case.operator, case.seed_key):
-        return None, None, []
     trace = result_dir / f"trace_discover_{case.name}.tsv"
     trace.unlink(missing_ok=True)
-    env = _case_env(case, input_params, case.seed_key)
-    env["ATTENTION_REFERENCE"] = "1"
-    env["ATTENTION_DISCOVER_ONLY"] = "1"
+    env = _case_env(case, input_params)
+    for name in (
+        "FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO",
+        "FAG_S1_INNER", "FAG_S2_INNER", "FAG_S1_CV_RATIO", "FAG_S2_CV_RATIO",
+        "FAG_S1_CV_INNER", "FAG_S2_CV_INNER",
+    ):
+        env.pop(name, None)
+    env["ATTENTION_CASE_NAME"] = case.name
     env["ATTENTION_ROUTE_TRACE"] = str(trace.resolve())
     timeout = min(run_timeout, 60)
-    print(f"HOST TILING: route={case.name}, timeout={timeout}s", flush=True)
+    mode = "backward" if case.grad else "forward"
+    print(f"HOST TILING: route={case.name}, mode={mode}, timeout={timeout}s", flush=True)
     try:
-        rc = _run_with_timeout(["bash", "./run_attention.sh", "-r", "npu"], env, timeout)
+        rc = _run_with_timeout(["bash", "./get_tiling.sh", mode], env, timeout)
     except Exception as exc:
         print(f"HOST TILING FAILED: route={case.name}, error={exc!r}")
         return None, None, _read_trace(trace)
 
     records = _read_trace(trace)
     selected = [record for record in records if record["status"] == 0]
-    if not selected:
+    if rc != 0 or not selected:
         print(f"HOST TILING FAILED: route={case.name}, exit={rc}, trace_records={len(records)}")
         return None, None, records
     terminal = selected[-1]
     return int(terminal["priority"]), int(terminal["tiling_key"]), records
+
+
+def ensure_host_tiling() -> bool:
+    """Build/cache the CPU Host probe before any single-key NPU package build."""
+
+    print("HOST TILING BUILD CHECK: CPU-only, cached after the first successful build", flush=True)
+    try:
+        completed = subprocess.run(["bash", "./get_tiling.sh", "build"])
+    except Exception as exc:
+        print(f"HOST TILING BUILD FAILED: {exc!r}")
+        return False
+    if completed.returncode != 0:
+        print(f"HOST TILING BUILD FAILED: exit={completed.returncode}")
+        return False
+    return True
 
 
 def prepare_golden(
@@ -537,7 +552,15 @@ def main() -> None:
         f"SEARCH: colleague PSO, swarm={SWARM_SIZE}, steps={SEARCH_STEPS}; "
         "validator labels only and every PSO candidate executes"
     )
+    if not ensure_host_tiling():
+        print("AUDIT INCOMPLETE: official Host tiling probe is unavailable")
+        return
 
+    discovered_keys: dict[str, int] = {}
+    summary_by_route: dict[str, dict[str, object]] = {}
+
+    # Discover all official routes and keys before touching any NPU package.
+    # This keeps Host autotiling independent of kernel compilation state.
     for case in ROUTE_CASES:
         domains = get_domains(case.name)
         input_params = get_input_params(case)
@@ -554,11 +577,13 @@ def main() -> None:
             "executed": 0,
             "counts": {},
         }
+        summaries.append(route_summary)
+        summary_by_route[case.name] = route_summary
         print(
-            f"\nROUTE START: {case.name} ({ROUTE_CLASSES[case.name]}), "
+            f"\nROUTE DISCOVERY: {case.name} ({ROUTE_CLASSES[case.name]}), "
             f"shape={case.shape}, domains={domains}"
         )
-        priority, key, trace = discover_route(case, input_params, compile_cache, run_timeout, result_dir)
+        priority, key, trace = discover_route(case, input_params, run_timeout, result_dir)
         attempted_priorities = [int(record["priority"]) for record in trace]
         route_hit = case.priority in attempted_priorities and priority == case.expected_terminal_priority
         route_summary.update({
@@ -573,16 +598,27 @@ def main() -> None:
                 f"expected terminal={case.expected_terminal_priority}, actual terminal={priority}, "
                 f"attempted={attempted_priorities}"
             )
-            summaries.append(route_summary)
             continue
         print(f"ROUTE HIT: {case.name}, priority={priority}, tiling_key={key}")
+        discovered_keys[case.name] = key
+
+    print(
+        f"\nHOST DISCOVERY COMPLETE: {len(discovered_keys)}/{len(ROUTE_CASES)} routes matched; "
+        "starting cached single-key NPU validation"
+    )
+    for case in ROUTE_CASES:
+        if case.name not in discovered_keys:
+            continue
+        key = discovered_keys[case.name]
+        domains = get_domains(case.name)
+        input_params = get_input_params(case)
+        route_summary = summary_by_route[case.name]
+        print(f"\nROUTE AUDIT START: {case.name}, tiling_key={key}")
         if not compile_cache.ensure(case.operator, key):
-            summaries.append(route_summary)
             continue
         golden_trace = result_dir / f"trace_golden_{case.name}.tsv"
         golden_trace.unlink(missing_ok=True)
         if not prepare_golden(case, input_params, domains, key, run_timeout, golden_trace):
-            summaries.append(route_summary)
             continue
         route_summary["baseline_pass"] = True
 
@@ -604,7 +640,6 @@ def main() -> None:
         print(f"AUDIT COUNTS route={case.name}: {dict(algo.counts)}")
         route_summary["executed"] = algo.executed
         route_summary["counts"] = dict(algo.counts)
-        summaries.append(route_summary)
         print(f"ROUTE END: {case.name}")
 
     complete = all(
