@@ -54,8 +54,6 @@ from tiling import base, estimator_algs, limits, pso, valids
 
 FA = "flash_attention_score"
 FAG = "flash_attention_score_grad"
-FA_SEED_KEY = 1144808752
-FAG_SEED_KEY = 74804
 
 DEFAULT_FEATURES = {
     "DTYPE_BYTES": 4,
@@ -81,15 +79,12 @@ class RouteCase:
     priority: int
     shape: tuple[int, int, int, int, int, int, int]
     features: dict[str, int]
+    tiling_key: int
     terminal_priority: int | None = None
 
     @property
     def grad(self) -> bool:
         return self.operator == FAG
-
-    @property
-    def seed_key(self) -> int:
-        return FAG_SEED_KEY if self.grad else FA_SEED_KEY
 
     @property
     def expected_terminal_priority(self) -> int:
@@ -102,10 +97,25 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# Run only the forward shape for now.  The key is the one selected by the
-# official v8.5.0 host tiling implementation for this exact shape.
+# Run the two forward routes already verified separately.  Each case carries
+# the key selected by the official v8.5.0 Host tiling for its exact shape.
 ROUTE_CASES = (
-    RouteCase("fa_s1", FA, 97, (1, 8, 1, 128, 512, 128, 128), _features(DTYPE_BYTES=2)),
+    RouteCase(
+        "fa_s1s2",
+        FA,
+        96,
+        (1, 8, 1, 128, 1536, 128, 128),
+        _features(),
+        tiling_key=1144284208,
+    ),
+    RouteCase(
+        "fa_s1",
+        FA,
+        97,
+        (1, 8, 1, 128, 512, 128, 128),
+        _features(DTYPE_BYTES=2),
+        tiling_key=1144808752,
+    ),
 )
 
 SWARM_SIZE = 4
@@ -445,7 +455,7 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
 
 
 def _select_npu() -> int:
-    parser = argparse.ArgumentParser(description="Audit the configured FA/FAG route on one NPU")
+    parser = argparse.ArgumentParser(description="Audit the configured FA/FAG routes on one NPU")
     parser.add_argument("--id", required=True, type=int, help="physical NPU ID")
     args = parser.parse_args()
     if args.id < 0:
@@ -485,7 +495,7 @@ def main() -> None:
             "expected_terminal_priority": case.expected_terminal_priority,
             "shape": case.shape,
             "domains": domains,
-            "tiling_key": case.seed_key,
+            "tiling_key": case.tiling_key,
             "baseline_pass": False,
             "executed": 0,
             "counts": {},
@@ -494,7 +504,7 @@ def main() -> None:
             f"\nROUTE START: {case.name} ({ROUTE_CLASSES[case.name]}), "
             f"shape={case.shape}, domains={domains}"
         )
-        key = case.seed_key
+        key = case.tiling_key
         print(
             f"ROUTE CONFIGURED: {case.name}, expected_priority={case.expected_terminal_priority}, "
             f"known_tiling_key={key}; discovery skipped"

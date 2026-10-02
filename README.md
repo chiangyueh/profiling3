@@ -51,9 +51,10 @@ Select a physical NPU explicitly:
 python3 main.py --id=4
 ```
 
-The active route and shape are configured by the single entry in `ROUTE_CASES`
-inside `attention_main.py`.  The current configuration intentionally runs one
-FA route at a time.
+The active routes and shapes are configured in `ROUTE_CASES` inside
+`attention_main.py`.  Each case stores its own tiling key, and the cases run
+sequentially on the selected NPU.  The current configuration contains the two
+FA routes that were first verified separately.
 
 Each run writes:
 
