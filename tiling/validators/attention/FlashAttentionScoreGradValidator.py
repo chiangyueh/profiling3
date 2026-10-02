@@ -333,11 +333,14 @@ class FlashAttentionScoreGradGenericValidator(AttentionValidator):
     def _cv_ratio_is_valid(self, params: dict[str, BaseParam]) -> bool:
         if any(name not in params for name in self.tile_names):
             return False
-        pair = (
-            params["FAG_S1_CV_RATIO"].value,
-            params["FAG_S2_CV_RATIO"].value,
+        # The host search hook accepts every positive ratio and the eight NPU
+        # samples in 10.txt all completed with correct output, including the
+        # previously rejected (1, 2) pair.  Ratio whitelisting therefore
+        # created false negatives without matching a kernel constraint.
+        return (
+            params["FAG_S1_CV_RATIO"].value > 0
+            and params["FAG_S2_CV_RATIO"].value > 0
         )
-        return pair in _GENERIC_RATIO_PAIRS or (pair == (1, 4) and self._is_s2_fission_anchor(params))
 
     def _all_tile_constraints(self, params: dict[str, BaseParam]) -> bool:
         return (

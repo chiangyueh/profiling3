@@ -102,10 +102,40 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# Run only the forward shape for now.  The key is the one selected by the
-# official v8.5.0 host tiling implementation for this exact shape.
+# One source-derived representative shape for every registered Ascend 910B
+# FA/FAG route. Priority 90 is an adapter: its case passes through the adapter
+# and terminates in priority 98. The official host pass below verifies every
+# route and obtains its exact tiling key before a kernel is compiled.
 ROUTE_CASES = (
+    RouteCase("fa_drop_adapter", FA, 90, (1, 1, 1, 16, 33, 64, 64),
+              _features(DTYPE_BYTES=2, HAS_DROP=1), terminal_priority=98),
+    RouteCase("fa_varlen", FA, 94, (2, 1, 1, 128, 128, 64, 64),
+              _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1)),
+    RouteCase("fa_same_ab", FA, 95, (1, 8, 1, 128, 512, 96, 96),
+              _features(DTYPE_BYTES=2)),
     RouteCase("fa_s1s2", FA, 96, (1, 8, 1, 128, 1536, 128, 128), _features()),
+    RouteCase("fa_s1", FA, 97, (1, 8, 1, 128, 512, 128, 128),
+              _features(DTYPE_BYTES=2)),
+    RouteCase("fa_b", FA, 98, (1, 1, 1, 16, 16, 64, 64), _features(DTYPE_BYTES=2)),
+    RouteCase("fag_deterministic_bn2", FAG, 1000, (1, 1, 1, 128, 128, 128, 128),
+              _features(DETERMINISTIC=1)),
+    RouteCase("fag_mla", FAG, 1001, (2, 1, 1, 128, 128, 64, 64),
+              _features(DTYPE_BYTES=2, LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1)),
+    RouteCase("fag_basic_deterministic", FAG, 1002, (1, 1, 1, 1024, 512, 64, 64),
+              _features(DTYPE_BYTES=2, LAYOUT=valids.attention.LAYOUT_TND,
+                        DETERMINISTIC=1, HAS_ACTUAL_SEQ=1)),
+    RouteCase("fag_same_ab_deterministic", FAG, 1100, (1, 1, 1, 1024, 512, 64, 64),
+              _features(DTYPE_BYTES=2, DETERMINISTIC=1)),
+    RouteCase("fag_unpadded", FAG, 2000, (2, 1, 1, 128, 128, 64, 64),
+              _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1)),
+    RouteCase("fag_b", FAG, 10000, (1, 1, 1, 16, 16, 64, 64), _features(DTYPE_BYTES=2)),
+    RouteCase("fag_n2", FAG, 11000, (40, 32, 32, 16, 16, 128, 128),
+              _features(DTYPE_BYTES=2)),
+    RouteCase("fag_bn2", FAG, 15000, (32, 2, 1, 64, 64, 128, 128),
+              _features(DTYPE_BYTES=2)),
+    RouteCase("fag_same_ab", FAG, 15500, (1, 4, 1, 2048, 512, 128, 128),
+              _features(DTYPE_BYTES=2)),
+    RouteCase("fag_generic", FAG, 16000, (1, 8, 1, 128, 1536, 128, 128), _features()),
 )
 
 SWARM_SIZE = 4
@@ -279,6 +309,40 @@ class CompileCache:
             return False
         self.seen.add(identity)
         return True
+
+
+def discover_route(
+    case: RouteCase,
+    input_params: list[base.BaseParam],
+    compile_cache: CompileCache,
+    run_timeout: int,
+    result_dir: Path,
+) -> tuple[int | None, int | None, list[dict[str, int | str]]]:
+    """Run only official Host autotiling and read its route/key trace."""
+
+    if not compile_cache.ensure(case.operator, case.seed_key):
+        return None, None, []
+    trace = result_dir / f"trace_discover_{case.name}.tsv"
+    trace.unlink(missing_ok=True)
+    env = _case_env(case, input_params, case.seed_key)
+    env["ATTENTION_REFERENCE"] = "1"
+    env["ATTENTION_DISCOVER_ONLY"] = "1"
+    env["ATTENTION_ROUTE_TRACE"] = str(trace.resolve())
+    timeout = min(run_timeout, 60)
+    print(f"HOST TILING: route={case.name}, timeout={timeout}s", flush=True)
+    try:
+        rc = _run_with_timeout(["bash", "./run_attention.sh", "-r", "npu"], env, timeout)
+    except Exception as exc:
+        print(f"HOST TILING FAILED: route={case.name}, error={exc!r}")
+        return None, None, _read_trace(trace)
+
+    records = _read_trace(trace)
+    selected = [record for record in records if record["status"] == 0]
+    if not selected:
+        print(f"HOST TILING FAILED: route={case.name}, exit={rc}, trace_records={len(records)}")
+        return None, None, records
+    terminal = selected[-1]
+    return int(terminal["priority"]), int(terminal["tiling_key"]), records
 
 
 def prepare_golden(
@@ -485,7 +549,7 @@ def main() -> None:
             "expected_terminal_priority": case.expected_terminal_priority,
             "shape": case.shape,
             "domains": domains,
-            "tiling_key": case.seed_key,
+            "route_hit": False,
             "baseline_pass": False,
             "executed": 0,
             "counts": {},
@@ -494,11 +558,24 @@ def main() -> None:
             f"\nROUTE START: {case.name} ({ROUTE_CLASSES[case.name]}), "
             f"shape={case.shape}, domains={domains}"
         )
-        key = case.seed_key
-        print(
-            f"ROUTE CONFIGURED: {case.name}, expected_priority={case.expected_terminal_priority}, "
-            f"known_tiling_key={key}; discovery skipped"
-        )
+        priority, key, trace = discover_route(case, input_params, compile_cache, run_timeout, result_dir)
+        attempted_priorities = [int(record["priority"]) for record in trace]
+        route_hit = case.priority in attempted_priorities and priority == case.expected_terminal_priority
+        route_summary.update({
+            "actual_terminal_priority": priority,
+            "tiling_key": key,
+            "attempted_priorities": attempted_priorities,
+            "route_hit": route_hit,
+        })
+        if not route_hit or key is None:
+            print(
+                f"ROUTE MISMATCH: {case.name}, expected trace={case.priority}, "
+                f"expected terminal={case.expected_terminal_priority}, actual terminal={priority}, "
+                f"attempted={attempted_priorities}"
+            )
+            summaries.append(route_summary)
+            continue
+        print(f"ROUTE HIT: {case.name}, priority={priority}, tiling_key={key}")
         if not compile_cache.ensure(case.operator, key):
             summaries.append(route_summary)
             continue
@@ -530,14 +607,20 @@ def main() -> None:
         summaries.append(route_summary)
         print(f"ROUTE END: {case.name}")
 
-    complete = all(summary["baseline_pass"] and int(summary["executed"]) > 0 for summary in summaries)
+    complete = all(
+        summary["route_hit"] and summary["baseline_pass"] and int(summary["executed"]) > 0
+        for summary in summaries
+    )
     summary_document = {
         "complete": complete,
-        "expected_shapes": len(ROUTE_CASES),
-        "baseline_pass_and_executed_shapes": sum(
-            bool(summary["baseline_pass"]) and int(summary["executed"]) > 0 for summary in summaries
+        "expected_routes": len(ROUTE_CASES),
+        "hit_baseline_pass_and_executed_routes": sum(
+            bool(summary["route_hit"])
+            and bool(summary["baseline_pass"])
+            and int(summary["executed"]) > 0
+            for summary in summaries
         ),
-        "shapes": summaries,
+        "routes": summaries,
     }
     summary_path.write_text(json.dumps(summary_document, indent=2, sort_keys=True) + "\n")
     print(f"\nAUDIT {'COMPLETE' if complete else 'INCOMPLETE'}")
