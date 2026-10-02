@@ -445,7 +445,7 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
 
 
 def _select_npu() -> int:
-    parser = argparse.ArgumentParser(description="Audit every FA/FAG validator route on one NPU")
+    parser = argparse.ArgumentParser(description="Audit the configured FA/FAG route on one NPU")
     parser.add_argument("--id", required=True, type=int, help="physical NPU ID")
     args = parser.parse_args()
     if args.id < 0:

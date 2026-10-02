@@ -1,303 +1,85 @@
-## Обзор
+# FA/FAG tiling search
 
-Инструмент формулирует подбор тайлинга как **задачу оптимизации в дискретном пространстве с ограничениями** и решает ее алгоритмами оптимизационного поиска. Качество каждой конфигурации в данный момент оценивается прогоном на симуляторе msprof или на реальном железе.
+This repository adapts the generic optimization framework from the colleague's
+Matmul example to CANN v8.5.0 `FlashAttentionScore` (FA) and
+`FlashAttentionScoreGrad` (FAG).  Matmul operator sources are not part of this
+repository.
 
-## Структура проекта
+## Execution flow
 
-```
-tiling/
-├── base/                 # алгоритмо-независимый каркас
-│   ├── Base.py           #   BaseParam, BaseResult, BaseValidator, BaseAlgo
-│   └── BaseEstimators.py #   BaseAlgoMsprof, BaseAlgoReal — способы оценки
-├── limits/               # описание аппаратных ограничений и доменов поиска
-│   └── limits.py         #   AscendLimits, MatmulLimits
-├── validators/           # доменная логика валидации тайлинга
-│   └── MatmulValidator.py
-└── algs/                 # реализации методов оптимизации
-    ├── ga/               #   генетический алгоритм
-    │   ├── GaAlgo.py
-    │   ├── GaParam.py
-    │   ├── Population.py
-    │   └── GaMatmulValidator.py
-    ├── sa/               #   имитация отжига
-    │   └── SaAlgo.py
-    └── pso/              #   роевой интеллект
-        ├── PsoAlgo.py
-        └── Swarm.py
+For one fixed shape, the PSO algorithm proposes several tiling candidates.  The
+attention validator labels every candidate but does not block it.  Every
+candidate is sent to the patched official Host tiling implementation and then
+executed on the selected NPU:
+
+```text
+shape + PSO candidate
+  -> FA/FAG validator label
+  -> patched CANN Host tiling
+  -> real FA/FAG tiling data
+  -> compiled tiling-key kernel
+  -> correctness and latency
 ```
 
-## Базовый слой (`base`)
+For FA, the searched values are `FA_S1_BASE`, `FA_S2_BASE`, and
+`FA_N_RATIO`.  The Host-side hook is defined in
+`patches/ops_transformer_attention_search.patch`.  FAG hooks are defined in the
+same patch for the generic and SameAB routes.
 
-Алгоритмо-независимый каркас, задающий общие понятия: параметр, результат, валидатор, движок оптимизации.
+The tiling key selects a compiled kernel branch.  Candidate tiling values are
+runtime Host-tiling inputs, so candidates sharing a key reuse the same compiled
+binary.  A new key is compiled only on its first use and is then loaded from
+`out/attention_cache`.
 
-### `BaseParam`
+## Requirements
 
-Один определенный параметр тайлинга. Несет в себе имя, значение, домен параметра и индекс значения в домене. Помимо этого имеет флаг константности, который необходим для опредения параметров, которые не оптимизируются поиском. Имя параметра совпадает с именем переменной окружения, через которую значение передаётся вычислительному ядру.
+- CANN 8.5.0 and an Ascend NPU.
+- The official `ops-transformer` v8.5.0 checkout at
+  `../ops-transformer-official-8.5.0`, or set `OPS_TRANSFORMER_ROOT`.
+- The checkout must be at commit
+  `6ead121aded45355043b502756b6592fd7c30b14`.
+- Python packages used by the colleague's framework: NumPy and pandas.
 
-- `update(index)` — установить значение по индексу в домене;
+Compilation defaults to one job to avoid excessive host resource usage.  It
+can be changed explicitly with `ATTENTION_BUILD_JOBS`.
 
-### `BaseResult`
+## Run
 
-Результат одного шага оптимизации: время (`duration`) и породившая его конфигурация параметров.
-
-### `BaseValidator`
-
-Интерфейс Валидатора. Валидатор необходим для создания изначальной популяции, учета ограничений пространства поиска и возвращения в область допустимых значений параметры. 
-
-- `is_valid(params)` — удовлетворяет ли конфигурация аппаратным ограничениям;
-- `get_combinations(num, const_params)` — сгенерировать набор валидных стартовых конфигураций;
-- `repair(params)` — вернуть невалидную конфигурацию в допустимую область.
-
-### `BaseAlgo`
-
-Интерфейс алгоритма поиска. Задаёт общий каркас, **не зависящий ни от метода оптимизации, ни от способа оценки** конфигурации. Конкретный метод оптимизации доопределяет `run()`, конкретный способ оценки — `_run_estimator()` (см. «Оценщики»).
-
-- `__call__()` — главный цикл поиска: повторяет `run()` до срабатывания `is_stop`, собирает и возвращает список результатов;
-- `run()` — один шаг поиска; **абстрактный**, реализуется конкретным алгоритмом (GA/SA/PSO);
-- `_run_estimator(params)` — оценка одной конфигурации (получение времени выполнения); **абстрактный**, реализуется конкретным оценщиком. Это точка подмены способа оценки — симулятор msprof, реальное железо и т. п.;
-- `_duration(params)` — обёртка оценки: валидная конфигурация оценивается сразу, невалидная сначала чинится через `repair`, и если починить не удалось — возвращается бесконечность. Именно `_duration` (а не `_run_estimator` напрямую) вызывают алгоритмы, поэтому валидация и восстановление работают одинаково при любом оценщике;
-- **кэширование** (`_key`, `_load_cache`, `_save_cache`) — методы для кеширования и загрузки кеша. В кеш попадают отработанные конфигурации и оценки их времени выполнения. Кэш инкрементальный: при сохранении новые записи сливаются с уже имеющимся файлом, повторная конфигурация берётся из кэша без запуска оценки.
-
-Таким образом `BaseAlgo` разведён по **двум независимым осям**: *чем* оптимизируем (`run`) и *как* оцениваем (`_run_estimator`). Это позволяет комбинировать любой алгоритм с любым оценщиком.
-
-## Оценщики (`base/BaseEstimators.py`)
-
-Оценщик определяет, **как** измеряется время конфигурации. Все оценщики наследуют `BaseAlgo` и реализуют `_run_estimator(params)`. Общая схема `_run_estimator` одинакова: проверка кэша → выставление параметров через переменные окружения → очистка результатов прошлого запуска → вызов скрипта-раннера → извлечение времени → запись в кэш.
-
-Отличаются оценщики режимом запуска раннера и источником, из которого читается время:
-
-### `BaseAlgoMsprof`
-
-Оценка на **симуляторе msprof**. Раннер вызывается в режиме `-r sim`. Время извлекается из трассы профилировщика: находится свежая директория профиля `OPPROF_*`, в ней читаются `trace.json`, и латентность вычисляется как размах временной шкалы событий (максимум `ts + dur` минус минимум `ts`). Перед запуском старые `OPPROF_*` удаляются.
-
-### `BaseAlgoReal`
-
-Оценка на **реальном железе (NPU)**. Раннер вызывается в режиме `-r npu`. Время берётся из сводки профилировщика: в свежей директории `OPPROF_*` читается `OpBasicInfo.csv`, из неё берётся значение `Task Duration(us)`. Перед запуском очищается каталог `cceprint`.
-
-Любой оценщик при ошибке (отсутствуют результаты, не удалось прочитать время) возвращает «бесконечность», что для алгоритма означает непригодную конфигурацию.
-
-## Ограничения (`tiling/limits`)
-
-`AscendLimits` — аппаратные ёмкости чипа: число ядер и размеры буферов L0A/L0B/L0C/L1.
-
-`MatmulLimits` — ограничения для поиска на оператор **Matmul**:
-
-- `domains` — словарь `{имя_параметра: список_допустимых_значений}`, задающий **отдельный домен поиска для каждого свободного параметра** (baseM, baseN, baseK, singleM, singleN, stepM, stepN, stepKa, stepKb). Ключ совпадает с именем параметра (и переменной окружения); значение — список допустимых величин, из которого поиск выбирает. Отдельный домен на каждый параметр позволяет сузить или сместить диапазон под конкретную переменную (например, крупные значения для baseK и мелкие для baseM/baseN);
-- `dtype_size` — размер элемента входных данных в байтах.
-
-Это единственное место, где задаются и параметры железа, и границы пространства поиска.
-
-## Валидатор тайлинга (`tiling/validators`)
-
-`MatmulValidator` реализует доменную логику — проверку и восстановление конфигураций тайлинга matmul. Логика **не зависит** от метода оптимизации, поэтому переиспользуется всеми алгоритмами.
-
-Проверяются три группы ограничений:
-
-- **L0-буферы** (`_base_tiles_is_valid`): тайлы `baseM×baseK`, `baseK×baseN` и `baseM×baseN` должны помещаться в L0A/L0B/L0C с учётом двойной буферизации;
-- **число ядер** (`_single_core_is_valid`): `ceil(M/singleM) × ceil(N/singleN)` не превышает числа доступных ядер;
-- **L1-буфер** (`_l1_size_is_valid`): суммарный буфер данных A и B (зависит от base и step) помещается в общий L1.
-
-Для каждого нарушения предусмотрен свой метод восстановления (`_repair_single_core`, `_repair_base_tiles`, `_repair_l1_size`), уменьшающий или увеличивающий соответствующие параметры до попадания в допустимую область. Если починить не удалось, то впоследствии в алгоритме конфигурации должно быть выдано значение "бесконечность" в качестве оценки.
-
-## Параметры тайлинга: свободные, производные, константы
-
-В поиске участвуют не все параметры. Часть подбирается алгоритмом, часть вычисляется из них, часть фиксирована.
-
-| Категория | Параметры | Роль |
-|---|---|---|
-| Вход (константы формы) | M, N, K, dtype | Задаются задачей |
-| Свободные (подбираются) | baseM, baseN, baseK, stepKa, stepKb | Пространство поиска |
-| Константы (фиксированы) | dbL0A, dbL0B, dbL0C, iterOrder | Заданы по умолчанию |
-| Производные (вычисляются) | usedCoreNum, depthA1, depthB1, singleCoreK, Ka, Kb | Определяются из свободных |
-
-Производные параметры не входят в пространство поиска — они детерминированно вычисляются из свободных (например, `usedCoreNum = ceil(M/singleM) × ceil(N/singleN)`, `depthA1 = stepM × stepKa × 2`) уже на стороне вычислительного ядра. Все вычисляемые параметры и ограничения для Matmul описаны в документации [TCubeTiling](https://www.hiascend.com/document/detail/en/canncommercial/800/apiref/ascendcopapi/atlasascendc_api_07_0673.html) 
-
-## Методы оптимизации (`tiling/algs`)
-
-Все три метода реализуют `run()` — один шаг поиска — и переиспользуют инфраструктуру `BaseAlgo` (кэш, валидация, `_duration`). Условие остановки задаётся функцией `is_stop`; типично это ограничение на число шагов.
-
-Способ оценки задаётся тем, какой оценщик подмешан в цепочку наследования: класс алгоритма наследует либо напрямую `BaseAlgo` (тогда `_run_estimator` доопределяется отдельно — например, подмешиванием одного из оценщиков), либо сразу конкретный оценщик (`BaseAlgoMsprof` / `BaseAlgoReal`), фиксируя способ оценки. Так одна реализация алгоритма поиска сочетается с разными оценщиками без изменения его логики.
-
-Общие для всех параметры конструктора: `is_stop` (условие остановки), `validator` (валидатор конфигураций), `input_params` (константные параметры — форма задачи и фиксированные настройки), `runner` (путь к скрипту-раннеру), `cache_path` (файл кэша), `verbose` (подробный вывод). 
-
-### Генетический алгоритм (`algs/ga`)
-
-**Оптимизация.** Эволюционный популяционный поиск. Особенности реализации:
-
-- **Кодирование Грея.** Значения параметров кодируются кодом Грея (`GaParam`): соседние значения домена отличаются ровно одним битом. Это делает мутацию плавной — инверсия одного бита сдвигает параметр на соседнее значение, а не на произвольное далёкое, что удерживает поиск в окрестности.
-- **Элитизм.** Лучшая особь поколения переносится в следующее без изменений. Это гарантирует, что найденное лучшее решение не потеряется из-за мутаций, и попутно избавляет от повторной оценки элиты (её время уже известно).
-- **Операторы.** Одноточечный кроссовер на битовых строках генов, побитовая мутация с вероятностью `mut_rate` на бит, турнирная селекция родителей.
-
-**Классы.** `GaParam` (ген с Грей-кодированием), `Individual`/`Population` (особь и популяция с операторами), `GaMatmulValidator` (валидатор для GA — наследует `MatmulValidator`, переопределяя лишь фабрику `_make_param` для создания `GaParam`).
-
-**Параметры:**
-
-- `pop_size` — размер популяции (число особей в поколении);
-- `mut_rate` — вероятность инверсии каждого бита при мутации;
-- `tournament_k` — размер турнира при селекции (из скольких случайных особей выбирается лучшая).
-
-### Имитация отжига (`algs/sa`)
-
-**Оптимизация.** Одиночный локальный поиск с вероятностным принятием ухудшений. Особенности реализации:
-
-- **Локальный шаг по индексам.** Сосед получается сдвигом **одного** случайного свободного параметра на соседнее значение в домене (индекс ±1). Кодирование не используется — поиск идёт прямо по упорядоченным доменам, поэтому SA работает с обычным `BaseParam` без обёртки.
-- **Правило Метрополиса.** Улучшение принимается всегда; ухудшение — с вероятностью `exp(−Δ/T)`, убывающей по мере остывания. На высокой температуре алгоритм активно исследует пространство (принимает и худшие точки, выбираясь из локальных минимумов), на низкой — сходится к найденному оптимуму.
-- **Расписание охлаждения.** Геометрическое: `T ← T · cooling`, с нижней отсечкой `t_min`. Отдельно сохраняется лучшее из всех виденных решений (возвращается как результат), поэтому случайные ухудшающие переходы не портят итог.
-
-**Параметры:**
-
-- `t_start` — начальная температура (чем выше, тем свободнее принимаются ухудшения на старте);
-- `t_min` — минимальная температура (нижняя граница остывания);
-- `cooling` — коэффициент геометрического охлаждения (доля, на которую температура умножается каждый шаг).
-
-
-### Роевой интеллект (`algs/pso`)
-
-**Оптимизация.** Популяционный поиск с направленным движением частиц. Особенности реализации:
-
-- **Индексное пространство.** Частица живёт в непрерывном пространстве **индексов** доменов: позиция и скорость — вещественные векторы. Это позволяет применить классические формулы PSO к изначально дискретной задаче. При оценке позиция округляется до ближайших индексов, ограничивается границами доменов и приводится в допустимую область валидатором.
-- **Кольцевая топология (ring / lbest).** Каждая частица ориентируется не на глобально лучшее решение всего роя, а на лучшее среди двух своих соседей по кольцу. Информация о хороших решениях расходится по кольцу медленно, что поддерживает разнообразие роя и улучшает поиск на задачах со многими экстремумами и решениями у границ области.
-- **Схема со сжатием (constriction).** Скорость обновляется по формуле `v = χ · (v + c1·r·(pbest − x) + c2·r·(nbest − x))`, где `pbest` — личный лучший результат частицы, `nbest` — лучший среди её соседей по кольцу. Коэффициент сжатия `χ` заменяет инерционный вес и обеспечивает сходимость роя.
-- **Ограничение скорости (velocity clamping).** Модуль скорости по каждой координате ограничен долей размера домена, чтобы частица не «перелетала» пространство поиска за один шаг.
-
-**Классы.** `Particle` (частица: позиция/скорость в индексах, личный лучший), `Swarm` (рой с кольцевой топологией: поиск лучшего соседа, глобально лучшего).
-
-**Параметры:**
-
-- `swarm_size` — число частиц в рое;
-- `chi` — коэффициент сжатия (constriction);
-- `c1` — когнитивный коэффициент (сила притяжения к личному лучшему);
-- `c2` — социальный коэффициент (сила притяжения к лучшему соседу);
-- `v_max_frac` — доля размера домена, ограничивающая максимальную скорость.
-
-## Поток выполнения
-
-1. Создаются `MatmulLimits` (железо и домены), валидатор и список константных параметров (форма задачи + фиксированные настройки).
-2. Создаётся объект алгоритма (`GaAlgo` / `SaAlgo` / `PsoAlgo`); при инициализации он генерирует стартовые конфигурации через `validator.get_combinations`.
-3. Вызов объекта запускает главный цикл `BaseAlgo.__call__`: повторяются шаги `run()` до срабатывания `is_stop`.
-4. Каждая оценка конфигурации (`_duration`) проходит цепочку: проверка валидности → при необходимости восстановление (`repair`) → оценка через `_run_estimator` (запуск выбранного оценщика — симулятор msprof или реальное железо — и извлечение времени). Повторные конфигурации берутся из кэша.
-5. По завершении возвращается список результатов; лучший по времени — итоговая конфигурация тайлинга.
-
-## Расширение
-
-- **Новый метод оптимизации.** Реализовать `run()` (в классе, наследующем `BaseAlgo` или конкретный оценщик). Валидатор, кэш, оценка и метрика переиспользуются.
-- **Новый способ оценки.** Унаследовать `BaseAlgo`, реализовать `_run_estimator` и `_get_time` (по образцу `BaseAlgoMsprof` / `BaseAlgoReal`). Способ оценки не зависит от алгоритма поиска и подмешивается к нему через наследование.
-- **Новый оператор.** Унаследовать `BaseValidator`, реализовать `get_combinations`, `is_valid` и `repair`.
-- **Другая форма задачи или другое железо.** Добавить новый `Limits`.
-
-## FA/FAG official autotiling extraction (CANN v8.5.0)
-
-Before defining a validator, collect the route and the tiling packet emitted by
-the official host code. Backward is the default and builds with one job:
+Select a physical NPU explicitly:
 
 ```bash
-bash get_tiling.sh backward
+python3 main.py --id=4
 ```
 
-Use `bash get_tiling.sh forward` for FA. The script builds host unit tests only;
-it does not run an NPU kernel. It writes the raw log to `autotiling_run.log` and
-the decoded records to `autotiling_results.json`. The decoder recognizes the
-verified FAG `fag_s1s2_bn2` packet, including its vector tile, ownership tile,
-core count and S1/S2 outer counts. Workload-specific DeepSeek/Pangu cases must
-be added only after their exact shapes and attributes are available.
+The active route and shape are configured by the single entry in `ROUTE_CASES`
+inside `attention_main.py`.  The current configuration intentionally runs one
+FA route at a time.
 
-The extraction command above is host-only and does not select an NPU. The
-actual FA/FAG search requires an explicit physical NPU ID; every child latency
-evaluation inherits that selection:
+Each run writes:
 
-```bash
-python3 main.py --id=3
-```
+- `results/attention_audit/validator_audit.jsonl`: one record per PSO candidate;
+- `results/attention_audit/summary.json`: route-level completion and counts;
+- `OPPROF_*`: temporary profiler output used to read latency.
 
-This uses the same framework entry as the Matmul example, but runs the
-validator in audit mode. The ascend910b route corpus contains all six
-registered FA priorities and all ten registered FAG priorities. Official host
-autotiling first records the route priority and tiling key for each
-representative shape. A route is not counted as covered unless the recorded
-priority matches it.
+The four audit categories are:
 
-The validator labels each candidate but does not filter or repair it. Every
-candidate is executed and recorded as one of four outcomes:
+- `validator_accept_runtime_pass`;
+- `validator_accept_runtime_fail`;
+- `validator_reject_runtime_pass`;
+- `validator_reject_runtime_fail`.
 
-- validator accept / runtime pass;
-- validator accept / runtime fail;
-- validator reject / runtime pass;
-- validator reject / runtime fail.
+A failed candidate does not stop the remaining candidates.
 
-A failed candidate or route does not stop later candidates or routes. Detailed
-records are written to `results/attention_audit/validator_audit.jsonl`, and
-route coverage is written to `results/attention_audit/summary.json`.
+## Relevant files
 
-Kernel packages are cached by `ops-transformer commit + SoC + operator +
-tiling_key`. On the first encounter with a key, only that key is compiled. All
-later shapes and tilings using the same key reuse the cached package. Candidate
-tiling parameters do not trigger recompilation. `run_npu.sh` remains only the
-independent one-shape official FAG baseline and is not the audit/search entry
-point.
+- `main.py`: the only user entry point;
+- `attention_main.py`: shape, search domains, validator audit, and PSO wiring;
+- `attention_bench.cpp`: FA/FAG ACLNN launcher and correctness output;
+- `build_attention.sh`: single-key compilation and persistent cache;
+- `run_attention.sh`: cached NPU execution and profiling;
+- `tiling/`: generic search algorithms plus FA/FAG validators;
+- `patches/ops_transformer_attention_search.patch`: candidate-to-Host-tiling bridge.
 
-`build_attention.sh` requires the `v8.5.0` checkout at
-`../ops-transformer-official-8.5.0` by default. A different location can be
-provided through `OPS_TRANSFORMER_ROOT`, but it must point to commit
-`6ead121aded45355043b502756b6592fd7c30b14`; the master branch is not compatible
-with the CANN 8.5 op-build metadata.
-
-## Official FlashAttentionScoreGrad one-shape run
-
-The repository contains an unmodified snapshot of
-`ops-transformer v8.5.0/attention/flash_attention_score_grad`. Before adding
-the optimization framework, verify this official baseline independently on an
-Ascend 910B NPU with CANN 8.5.0:
-
-```bash
-bash run_npu.sh --id=3
-```
-
-The visible devices are re-indexed from zero, so the launcher's fixed
-`aclrtSetDevice(0)` selects the physical NPU passed with `--id`. The runner
-prints this mapping at startup.
-
-The script performs one serial workflow for the single official V2 example
-shape `B=1, N1=N2=1, S1=S2=256, D=128, FP32, SBH`. The matching v8.5.0 host
-tiling test expects tiling key `134258996`, so the package build passes that
-exact key to the official compiler. It does not use JIT and does not compile
-all FAG tiling keys. The script then installs the isolated custom package,
-compiles the unmodified official launcher, and executes that one shape on NPU.
-The default build parallelism is one job. The package and launcher are built
-only when the matching artifacts are absent; later `bash run_npu.sh --id=<NPU_ID>`
-invocations reuse them and go directly to the NPU execution. A failed or
-timed-out NPU run does not cause the next invocation to rebuild. Set
-`FAG_FORCE_REBUILD=1` only when an explicit clean rebuild is wanted.
-
-Package and launcher caching are independent. An existing complete
-`fag_single_key` package from an earlier runner version is adopted even when it
-predates the manifest file. A missing launcher only recompiles the small C++
-launcher; it does not rebuild the FAG kernel package. Cache invalidation is
-limited to an explicit force rebuild or a changed source commit, SoC, tiling
-key, or vendor.
-
-The v8.5.0 build files require CMake 3.21 or newer for correct object-library
-dependency ordering. If the system CMake is older, the script installs CMake
-3.28.3 locally under `out/fag_npu`; it does not replace the system CMake.
-
-If the official `ops-transformer v8.5.0` checkout is not located at
-`../ops-transformer-official-8.5.0`, specify it explicitly:
-
-```bash
-OPS_TRANSFORMER_ROOT=/absolute/path/to/ops-transformer-official-8.5.0 \
-./run_npu.sh
-```
-
-The final status is written to `results/fag_npu/status.txt`; the values printed
-by the official example are stored in `results/fag_npu/run.log`, and the
-complete build/run log is `results/fag_npu/full.log`. The compatibility entry
-`run_fag_baseline.sh` invokes the same `run_npu.sh` workflow.
-
-Every build/run phase also has a timestamped log under
-`results/fag_npu/logs`. On failure the terminal summary reports the failed
-phase, exit code, source line, command, relevant error lines, and log paths.
-Preflight checks name each missing command, official source file, CANN file,
-generated package file, API header/library, or launcher binary explicitly.
-The NPU phase enables CANN info logs automatically. If it times out, the same
-`./run_npu.sh` invocation prints the relevant tiling-key, FlashAttention,
-workspace, ACL/runtime, and kernel diagnostic lines; no second command is
-required.
+`get_tiling.sh` and `autotiling.py` are optional Host-only research utilities
+for extracting official tiling packets.  They are not part of the normal NPU
+search command.

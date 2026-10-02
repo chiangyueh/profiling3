@@ -16,11 +16,6 @@ class OpLimits(AscendLimits):
     domains: dict[str, list[int]]
     
 @dataclass
-class MatmulLimits(OpLimits):
-    dtype_size: int
-
-
-@dataclass
 class AttentionLimits(OpLimits):
     """DAV_2201 resources used by FA/FAG route validators."""
 
