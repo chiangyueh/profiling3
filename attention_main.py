@@ -54,6 +54,10 @@ from tiling import base, estimator_algs, limits, pso, valids
 
 FA = "flash_attention_score"
 FAG = "flash_attention_score_grad"
+BOOTSTRAP_KEYS = {
+    FA: 1144284208,
+    FAG: 74804,
+}
 
 DEFAULT_FEATURES = {
     "DTYPE_BYTES": 4,
@@ -79,7 +83,7 @@ class RouteCase:
     priority: int
     shape: tuple[int, int, int, int, int, int, int]
     features: dict[str, int]
-    tiling_key: int
+    tiling_key: int | None = None
     terminal_priority: int | None = None
 
     @property
@@ -97,9 +101,33 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# Run the two forward routes already verified separately.  Each case carries
-# the key selected by the official v8.5.0 Host tiling for its exact shape.
+# One source-derived representative shape for every registered Ascend 910B
+# FA/FAG route.  The three keys below were already verified on NPU.  For every
+# other route the patched official Host tiling selects its exact key at run
+# time, before that single key is compiled and cached.
 ROUTE_CASES = (
+    RouteCase(
+        "fa_drop_adapter",
+        FA,
+        90,
+        (1, 1, 1, 16, 33, 64, 64),
+        _features(DTYPE_BYTES=2, HAS_DROP=1),
+        terminal_priority=98,
+    ),
+    RouteCase(
+        "fa_varlen",
+        FA,
+        94,
+        (2, 1, 1, 128, 128, 64, 64),
+        _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
+    ),
+    RouteCase(
+        "fa_same_ab",
+        FA,
+        95,
+        (1, 8, 1, 128, 512, 96, 96),
+        _features(DTYPE_BYTES=2),
+    ),
     RouteCase(
         "fa_s1s2",
         FA,
@@ -116,9 +144,94 @@ ROUTE_CASES = (
         _features(DTYPE_BYTES=2),
         tiling_key=1144808752,
     ),
+    RouteCase(
+        "fa_b",
+        FA,
+        98,
+        (1, 1, 1, 16, 16, 64, 64),
+        _features(DTYPE_BYTES=2),
+    ),
+    RouteCase(
+        "fag_deterministic_bn2",
+        FAG,
+        1000,
+        (1, 1, 1, 128, 128, 128, 128),
+        _features(DETERMINISTIC=1),
+    ),
+    RouteCase(
+        "fag_mla",
+        FAG,
+        1001,
+        (2, 1, 1, 128, 128, 64, 64),
+        _features(DTYPE_BYTES=2, LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
+    ),
+    RouteCase(
+        "fag_basic_deterministic",
+        FAG,
+        1002,
+        (1, 1, 1, 1024, 512, 64, 64),
+        _features(
+            DTYPE_BYTES=2,
+            LAYOUT=valids.attention.LAYOUT_TND,
+            DETERMINISTIC=1,
+            HAS_ACTUAL_SEQ=1,
+        ),
+    ),
+    RouteCase(
+        "fag_same_ab_deterministic",
+        FAG,
+        1100,
+        (1, 1, 1, 1024, 512, 64, 64),
+        _features(DTYPE_BYTES=2, DETERMINISTIC=1),
+    ),
+    RouteCase(
+        "fag_unpadded",
+        FAG,
+        2000,
+        (2, 1, 1, 128, 128, 64, 64),
+        _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
+    ),
+    RouteCase(
+        "fag_b",
+        FAG,
+        10000,
+        (1, 1, 1, 16, 16, 64, 64),
+        _features(DTYPE_BYTES=2),
+    ),
+    RouteCase(
+        "fag_n2",
+        FAG,
+        11000,
+        (40, 32, 32, 16, 16, 128, 128),
+        _features(DTYPE_BYTES=2),
+    ),
+    RouteCase(
+        "fag_bn2",
+        FAG,
+        15000,
+        (32, 2, 1, 64, 64, 128, 128),
+        _features(DTYPE_BYTES=2),
+    ),
+    RouteCase(
+        "fag_same_ab",
+        FAG,
+        15500,
+        (1, 4, 1, 2048, 512, 128, 128),
+        _features(DTYPE_BYTES=2),
+    ),
+    RouteCase(
+        "fag_generic",
+        FAG,
+        16000,
+        (1, 8, 1, 128, 1536, 128, 128),
+        _features(),
+        tiling_key=74804,
+    ),
 )
 
-SWARM_SIZE = 4
+# This first all-route pass is deliberately minimal: PSO still performs its
+# initial evaluation and one update, but with one particle per route.
+SWARM_SIZE = 1
 SEARCH_STEPS = 1
 
 ROUTE_CLASSES = {
@@ -291,6 +404,55 @@ class CompileCache:
         return True
 
 
+def discover_route(
+    case: RouteCase,
+    input_params: list[base.BaseParam],
+    compile_cache: CompileCache,
+    run_timeout: int,
+    result_dir: Path,
+) -> tuple[int | None, int | None]:
+    """Ask the official Host tiling code for this shape's route and key."""
+
+    seed_key = BOOTSTRAP_KEYS[case.operator]
+    if not compile_cache.ensure(case.operator, seed_key):
+        return None, None
+
+    trace = result_dir / f"trace_discover_{case.name}.tsv"
+    trace.unlink(missing_ok=True)
+    env = _case_env(case, input_params, seed_key)
+    for name in get_domains(case.name):
+        env.pop(name, None)
+    env["ATTENTION_REFERENCE"] = "1"
+    env["ATTENTION_ROUTE_TRACE"] = str(trace.resolve())
+
+    # Tiling is selected only when the operator is dispatched, not during
+    # GetWorkspaceSize.  A bootstrap binary may therefore report an unbuilt
+    # kernel after writing the trace; that nonzero exit is expected here.
+    timeout = min(run_timeout, 60)
+    print(
+        f"DISCOVERY START: route={case.name}, bootstrap_key={seed_key}, timeout={timeout}s",
+        flush=True,
+    )
+    try:
+        rc = _run_with_timeout(["bash", "./run_attention.sh", "-r", "npu"], env, timeout)
+    except Exception as exc:
+        print(f"DISCOVERY FAILED: route={case.name}, error={exc!r}")
+        return None, None
+
+    selected = [record for record in _read_trace(trace) if record["status"] == 0]
+    if not selected:
+        print(f"DISCOVERY FAILED: route={case.name}, exit={rc}, no successful Host tiling trace")
+        return None, None
+    terminal = selected[-1]
+    priority = int(terminal["priority"])
+    key = int(terminal["tiling_key"])
+    print(
+        f"DISCOVERY RESULT: route={case.name}, priority={priority}, "
+        f"tiling_key={key}, probe_exit={rc}"
+    )
+    return priority, key
+
+
 def prepare_golden(
     case: RouteCase,
     input_params: list[base.BaseParam],
@@ -316,6 +478,19 @@ def prepare_golden(
         return False
     if rc != 0 or not output.is_file() or output.stat().st_size == 0:
         print(f"GOLDEN FAILED: route={case.name}, tiling_key={key}, exit={rc}")
+        return False
+    selected = [record for record in _read_trace(trace) if record["status"] == 0]
+    if not selected:
+        print(f"GOLDEN FAILED: route={case.name}, no successful Host tiling trace")
+        return False
+    terminal = selected[-1]
+    if (int(terminal["priority"]) != case.expected_terminal_priority or
+            int(terminal["tiling_key"]) != key):
+        print(
+            f"GOLDEN FAILED: route={case.name}, expected priority/key="
+            f"{case.expected_terminal_priority}/{key}, actual="
+            f"{terminal['priority']}/{terminal['tiling_key']}"
+        )
         return False
     output.replace(golden)
     return True
@@ -495,7 +670,7 @@ def main() -> None:
             "expected_terminal_priority": case.expected_terminal_priority,
             "shape": case.shape,
             "domains": domains,
-            "tiling_key": case.tiling_key,
+            "tiling_key": None,
             "baseline_pass": False,
             "executed": 0,
             "counts": {},
@@ -505,10 +680,24 @@ def main() -> None:
             f"shape={case.shape}, domains={domains}"
         )
         key = case.tiling_key
-        print(
-            f"ROUTE CONFIGURED: {case.name}, expected_priority={case.expected_terminal_priority}, "
-            f"known_tiling_key={key}; discovery skipped"
-        )
+        if key is None:
+            actual_priority, key = discover_route(
+                case, input_params, compile_cache, run_timeout, result_dir
+            )
+            if key is None or actual_priority != case.expected_terminal_priority:
+                if key is not None:
+                    print(
+                        f"ROUTE MISMATCH: {case.name}, expected_priority="
+                        f"{case.expected_terminal_priority}, actual_priority={actual_priority}"
+                    )
+                summaries.append(route_summary)
+                continue
+        else:
+            print(
+                f"ROUTE CONFIGURED: {case.name}, expected_priority={case.expected_terminal_priority}, "
+                f"verified_tiling_key={key}; discovery skipped"
+            )
+        route_summary["tiling_key"] = key
         if not compile_cache.ensure(case.operator, key):
             summaries.append(route_summary)
             continue
