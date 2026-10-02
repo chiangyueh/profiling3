@@ -54,7 +54,7 @@ from tiling import base, estimator_algs, limits, pso, valids
 
 FA = "flash_attention_score"
 FAG = "flash_attention_score_grad"
-FA_SEED_KEY = 1144284208
+FA_SEED_KEY = 1144808752
 FAG_SEED_KEY = 74804
 
 DEFAULT_FEATURES = {
@@ -105,7 +105,7 @@ def _features(**updates: int) -> dict[str, int]:
 # Run only the forward shape for now.  The key is the one selected by the
 # official v8.5.0 host tiling implementation for this exact shape.
 ROUTE_CASES = (
-    RouteCase("fa_s1s2", FA, 96, (1, 8, 1, 128, 1536, 128, 128), _features()),
+    RouteCase("fa_s1", FA, 97, (1, 8, 1, 128, 512, 128, 128), _features(DTYPE_BYTES=2)),
 )
 
 SWARM_SIZE = 4
