@@ -161,7 +161,7 @@ ALL_FA_ROUTE_CASES = (
 
 ACTIVE_ROUTE = os.environ.get("ATTENTION_ROUTE", "")
 _FA_ROUTE_BY_NAME = {case.name: case for case in ALL_FA_ROUTE_CASES}
-DEFAULT_FA_ROUTE_CASES = (_FA_ROUTE_BY_NAME["fa_drop_adapter"],)
+DEFAULT_FA_ROUTE_CASES = (_FA_ROUTE_BY_NAME["fa_s1s2"],)
 if ACTIVE_ROUTE and ACTIVE_ROUTE not in _FA_ROUTE_BY_NAME:
     raise ValueError(f"unknown ATTENTION_ROUTE: {ACTIVE_ROUTE}")
 ROUTE_CASES = (_FA_ROUTE_BY_NAME[ACTIVE_ROUTE],) if ACTIVE_ROUTE else ()
@@ -216,7 +216,17 @@ def get_domains(route: str) -> dict[str, list[int]]:
             "FA_S2_BASE": [64, 128, 1024],
             "FA_N_RATIO": [1, 2, 8],
         }
-    if route in ("fa_s1s2", "fa_varlen"):
+    if route == "fa_s1s2":
+        return {
+            # A 512-point domain around the official 128x128 / ratio<=8
+            # envelope. Values on both sides of every limit let the NPU audit
+            # measure false accepts and false rejects instead of pre-filtering
+            # the validator's boundary.
+            "FA_S1_BASE": [16, 32, 64, 96, 128, 160, 192, 256],
+            "FA_S2_BASE": [16, 32, 64, 96, 128, 160, 192, 256],
+            "FA_N_RATIO": [1, 2, 4, 5, 6, 8, 12, 16],
+        }
+    if route == "fa_varlen":
         return {
             "FA_S1_BASE": [64, 128, 256],
             "FA_S2_BASE": [64, 128, 2048],
@@ -388,14 +398,20 @@ def _read_effective_tiling(path: Path) -> dict[str, int] | None:
         return None
     for line in reversed(path.read_text().splitlines()):
         fields = line.split("\t")
-        if len(fields) != 3 or fields[0] != "FlashAttentionScoreTilingB":
-            continue
         try:
-            return {
-                "FA_S1_BASE": int(fields[1]),
-                "FA_S2_BASE": int(fields[2]),
-            }
-        except ValueError:
+            if len(fields) == 3 and fields[0] == "FlashAttentionScoreTilingB":
+                return {
+                    "FA_S1_BASE": int(fields[1]),
+                    "FA_S2_BASE": int(fields[2]),
+                    "FA_N_RATIO": 1,
+                }
+            if len(fields) == 4 and fields[0] == "FlashAttentionScoreTilingS1s2Bn2gs1":
+                return {
+                    "FA_S1_BASE": int(fields[1]),
+                    "FA_S2_BASE": int(fields[2]),
+                    "FA_N_RATIO": int(fields[3]),
+                }
+        except (IndexError, ValueError):
             continue
     return None
 
@@ -664,7 +680,7 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
         requested = {
             param.name: param.value
             for param in params
-            if param.name in ("FA_S1_BASE", "FA_S2_BASE")
+            if param.name in ("FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO")
         }
         failures: list[str] = []
         if terminal is None:
@@ -677,7 +693,7 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
             if int(terminal["tiling_key"]) != self.tiling_key:
                 failures.append(f"tiling key {terminal['tiling_key']} != {self.tiling_key}")
         if effective is None:
-            failures.append("effective B tiling trace is missing")
+            failures.append("effective FA tiling trace is missing")
         else:
             for name, value in requested.items():
                 if effective.get(name) != value:
