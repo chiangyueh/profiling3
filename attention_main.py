@@ -107,41 +107,9 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# One source-derived representative shape for every registered Ascend 910B
-# FA/FAG route.  The three keys below were already verified on NPU.  For every
-# other route the patched official Host tiling selects its exact key at run
-# time, before that single key is compiled and cached.
+# Restore the last independently verified single-route FA case.  This is the
+# exact shape and tiling key that completed in 20.txt.
 ROUTE_CASES = (
-    RouteCase(
-        "fa_drop_adapter",
-        FA,
-        90,
-        (1, 1, 1, 16, 33, 64, 64),
-        _features(DTYPE_BYTES=2, HAS_DROP=1),
-        terminal_priority=98,
-    ),
-    RouteCase(
-        "fa_varlen",
-        FA,
-        94,
-        (2, 1, 1, 128, 128, 64, 64),
-        _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
-    ),
-    RouteCase(
-        "fa_same_ab",
-        FA,
-        95,
-        (1, 8, 1, 128, 512, 96, 96),
-        _features(DTYPE_BYTES=2),
-    ),
-    RouteCase(
-        "fa_s1s2",
-        FA,
-        96,
-        (1, 8, 1, 128, 1536, 128, 128),
-        _features(),
-        tiling_key=1144284208,
-    ),
     RouteCase(
         "fa_s1",
         FA,
@@ -150,94 +118,10 @@ ROUTE_CASES = (
         _features(DTYPE_BYTES=2),
         tiling_key=1144808752,
     ),
-    RouteCase(
-        "fa_b",
-        FA,
-        98,
-        (1, 1, 1, 16, 16, 64, 64),
-        _features(DTYPE_BYTES=2),
-    ),
-    RouteCase(
-        "fag_deterministic_bn2",
-        FAG,
-        1000,
-        (1, 1, 1, 128, 128, 128, 128),
-        _features(DETERMINISTIC=1),
-    ),
-    RouteCase(
-        "fag_mla",
-        FAG,
-        1001,
-        (2, 1, 1, 128, 128, 64, 64),
-        _features(DTYPE_BYTES=2, LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
-    ),
-    RouteCase(
-        "fag_basic_deterministic",
-        FAG,
-        1002,
-        (1, 1, 1, 1024, 512, 64, 64),
-        _features(
-            DTYPE_BYTES=2,
-            LAYOUT=valids.attention.LAYOUT_TND,
-            DETERMINISTIC=1,
-            HAS_ACTUAL_SEQ=1,
-        ),
-    ),
-    RouteCase(
-        "fag_same_ab_deterministic",
-        FAG,
-        1100,
-        (1, 1, 1, 1024, 512, 64, 64),
-        _features(DTYPE_BYTES=2, DETERMINISTIC=1),
-    ),
-    RouteCase(
-        "fag_unpadded",
-        FAG,
-        2000,
-        (2, 1, 1, 128, 128, 64, 64),
-        _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
-    ),
-    RouteCase(
-        "fag_b",
-        FAG,
-        10000,
-        (1, 1, 1, 16, 16, 64, 64),
-        _features(DTYPE_BYTES=2),
-    ),
-    RouteCase(
-        "fag_n2",
-        FAG,
-        11000,
-        (40, 32, 32, 16, 16, 128, 128),
-        _features(DTYPE_BYTES=2),
-    ),
-    RouteCase(
-        "fag_bn2",
-        FAG,
-        15000,
-        (32, 2, 1, 64, 64, 128, 128),
-        _features(DTYPE_BYTES=2),
-    ),
-    RouteCase(
-        "fag_same_ab",
-        FAG,
-        15500,
-        (1, 4, 1, 2048, 512, 128, 128),
-        _features(DTYPE_BYTES=2),
-    ),
-    RouteCase(
-        "fag_generic",
-        FAG,
-        16000,
-        (1, 8, 1, 128, 1536, 128, 128),
-        _features(),
-        tiling_key=74804,
-    ),
 )
 
-# This first all-route pass is deliberately minimal: PSO still performs its
-# initial evaluation and one update, but with one particle per route.
-SWARM_SIZE = 1
+# Match the successful single-FA run in 20.txt.
+SWARM_SIZE = 4
 SEARCH_STEPS = 1
 
 ROUTE_CLASSES = {
