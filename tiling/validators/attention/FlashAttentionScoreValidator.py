@@ -42,15 +42,12 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
         s1_base, s2_base, n_ratio = (params[name].value for name in self.tile_names)
         if s1_base <= 0 or s2_base <= 0 or n_ratio <= 0:
             return (False,)
-        s1_align = self._align_up(params["FA_S1"].value, 16)
         s2_align = self._align_up(params["FA_S2"].value, 16)
         tail = s2_align % s2_base or s2_base
         has_drop = self._value(params, "FA_HAS_DROP", 0) == 1
         return (
             s1_base > 0 and s1_base % 16 == 0,
             s2_base > 0 and s2_base % 16 == 0,
-            s1_base <= s1_align,
-            s2_base <= s2_align,
             n_ratio > 0,
             not has_drop or (s2_base > 32 and tail > 32),
         )
@@ -58,8 +55,16 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
     def _local_memory_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
         if any(name not in params for name in self.tile_names[:2]):
             return (False,)
-        s1_base = params["FA_S1_BASE"].value
-        s2_base = params["FA_S2_BASE"].value
+        # SetCoreParams and the kernels operate on the real tail when a
+        # requested base is larger than the aligned sequence length.
+        s1_base = min(
+            params["FA_S1_BASE"].value,
+            self._align_up(params["FA_S1"].value, 16),
+        )
+        s2_base = min(
+            params["FA_S2_BASE"].value,
+            self._align_up(params["FA_S2"].value, 16),
+        )
         # flash_attention_score_tiling_general.cpp uses a two-times FP32 API
         # buffer for the split-S1/S2 families. L0C holds one FP32 score tile.
         api_ub = 2 * s1_base * s2_base * 4
@@ -74,8 +79,9 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
             return False
         if params["FA_S2_BASE"].value <= 0:
             return False
-        s2_outer = self._ceil_div(params["FA_S2"].value, params["FA_S2_BASE"].value)
-        return params["FA_N_RATIO"].value <= s2_outer
+        # The official SetCoreParams clamps a requested ratio to the number
+        # of available S1/S2 outer blocks before storing it in tiling data.
+        return params["FA_N_RATIO"].value > 0
 
     def _all_tile_constraints(self, params: dict[str, BaseParam]) -> bool:
         return (
@@ -163,6 +169,16 @@ class FlashAttentionScoreSameABValidator(_FlashAttentionScoreTilingValidator):
             and params["FA_LAYOUT"].value != LAYOUT_TND
             and _same_ab_shape(params)
         )
+
+    def _local_memory_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
+        if any(name not in params for name in self.tile_names[:2]):
+            return (False,)
+        # SameAB CalcUBSize records the API scratch size but does not reject
+        # the route by that value. Its BMM1 fixed split is capped at 128x128,
+        # so the common full score-tile estimate is not applicable here.
+        base_m = min(params["FA_S1_BASE"].value, params["FA_S1"].value, 128)
+        base_n = min(params["FA_S2_BASE"].value, params["FA_S2"].value, 128)
+        return (base_m * base_n * 4 <= self.limits.L0C_size,)
 
     def get_derived_params(self, params: list[BaseParam]) -> list[BaseParam]:
         values = self._values(params)
