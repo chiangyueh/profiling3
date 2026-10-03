@@ -107,15 +107,16 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# Run the third independently verified FA case from 22.txt by itself.
+# Run the fourth FA case by itself with the key observed in 23.txt.
 ROUTE_CASES = (
     RouteCase(
-        "fa_varlen",
+        "fa_drop_adapter",
         FA,
-        94,
-        (2, 1, 1, 128, 128, 64, 64),
-        _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
-        tiling_key=1145332784,
+        90,
+        (1, 1, 1, 16, 33, 64, 64),
+        _features(DTYPE_BYTES=2, HAS_DROP=1),
+        tiling_key=3258713696,
+        terminal_priority=98,
     ),
 )
 
