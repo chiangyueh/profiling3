@@ -51,7 +51,11 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        int64_t requestedNRatio = GetNRatio();
 +        ReadPositiveSearchEnv("FA_N_RATIO", requestedNRatio);
 +        nRatio = std::min(requestedNRatio, coreParams.get_s1OuterSize());
-@@ -2903,0 +2941,8 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
+@@ -2900,6 +2939,14 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
+     void SetCoreParams() override
+     {
+         auto &coreParams = tilingData->coreParams;
+         auto &inputParams = tilingData->inputParams;
 +        int64_t searchValue = 0;
 +        if (ReadPositiveSearchEnv("FA_S1_BASE", searchValue)) {
 +            s1BasicBlock = searchValue;
@@ -60,8 +64,16 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +            s2BasicBlock = searchValue;
 +        }
 +
-@@ -2917,0 +2963 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
+         int64_t n2 = inputParams.get_n2Size();
+         int64_t g = inputParams.get_gSize();
+@@ -2915,6 +2962,7 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
+         coreParams.set_s2BaseSize(s2BasicBlock);
+         coreParams.set_s2BaseTailSize(CalcTailSize(s2Size, s2BasicBlock));
+         coreParams.set_s2OuterSize(CeilDivision(s2Size, s2BasicBlock));
 +        TraceFlashAttentionScoreBTiling(coreParams.get_s1BaseSize(), coreParams.get_s2BaseSize());
+         coreParams.set_s1Vec2BaseSize(s1Vec2BasicBlock_);
+         coreParams.set_s1Vec2BaseTailSize(CalcTailSize(s1, s1Vec2BasicBlock_));
+         coreParams.set_s1Vec2OuterSize(CeilDivision(s1, s1Vec2BasicBlock_));
 diff --git a/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp b/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
 --- a/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
 +++ b/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
