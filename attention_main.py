@@ -107,15 +107,15 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# Run the fifth FA case by itself with the key observed in 23.txt.
+# Run the sixth FA case by itself with the key observed in 23.txt.
 ROUTE_CASES = (
     RouteCase(
-        "fa_same_ab",
+        "fa_b",
         FA,
-        95,
-        (1, 8, 1, 128, 512, 96, 96),
+        98,
+        (1, 1, 1, 16, 16, 64, 64),
         _features(DTYPE_BYTES=2),
-        tiling_key=1144809008,
+        tiling_key=1111230048,
     ),
 )
 
