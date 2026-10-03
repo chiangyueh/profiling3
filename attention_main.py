@@ -107,20 +107,19 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# Restore the last independently verified single-route FA case.  This is the
-# exact shape and tiling key that completed in 20.txt.
+# Run the third independently verified FA case from 22.txt by itself.
 ROUTE_CASES = (
     RouteCase(
-        "fa_s1",
+        "fa_varlen",
         FA,
-        97,
-        (1, 8, 1, 128, 512, 128, 128),
-        _features(DTYPE_BYTES=2),
-        tiling_key=1144808752,
+        94,
+        (2, 1, 1, 128, 128, 64, 64),
+        _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
+        tiling_key=1145332784,
     ),
 )
 
-# Match the successful single-FA run in 20.txt.
+# Keep the same minimal search size as the previous single-FA runs.
 SWARM_SIZE = 4
 SEARCH_STEPS = 1
 
