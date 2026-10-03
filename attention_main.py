@@ -193,8 +193,13 @@ ROUTE_CLASSES = {
 def get_domains(route: str) -> dict[str, list[int]]:
     if route == "fa_drop_adapter":
         return {
-            "FA_S1_BASE": [16, 32],
-            "FA_S2_BASE": [16, 48, 64, 80],
+            # Search the complete 16-element-aligned B-template tile domain. The
+            # official implementation caps S1 at 256 and budgets 8192
+            # S1-by-S2 elements; extending S2 through 512 deliberately samples
+            # both sides of that hardware boundary so validator mistakes are
+            # observable on the NPU instead of being filtered in advance.
+            "FA_S1_BASE": list(range(16, 257, 16)),
+            "FA_S2_BASE": list(range(16, 513, 16)),
             # FlashAttentionScoreTilingB does not consume nRatio.  Keep the
             # field fixed only because the shared FA validator expects it.
             "FA_N_RATIO": [1],
@@ -913,7 +918,7 @@ def main() -> None:
             runner="./run_attention.sh",
             cache_path=str(
                 result_dir
-                / f"search_cache_explicit_host_v2_{case.name}_{'_'.join(map(str, case.shape))}.json"
+                / f"search_cache_explicit_host_full_v3_{case.name}_{'_'.join(map(str, case.shape))}.json"
             ),
             verbose=True,
             case=case,
