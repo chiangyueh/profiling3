@@ -16,6 +16,9 @@ FA_ROUTE_B = 98
 
 class _FlashAttentionScoreTilingValidator(AttentionValidator):
     tile_names = ("FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO")
+    max_s1_base: int | None = None
+    max_s2_base: int | None = None
+    max_n_ratio: int | None = 8
 
     def __init__(self, limits: AttentionLimits) -> None:
         super().__init__(
@@ -36,29 +39,48 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
         return {}
 
     def _tile_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
-        if any(name not in params for name in self.tile_names):
+        required = self.tile_names + ("FA_S1", "FA_S2")
+        if any(name not in params for name in required):
             return (False,)
         s1_base, s2_base, n_ratio = (params[name].value for name in self.tile_names)
         if s1_base <= 0 or s2_base <= 0 or n_ratio <= 0:
             return (False,)
+        s1_align = self._align_up(params["FA_S1"].value, 16)
         s2_align = self._align_up(params["FA_S2"].value, 16)
         tail = s2_align % s2_base or s2_base
         has_drop = self._value(params, "FA_HAS_DROP", 0) == 1
+        s1_limit = min(s1_align, self.max_s1_base or s1_align)
+        s2_limit = min(s2_align, self.max_s2_base or s2_align)
         return (
-            s1_base > 0 and s1_base % 16 == 0,
-            s2_base > 0 and s2_base % 16 == 0,
-            n_ratio > 0,
+            s1_base % 16 == 0,
+            s2_base % 16 == 0,
+            s1_base <= s1_limit,
+            s2_base <= s2_limit,
             not has_drop or (s2_base > 32 and tail > 32),
+            *self._route_tile_is_valid(params),
         )
+
+    def _route_tile_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
+        """Resource rules that differ between the official FA templates."""
+
+        return (True,)
 
     def _parallel_window_is_valid(self, params: dict[str, BaseParam]) -> bool:
         if any(name not in params for name in self.tile_names):
             return False
-        if params["FA_S2_BASE"].value <= 0:
+        s2_base = params["FA_S2_BASE"].value
+        n_ratio = params["FA_N_RATIO"].value
+        if s2_base <= 0 or n_ratio <= 0:
             return False
-        # The official SetCoreParams clamps a requested ratio to the number
-        # of available S1/S2 outer blocks before storing it in tiling data.
-        return params["FA_N_RATIO"].value > 0
+        # SetCoreParams stores min(GetNRatio(), s2OuterSize).  Values above
+        # this range do not describe the effective tiling and only alias a
+        # smaller ratio, so reject them before the optimizer treats them as a
+        # distinct configuration.
+        s2_outer = self._ceil_div(params["FA_S2"].value, s2_base)
+        limit = s2_outer
+        if self.max_n_ratio is not None:
+            limit = min(limit, self.max_n_ratio)
+        return n_ratio <= max(1, limit)
 
     def _all_tile_constraints(self, params: dict[str, BaseParam]) -> bool:
         return (
@@ -100,6 +122,10 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
 class FlashAttentionScoreGeneralValidator(_FlashAttentionScoreTilingValidator):
     """Validator for priority-96 ``flash_attention_score_s1s2_bn2gs1``."""
 
+    # CalcS1S2BasicBlock selects at most 128 elements on both split axes.
+    max_s1_base = 128
+    max_s2_base = 128
+
     def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
         if not all(self._shape_is_valid(params)):
             return False
@@ -140,6 +166,10 @@ def _same_ab_shape(params: dict[str, BaseParam]) -> bool:
 class FlashAttentionScoreSameABValidator(_FlashAttentionScoreTilingValidator):
     """Validator for priority-95 ``flash_attention_score_s1s2_*_sab``."""
 
+    # SameAB normally uses 256 and may select the official 384 best block.
+    max_s1_base = 384
+    max_s2_base = 128
+
     def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
         return (
             all(self._shape_is_valid(params))
@@ -158,6 +188,27 @@ class FlashAttentionScoreSameABValidator(_FlashAttentionScoreTilingValidator):
 
 class FlashAttentionScoreS1Validator(_FlashAttentionScoreTilingValidator):
     """Validator for priority-97 ``flash_attention_score_s1_bn2gs1``."""
+
+    # The basic S1 block is at most 128 and the Host may combine at most four
+    # adjacent blocks. S2 is never tiled above 128 in this template.
+    max_s1_base = 128 * 4
+    max_s2_base = 128
+    max_n_ratio = 4
+
+    def _route_tile_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
+        # SetCoreParams grows the effective S1 block only while its full-S2
+        # workspace stays within workspaceLimit = 128 Ki elements.
+        return (
+            params["FA_S1_BASE"].value
+            * self._align_up(params["FA_S2"].value, 16)
+            <= 128 * 1024,
+        )
+
+    def _parallel_window_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        if "FA_N_RATIO" not in params:
+            return False
+        n_ratio = params["FA_N_RATIO"].value
+        return 0 < n_ratio <= self.max_n_ratio
 
     def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
         if not all(self._shape_is_valid(params)) or params["FA_LAYOUT"].value == LAYOUT_TND:
@@ -185,6 +236,24 @@ class FlashAttentionScoreS1Validator(_FlashAttentionScoreTilingValidator):
 
 class FlashAttentionScoreBValidator(_FlashAttentionScoreTilingValidator):
     """Validator for priority-98 ``flash_attention_score_b``."""
+
+    max_s1_base = 256
+    max_n_ratio = 1
+
+    def _route_tile_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
+        # FlashAttentionScoreTilingB derives S1 from blockBUBSizeLimit_ (8192
+        # score elements). This is a tile-local limit, independent of the
+        # route's separate 128-KiB whole-shape admission check.
+        return (
+            params["FA_S1_BASE"].value * params["FA_S2_BASE"].value <= 8 * 1024,
+        )
+
+    def _parallel_window_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        # The B template has no S1/S2 N:1 combination in SetCoreParams.
+        return (
+            "FA_N_RATIO" in params
+            and params["FA_N_RATIO"].value == self.max_n_ratio
+        )
 
     def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
         if not all(self._shape_is_valid(params)) or params["FA_LAYOUT"].value == LAYOUT_TND:
@@ -224,6 +293,11 @@ class FlashAttentionScoreDropAdapterValidator(FlashAttentionScoreBValidator):
 
 class FlashAttentionScoreVarLenValidator(_FlashAttentionScoreTilingValidator):
     """Validator for priority-94 TND ``flash_attention_var_len_score``."""
+
+    # TND defaults to 128, may choose 256/512 from actual-sequence statistics,
+    # and always caps the S2 block at 128.
+    max_s1_base = 512
+    max_s2_base = 128
 
     def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
         return (
