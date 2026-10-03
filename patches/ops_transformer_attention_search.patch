@@ -1,9 +1,10 @@
 diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
 --- a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
 +++ b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
-@@ -15,0 +16 @@
+@@ -15,0 +16,2 @@
 +#include <cstdlib>
-@@ -30,0 +32,15 @@ namespace FA {
++#include <fstream>
+@@ -30,0 +33,27 @@ namespace FA {
 +static bool ReadPositiveSearchEnv(const char *name, int64_t &value)
 +{
 +    const char *raw = std::getenv(name);
@@ -17,6 +18,18 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +    }
 +    value = static_cast<int64_t>(parsed);
 +    return true;
++}
++
++static void TraceFlashAttentionScoreBTiling(int64_t s1Base, int64_t s2Base)
++{
++    const char *path = std::getenv("ATTENTION_EFFECTIVE_TILING_TRACE");
++    if (path == nullptr || *path == '\0') {
++        return;
++    }
++    std::ofstream output(path, std::ios::app);
++    if (output.is_open()) {
++        output << "FlashAttentionScoreTilingB" << '\t' << s1Base << '\t' << s2Base << '\n';
++    }
 +}
 +
 @@ -1922,0 +1939,8 @@ void FlashAttentionScoreTilingBase::SetCoreParams()
@@ -38,6 +51,17 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        int64_t requestedNRatio = GetNRatio();
 +        ReadPositiveSearchEnv("FA_N_RATIO", requestedNRatio);
 +        nRatio = std::min(requestedNRatio, coreParams.get_s1OuterSize());
+@@ -2903,0 +2941,8 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
++        int64_t searchValue = 0;
++        if (ReadPositiveSearchEnv("FA_S1_BASE", searchValue)) {
++            s1BasicBlock = searchValue;
++        }
++        if (ReadPositiveSearchEnv("FA_S2_BASE", searchValue)) {
++            s2BasicBlock = searchValue;
++        }
++
+@@ -2917,0 +2963 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
++        TraceFlashAttentionScoreBTiling(coreParams.get_s1BaseSize(), coreParams.get_s2BaseSize());
 diff --git a/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp b/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
 --- a/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
 +++ b/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp

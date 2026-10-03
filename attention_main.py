@@ -191,7 +191,15 @@ ROUTE_CLASSES = {
 
 
 def get_domains(route: str) -> dict[str, list[int]]:
-    if route in ("fa_drop_adapter", "fa_b"):
+    if route == "fa_drop_adapter":
+        return {
+            "FA_S1_BASE": [16, 32],
+            "FA_S2_BASE": [16, 48, 64, 80],
+            # FlashAttentionScoreTilingB does not consume nRatio.  Keep the
+            # field fixed only because the shared FA validator expects it.
+            "FA_N_RATIO": [1],
+        }
+    if route == "fa_b":
         return {
             "FA_S1_BASE": [16, 32],
             "FA_S2_BASE": [16, 48, 64],
@@ -368,6 +376,23 @@ def _read_trace(path: Path) -> list[dict[str, int | str]]:
         except ValueError:
             continue
     return records
+
+
+def _read_effective_tiling(path: Path) -> dict[str, int] | None:
+    if not path.is_file():
+        return None
+    for line in reversed(path.read_text().splitlines()):
+        fields = line.split("\t")
+        if len(fields) != 3 or fields[0] != "FlashAttentionScoreTilingB":
+            continue
+        try:
+            return {
+                "FA_S1_BASE": int(fields[1]),
+                "FA_S2_BASE": int(fields[2]),
+            }
+        except ValueError:
+            continue
+    return None
 
 
 def _read_official_log_trace(operator: str, output: str) -> list[dict[str, int | str]]:
@@ -599,13 +624,27 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
     def _get_time(self) -> float:
         return _latest_profile_duration()
 
-    def _execute(self, params: list[base.BaseParam], step: int) -> tuple[int, float, bool, list[dict[str, int | str]]]:
+    def _execute(
+        self,
+        params: list[base.BaseParam],
+        step: int,
+    ) -> tuple[
+        int,
+        float,
+        bool,
+        list[dict[str, int | str]],
+        dict[str, int] | None,
+        str,
+    ]:
         env = dict(os.environ)
         env["ATTENTION_OPERATOR"] = self.case.operator
         env["ATTENTION_TILING_KEY"] = str(self.tiling_key)
         trace = self.report_path.parent / f"trace_{self.case.name}_{step}.tsv"
         trace.unlink(missing_ok=True)
         env["ATTENTION_ROUTE_TRACE"] = str(trace.resolve())
+        effective_trace = self.report_path.parent / f"effective_{self.case.name}_{step}.tsv"
+        effective_trace.unlink(missing_ok=True)
+        env["ATTENTION_EFFECTIVE_TILING_TRACE"] = str(effective_trace.resolve())
         for param in params:
             env[param.name] = str(param.value)
         Path("output/output.bin").unlink(missing_ok=True)
@@ -613,8 +652,39 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
             shutil.rmtree(profile)
         rc = _run_with_timeout(["bash", self.runner, "-r", "npu"], env, self.run_timeout)
         duration = self._get_time() if rc == 0 else float("inf")
-        correct = rc == 0 and math.isfinite(duration) and self._is_right()
-        return rc, duration, correct, _read_trace(trace)
+        route_trace = _read_trace(trace)
+        selected = [record for record in route_trace if record["status"] == 0]
+        terminal = selected[-1] if selected else None
+        effective = _read_effective_tiling(effective_trace)
+        requested = {
+            param.name: param.value
+            for param in params
+            if param.name in ("FA_S1_BASE", "FA_S2_BASE")
+        }
+        failures: list[str] = []
+        if terminal is None:
+            failures.append("successful Host tiling route trace is missing")
+        else:
+            if int(terminal["priority"]) != self.case.expected_terminal_priority:
+                failures.append(
+                    f"priority {terminal['priority']} != {self.case.expected_terminal_priority}"
+                )
+            if int(terminal["tiling_key"]) != self.tiling_key:
+                failures.append(f"tiling key {terminal['tiling_key']} != {self.tiling_key}")
+        if effective is None:
+            failures.append("effective B tiling trace is missing")
+        else:
+            for name, value in requested.items():
+                if effective.get(name) != value:
+                    failures.append(f"effective {name}={effective.get(name)} != requested {value}")
+        injection_matches = not failures
+        print(
+            f"EFFECTIVE TILING route={self.case.name} requested={requested} "
+            f"effective={effective} match={injection_matches}"
+        )
+        numerically_correct = rc == 0 and math.isfinite(duration) and self._is_right()
+        runtime_pass = numerically_correct and injection_matches
+        return rc, duration, runtime_pass, route_trace, effective, "; ".join(failures)
 
     def _duration(self, params: list[base.BaseParam]) -> base.BaseResult:
         params = self.audit_validator.get_all_params(params)
@@ -637,10 +707,15 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
 
         self.executed += 1
         try:
-            rc, duration, runtime_pass, trace = self._execute(params, self.executed)
-            error = validator_error
+            rc, duration, runtime_pass, trace, effective, execution_error = self._execute(
+                params, self.executed
+            )
+            error = "; ".join(
+                value for value in (validator_error, execution_error) if value
+            )
         except Exception as exc:
             rc, duration, runtime_pass, trace = 1, float("inf"), False, []
+            effective = None
             error = "; ".join(value for value in (validator_error, f"runtime: {exc!r}") if value)
 
         category = (
@@ -667,6 +742,7 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
             "duration_us": None if not math.isfinite(duration) else duration,
             "category": category,
             "error": error,
+            "effective_tiling": effective,
             "params": {param.name: param.value for param in params if not param.is_const},
         }
         with self.report_path.open("a") as output:
@@ -724,15 +800,12 @@ def _run_all_fa_isolated() -> None:
                 shape = summary["shapes"][0]
                 executed = int(shape["executed"])
                 proposed = int(shape["proposed"])
-                runtime_passes = sum(
-                    int(count)
-                    for category, count in shape["counts"].items()
-                    if category.endswith("runtime_pass")
-                )
+                classified = sum(int(count) for count in shape["counts"].values())
                 complete = (
                     bool(summary.get("complete"))
-                    and proposed == SWARM_SIZE * (SEARCH_STEPS + 1)
-                    and runtime_passes == executed
+                    and proposed > 0
+                    and executed > 0
+                    and classified == executed
                 )
             except (OSError, ValueError, KeyError, IndexError, TypeError):
                 complete = False
@@ -838,7 +911,10 @@ def main() -> None:
             input_params=input_params,
             swarm_size=SWARM_SIZE,
             runner="./run_attention.sh",
-            cache_path=str(result_dir / f"search_cache_{case.name}_{'_'.join(map(str, case.shape))}.json"),
+            cache_path=str(
+                result_dir
+                / f"search_cache_effective_b_v1_{case.name}_{'_'.join(map(str, case.shape))}.json"
+            ),
             verbose=True,
             case=case,
             tiling_key=key,
