@@ -57,8 +57,12 @@ from tiling import base, estimator_algs, limits, pso, valids
 FA = "flash_attention_score"
 FAG = "flash_attention_score_grad"
 BOOTSTRAP_KEYS = {
-    FA: 1144284208,
-    FAG: 74804,
+    (FA, 4): 1144284208,
+    (FA, 2): 1144808752,
+    (FAG, 4): 74804,
+    # Official FlashAttentionScoreGraTilingMla::GetTilingKey() for FP16:
+    # GET_TPL_TILING_KEY(9, 9, 9, 0, 3, 0, ...).
+    (FAG, 2): 26214,
 }
 
 DEFAULT_FEATURES = {
@@ -511,7 +515,7 @@ def discover_route(
 ) -> tuple[int | None, int | None]:
     """Ask the official Host tiling code for this shape's route and key."""
 
-    seed_key = BOOTSTRAP_KEYS[case.operator]
+    seed_key = BOOTSTRAP_KEYS[(case.operator, case.features["DTYPE_BYTES"])]
     if not compile_cache.ensure(case.operator, seed_key):
         return None, None
 
