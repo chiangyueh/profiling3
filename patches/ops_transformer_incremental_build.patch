@@ -1,0 +1,12 @@
+diff --git a/build.sh b/build.sh
+--- a/build.sh
++++ b/build.sh
+@@ -342,7 +342,7 @@ function set_env()
+ 
+ function clean()
+ {
+-    if [ -n "${BUILD_DIR}" ];then
++    if [ -n "${BUILD_DIR}" ] && [ "${ATTENTION_INCREMENTAL_BUILD:-0}" != "1" ];then
+         rm -rf ${BUILD_DIR}
+     fi
+ 

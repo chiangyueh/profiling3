@@ -14,9 +14,11 @@ CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/${OPERATOR}/${TILING_KEY
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/attention_npu"
 PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_attention_search.patch"
+BUILD_PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_incremental_build.patch"
 CACHE_MANIFEST="${CACHE_DIR}/build_manifest.txt"
 PACKAGE_MANIFEST="${OPS_ROOT}/build/attention_search_package_manifest.txt"
 PATCH_ACTIVE=0
+BUILD_PATCH_ACTIVE=0
 
 latest_package() {
     local roots=()
@@ -37,6 +39,12 @@ restore_official_source() {
     if [[ "${PATCH_ACTIVE}" == "1" ]] && \
        git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
         git -C "${OPS_ROOT}" apply --unidiff-zero --reverse "${PATCH_FILE}"
+    fi
+    if [[ "${BUILD_PATCH_ACTIVE}" == "1" ]] && \
+       git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
+        git -C "${OPS_ROOT}" apply --reverse "${BUILD_PATCH_FILE}"
+    fi
+    if [[ "${PATCH_ACTIVE}" == "1" || "${BUILD_PATCH_ACTIVE}" == "1" ]]; then
         echo "[INFO] restored the pristine ops-transformer v8.5.0 source"
     fi
 }
@@ -121,8 +129,21 @@ else
         exit 1
     fi
 
+    if git -C "${OPS_ROOT}" apply --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
+        git -C "${OPS_ROOT}" apply "${BUILD_PATCH_FILE}"
+        BUILD_PATCH_ACTIVE=1
+        echo "[INFO] preserving the shared build tree between tiling keys"
+    elif git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
+        BUILD_PATCH_ACTIVE=1
+        echo "[INFO] incremental build hook is already applied"
+    else
+        echo "[ERROR] the incremental-build patch does not match this ops-transformer revision" >&2
+        exit 1
+    fi
+
     (
         cd "${OPS_ROOT}"
+        export ATTENTION_INCREMENTAL_BUILD=1
         bash build.sh -j"${JOBS}" \
             --ops="${OPERATOR}" \
             --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
