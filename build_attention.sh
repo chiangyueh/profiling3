@@ -86,13 +86,20 @@ EVALUATOR_FINGERPRINT=$(printf '%s\n' \
     "bench=${BENCH_SHA256}")
 CACHED_CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
     -name '*_transformer' -print 2>/dev/null | head -n 1 || true)
-
-if [[ -x "${BINARY}" && \
-      -n "${CACHED_CUSTOM_ROOT}" && \
+CACHED_PACKAGE_REUSABLE=0
+if [[ -n "${CACHED_CUSTOM_ROOT}" && \
       -f "${CACHED_CUSTOM_ROOT}/bin/set_env.bash" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_${OPERATOR}.h" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" && \
-      -f "${CACHE_MANIFEST}" && \
+      -f "${CACHE_MANIFEST}" ]]; then
+    CACHED_PACKAGE_FINGERPRINT=$(grep -v '^bench=' "${CACHE_MANIFEST}" || true)
+    if [[ "${CACHED_PACKAGE_FINGERPRINT}" == "${PACKAGE_FINGERPRINT}" ]]; then
+        CACHED_PACKAGE_REUSABLE=1
+    fi
+fi
+
+if [[ -x "${BINARY}" && \
+      "${CACHED_PACKAGE_REUSABLE}" == "1" && \
       "$(<"${CACHE_MANIFEST}")" == "${EVALUATOR_FINGERPRINT}" ]]; then
     echo "[INFO] cache hit: ${OPERATOR} tiling key ${TILING_KEY}"
     echo "[INFO] reusing ${BINARY}"
@@ -101,72 +108,78 @@ fi
 
 echo "[INFO] evaluator cache miss: checking ${OPERATOR} package for tiling key ${TILING_KEY}"
 
-PACKAGE=$(latest_package)
-PACKAGE_REUSABLE=0
-if [[ -n "${PACKAGE}" && -f "${PACKAGE_MANIFEST}" && \
-      "$(<"${PACKAGE_MANIFEST}")" == "${PACKAGE_FINGERPRINT}" ]]; then
-    PACKAGE_REUSABLE=1
-elif [[ -n "${PACKAGE}" && -f "${OPS_ROOT}/build/CMakeCache.txt" && \
-        "${PACKAGE}" -nt "${PATCH_FILE}" ]] && \
-     grep -Eq "^ASCEND_OP_NAME(:[^=]*)?=${OPERATOR}$" "${OPS_ROOT}/build/CMakeCache.txt" && \
-     grep -Eq "^TILING_KEY(:[^=]*)?=${TILING_KEY}$" "${OPS_ROOT}/build/CMakeCache.txt"; then
-    PACKAGE_REUSABLE=1
-fi
-
-if [[ "${PACKAGE_REUSABLE}" == "1" ]]; then
-    echo "[INFO] reusing completed single-key package: ${PACKAGE}"
+if [[ "${CACHED_PACKAGE_REUSABLE}" == "1" ]]; then
+    echo "[INFO] operator package cache hit: ${CACHED_CUSTOM_ROOT}"
+    echo "[INFO] only the lightweight attention launcher will be rebuilt"
+    CUSTOM_ROOT="${CACHED_CUSTOM_ROOT}"
 else
-    echo "[INFO] package cache miss: compiling ${OPERATOR} tiling key ${TILING_KEY} once"
-    if git -C "${OPS_ROOT}" apply --unidiff-zero --check "${PATCH_FILE}" 2>/dev/null; then
-        git -C "${OPS_ROOT}" apply --unidiff-zero "${PATCH_FILE}"
-        PATCH_ACTIVE=1
-        echo "[INFO] applied FA/FAG search-parameter hook"
-    elif git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
-        PATCH_ACTIVE=1
-        echo "[INFO] FA/FAG search-parameter hook is already applied"
-    else
-        echo "[ERROR] the FA/FAG patch does not match this ops-transformer revision" >&2
-        exit 1
-    fi
-
-    if git -C "${OPS_ROOT}" apply --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
-        git -C "${OPS_ROOT}" apply "${BUILD_PATCH_FILE}"
-        BUILD_PATCH_ACTIVE=1
-        echo "[INFO] preserving the shared build tree between tiling keys"
-    elif git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
-        BUILD_PATCH_ACTIVE=1
-        echo "[INFO] incremental build hook is already applied"
-    else
-        echo "[ERROR] the incremental-build patch does not match this ops-transformer revision" >&2
-        exit 1
-    fi
-
-    (
-        cd "${OPS_ROOT}"
-        export ATTENTION_INCREMENTAL_BUILD=1
-        bash build.sh -j"${JOBS}" \
-            --ops="${OPERATOR}" \
-            --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
-    )
     PACKAGE=$(latest_package)
-fi
+    PACKAGE_REUSABLE=0
+    if [[ -n "${PACKAGE}" && -f "${PACKAGE_MANIFEST}" && \
+          "$(<"${PACKAGE_MANIFEST}")" == "${PACKAGE_FINGERPRINT}" ]]; then
+        PACKAGE_REUSABLE=1
+    elif [[ -n "${PACKAGE}" && -f "${OPS_ROOT}/build/CMakeCache.txt" && \
+            "${PACKAGE}" -nt "${PATCH_FILE}" ]] && \
+         grep -Eq "^ASCEND_OP_NAME(:[^=]*)?=${OPERATOR}$" "${OPS_ROOT}/build/CMakeCache.txt" && \
+         grep -Eq "^TILING_KEY(:[^=]*)?=${TILING_KEY}$" "${OPS_ROOT}/build/CMakeCache.txt"; then
+        PACKAGE_REUSABLE=1
+    fi
 
-if [[ -z "${PACKAGE}" ]]; then
-    echo "[ERROR] custom operator .run package was not produced" >&2
-    exit 1
-fi
+    if [[ "${PACKAGE_REUSABLE}" == "1" ]]; then
+        echo "[INFO] reusing completed single-key package: ${PACKAGE}"
+    else
+        echo "[INFO] package cache miss: compiling ${OPERATOR} tiling key ${TILING_KEY} once"
+        if git -C "${OPS_ROOT}" apply --unidiff-zero --check "${PATCH_FILE}" 2>/dev/null; then
+            git -C "${OPS_ROOT}" apply --unidiff-zero "${PATCH_FILE}"
+            PATCH_ACTIVE=1
+            echo "[INFO] applied FA/FAG search-parameter hook"
+        elif git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
+            PATCH_ACTIVE=1
+            echo "[INFO] FA/FAG search-parameter hook is already applied"
+        else
+            echo "[ERROR] the FA/FAG patch does not match this ops-transformer revision" >&2
+            exit 1
+        fi
 
-mkdir -p "$(dirname "${PACKAGE_MANIFEST}")"
-printf '%s\n' "${PACKAGE_FINGERPRINT}" > "${PACKAGE_MANIFEST}"
+        if git -C "${OPS_ROOT}" apply --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
+            git -C "${OPS_ROOT}" apply "${BUILD_PATCH_FILE}"
+            BUILD_PATCH_ACTIVE=1
+            echo "[INFO] preserving the shared build tree between tiling keys"
+        elif git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
+            BUILD_PATCH_ACTIVE=1
+            echo "[INFO] incremental build hook is already applied"
+        else
+            echo "[ERROR] the incremental-build patch does not match this ops-transformer revision" >&2
+            exit 1
+        fi
 
-mkdir -p "${INSTALL_ROOT}"
-"${PACKAGE}" --quiet --install-path="${INSTALL_ROOT}"
+        (
+            cd "${OPS_ROOT}"
+            export ATTENTION_INCREMENTAL_BUILD=1
+            bash build.sh -j"${JOBS}" \
+                --ops="${OPERATOR}" \
+                --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
+        )
+        PACKAGE=$(latest_package)
+    fi
 
-CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
-    -name '*_transformer' -print | head -n 1)
-if [[ -z "${CUSTOM_ROOT}" ]]; then
-    echo "[ERROR] installed custom operator tree was not found under ${INSTALL_ROOT}" >&2
-    exit 1
+    if [[ -z "${PACKAGE}" ]]; then
+        echo "[ERROR] custom operator .run package was not produced" >&2
+        exit 1
+    fi
+
+    mkdir -p "$(dirname "${PACKAGE_MANIFEST}")"
+    printf '%s\n' "${PACKAGE_FINGERPRINT}" > "${PACKAGE_MANIFEST}"
+
+    mkdir -p "${INSTALL_ROOT}"
+    "${PACKAGE}" --quiet --install-path="${INSTALL_ROOT}"
+
+    CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
+        -name '*_transformer' -print | head -n 1)
+    if [[ -z "${CUSTOM_ROOT}" ]]; then
+        echo "[ERROR] installed custom operator tree was not found under ${INSTALL_ROOT}" >&2
+        exit 1
+    fi
 fi
 
 CUSTOM_INCLUDE="${CUSTOM_ROOT}/op_api/include/aclnnop"
