@@ -68,7 +68,7 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
          coreParams.set_s1Vec2BaseSize(s1Vec2BasicBlock_);
          coreParams.set_s1Vec2BaseTailSize(CalcTailSize(s1, s1Vec2BasicBlock_));
          coreParams.set_s1Vec2OuterSize(CeilDivision(s1, s1Vec2BasicBlock_));
-@@ -3190,0 +3239,17 @@ class FlashAttentionScoreTilingS1s2Bn2gs1 : public FlashAttentionScoreTilingBase {
+@@ -3191,0 +3242,17 @@ class FlashAttentionScoreTilingS1s2Bn2gs1 : public FlashAttentionScoreTilingBase {
 +    void SetCoreParams() override
 +    {
 +        int64_t searchValue = 0;
