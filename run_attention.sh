@@ -85,6 +85,10 @@ if [[ -d "${INSTALL_ROOT}/vendors" ]]; then
 fi
 if [[ -n "${SET_ENV}" ]]; then
     source "${SET_ENV}"
+    export ATTENTION_CUSTOM_OPP_ROOT="${SET_ENV%/bin/set_env.bash}"
+else
+    echo "[ERROR]: cached custom OPP environment is missing under ${INSTALL_ROOT}" >&2
+    exit 2
 fi
 
 if [[ ! -x "${ATTENTION_BINARY}" ]]; then

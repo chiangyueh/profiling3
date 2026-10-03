@@ -195,7 +195,7 @@ g++ -O2 -std=c++17 "${MODE_DEFINE}" "${SCRIPT_DIR}/attention_bench.cpp" \
     -I"${ASCEND_ROOT}/include" -I"${CUSTOM_INCLUDE}" \
     -L"${CUSTOM_LIBRARY}" -L"${TOOLKIT_LIBRARY}" \
     -Wl,-rpath,"${CUSTOM_LIBRARY}" -Wl,-rpath,"${TOOLKIT_LIBRARY}" \
-    -lcust_opapi -lopapi_math -lascendcl -lnnopbase -lc_sec \
+    -lcust_opapi -lopapi_math -lascendcl -lnnopbase -lc_sec -ldl \
     -o "${BINARY}"
 
 mkdir -p "${INSTALL_ROOT}"

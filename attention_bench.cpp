@@ -11,13 +11,45 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dlfcn.h>
 #include <fstream>
 #include <limits>
 #include <string>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 namespace {
+
+void *LoadCustomTilingLibrary()
+{
+    const char *root = std::getenv("ATTENTION_CUSTOM_OPP_ROOT");
+    if (root == nullptr || *root == '\0') {
+        std::fprintf(stderr, "[ERROR] ATTENTION_CUSTOM_OPP_ROOT is not set\n");
+        return nullptr;
+    }
+
+    const std::vector<std::string> candidates = {
+        std::string(root) + "/op_impl/ai_core/tbe/op_tiling/lib/linux/x86_64/libcust_opmaster_rt2.0.so",
+        std::string(root) + "/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64/libcust_opmaster_rt2.0.so",
+        std::string(root) + "/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+    };
+    for (const std::string &path : candidates) {
+        if (access(path.c_str(), R_OK) != 0) {
+            continue;
+        }
+        dlerror();
+        void *handle = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
+        if (handle != nullptr) {
+            std::fprintf(stdout, "[INFO] loaded custom Host tiling library: %s\n", path.c_str());
+            return handle;
+        }
+        std::fprintf(stderr, "[ERROR] dlopen(%s) failed: %s\n", path.c_str(), dlerror());
+        return nullptr;
+    }
+    std::fprintf(stderr, "[ERROR] custom Host tiling library is missing under %s\n", root);
+    return nullptr;
+}
 
 int64_t EnvI64(const char *name, int64_t fallback)
 {
@@ -448,6 +480,14 @@ int RunBackward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s
 
 int main()
 {
+    // Load the cached custom Host tiling implementation before ACLNN resolves
+    // FlashAttentionScore.  Candidate values are consumed at runtime, so a
+    // new shape or PSO proposal must not trigger another operator build.
+    void *tilingLibrary = LoadCustomTilingLibrary();
+    if (tilingLibrary == nullptr) {
+        return 2;
+    }
+
     const bool grad = EnvI64("ATTENTION_GRAD", 0) != 0;
     const char *prefix = grad ? "FAG" : "FA";
     const auto parameter = [prefix](const char *suffix, int64_t fallback) {
@@ -504,5 +544,6 @@ int main()
     aclrtDestroyStream(stream);
     aclrtResetDevice(0);
     aclFinalize();
+    dlclose(tilingLibrary);
     return result;
 }
