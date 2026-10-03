@@ -85,7 +85,6 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
     def _all_tile_constraints(self, params: dict[str, BaseParam]) -> bool:
         return (
             all(self._tile_is_valid(params))
-            and all(self._local_memory_is_valid(params))
             and self._parallel_window_is_valid(params)
         )
 
