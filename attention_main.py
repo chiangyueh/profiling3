@@ -136,7 +136,7 @@ ALL_FA_ROUTE_CASES = (
         "fa_drop_adapter",
         FA,
         90,
-        (1, 1, 1, 16, 33, 64, 64),
+        (1, 1, 1, 31, 65, 64, 64),
         _features(DTYPE_BYTES=2, HAS_DROP=1),
         tiling_key=3258713696,
         terminal_priority=98,
@@ -161,6 +161,7 @@ ALL_FA_ROUTE_CASES = (
 
 ACTIVE_ROUTE = os.environ.get("ATTENTION_ROUTE", "")
 _FA_ROUTE_BY_NAME = {case.name: case for case in ALL_FA_ROUTE_CASES}
+DEFAULT_FA_ROUTE_CASES = (_FA_ROUTE_BY_NAME["fa_drop_adapter"],)
 if ACTIVE_ROUTE and ACTIVE_ROUTE not in _FA_ROUTE_BY_NAME:
     raise ValueError(f"unknown ATTENTION_ROUTE: {ACTIVE_ROUTE}")
 ROUTE_CASES = (_FA_ROUTE_BY_NAME[ACTIVE_ROUTE],) if ACTIVE_ROUTE else ()
@@ -501,27 +502,47 @@ def prepare_golden(
     key: int,
     run_timeout: int,
     trace: Path,
-) -> bool:
+) -> tuple[bool, float]:
     env = _case_env(case, input_params, key)
     for name in domains:
         env.pop(name, None)
-    env["ATTENTION_REFERENCE"] = "1"
+    env.pop("ATTENTION_REFERENCE", None)
     env.pop("ATTENTION_DISCOVER_ONLY", None)
     env["ATTENTION_ROUTE_TRACE"] = str(trace.resolve())
     output = Path("output/output.bin")
     golden = Path("output/golden.bin")
     output.unlink(missing_ok=True)
     golden.unlink(missing_ok=True)
+    for profile in Path(".").glob("OPPROF_*"):
+        shutil.rmtree(profile)
     try:
         rc = _run_with_timeout(["bash", "./run_attention.sh", "-r", "npu"], env, run_timeout)
     except Exception as exc:
         print(f"GOLDEN FAILED: route={case.name}, tiling_key={key}, error={exc!r}")
-        return False
+        return False, float("inf")
     if rc != 0 or not output.is_file() or output.stat().st_size == 0:
         print(f"GOLDEN FAILED: route={case.name}, tiling_key={key}, exit={rc}")
-        return False
+        return False, float("inf")
+    duration = _latest_profile_duration()
+    if not math.isfinite(duration):
+        print(f"GOLDEN FAILED: route={case.name}, official latency is unavailable")
+        return False, float("inf")
     output.replace(golden)
-    return True
+    print(f"OFFICIAL BASELINE: route={case.name} duration_us={duration}")
+    return True, duration
+
+
+def _latest_profile_duration() -> float:
+    try:
+        profiles = list(Path(".").glob("OPPROF_*"))
+        if not profiles:
+            return float("inf")
+        profile = max(profiles, key=lambda path: path.stat().st_mtime)
+        table = pd.read_csv(profile / "OpBasicInfo.csv")
+        durations = pd.to_numeric(table["Task Duration(us)"], errors="coerce").dropna()
+        return float(durations.sum()) if not durations.empty else float("inf")
+    except Exception:
+        return float("inf")
 
 
 class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
@@ -535,6 +556,7 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
         self.run_timeout = run_timeout
         self.counts: Counter[str] = Counter()
         self.executed = 0
+        self.proposed = 0
         self.audit_validator = kwargs.pop("validator")
 
         # PsoAlgo normally asks the validator for valid initial particles and
@@ -575,16 +597,7 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
         return is_right
 
     def _get_time(self) -> float:
-        try:
-            profiles = list(Path(".").glob("OPPROF_*"))
-            if not profiles:
-                return float("inf")
-            profile = max(profiles, key=lambda path: path.stat().st_mtime)
-            table = pd.read_csv(profile / "OpBasicInfo.csv")
-            durations = pd.to_numeric(table["Task Duration(us)"], errors="coerce").dropna()
-            return float(durations.sum()) if not durations.empty else float("inf")
-        except Exception:
-            return float("inf")
+        return _latest_profile_duration()
 
     def _execute(self, params: list[base.BaseParam], step: int) -> tuple[int, float, bool, list[dict[str, int | str]]]:
         env = dict(os.environ)
@@ -605,6 +618,16 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
 
     def _duration(self, params: list[base.BaseParam]) -> base.BaseResult:
         params = self.audit_validator.get_all_params(params)
+        self.proposed += 1
+        cache_key = self._key(params)
+        if cache_key in self._cache:
+            duration = self._cache[cache_key]
+            print(
+                f"PSO CACHE HIT route={self.case.name} candidate={self.proposed} "
+                f"duration_us={None if not math.isfinite(duration) else duration}"
+            )
+            return base.BaseResult(duration, params)
+
         validator_error = ""
         try:
             predicted_valid = self.audit_validator.is_valid(params)
@@ -635,7 +658,8 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
             "actual_priority": actual_priority,
             "expected_tiling_key": self.tiling_key,
             "actual_tiling_key": actual_key,
-            "candidate": self.executed,
+            "candidate": self.proposed,
+            "execution": self.executed,
             "algorithm": "pso",
             "validator_valid": predicted_valid,
             "runtime_exit_code": rc,
@@ -648,12 +672,14 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
         with self.report_path.open("a") as output:
             output.write(json.dumps(record, sort_keys=True) + "\n")
         print(
-            f"AUDIT route={self.case.name} candidate={self.executed} algorithm=pso "
+            f"AUDIT route={self.case.name} candidate={self.proposed} execution={self.executed} algorithm=pso "
             f"validator={predicted_valid} runtime={runtime_pass} category={category} "
             f"duration_us={record['duration_us']}"
         )
 
         result_duration = duration if runtime_pass else float("inf")
+        self._cache[cache_key] = result_duration
+        self._save_cache()
         return base.BaseResult(result_duration, params)
 
 
@@ -673,16 +699,16 @@ def _run_all_fa_isolated() -> None:
     npu_id = _select_npu()
     script_dir = Path(__file__).resolve().parent
     failures: list[str] = []
-    print(f"ALL FA ROUTES: {len(ALL_FA_ROUTE_CASES)}, physical NPU: {npu_id}", flush=True)
+    print(f"FA TEST ROUTES: {len(DEFAULT_FA_ROUTE_CASES)}, physical NPU: {npu_id}", flush=True)
 
-    for index, case in enumerate(ALL_FA_ROUTE_CASES, start=1):
+    for index, case in enumerate(DEFAULT_FA_ROUTE_CASES, start=1):
         result_dir = script_dir / "results" / "attention_audit" / case.name
         summary_path = result_dir / "summary.json"
         summary_path.unlink(missing_ok=True)
         env = dict(os.environ)
         env["ATTENTION_ROUTE"] = case.name
         print(
-            f"\nALL FA {index}/{len(ALL_FA_ROUTE_CASES)} START: {case.name}",
+            f"\nFA TEST {index}/{len(DEFAULT_FA_ROUTE_CASES)} START: {case.name}",
             flush=True,
         )
         completed = subprocess.run(
@@ -697,6 +723,7 @@ def _run_all_fa_isolated() -> None:
                 summary = json.loads(summary_path.read_text())
                 shape = summary["shapes"][0]
                 executed = int(shape["executed"])
+                proposed = int(shape["proposed"])
                 runtime_passes = sum(
                     int(count)
                     for category, count in shape["counts"].items()
@@ -704,25 +731,25 @@ def _run_all_fa_isolated() -> None:
                 )
                 complete = (
                     bool(summary.get("complete"))
-                    and executed == SWARM_SIZE * (SEARCH_STEPS + 1)
+                    and proposed == SWARM_SIZE * (SEARCH_STEPS + 1)
                     and runtime_passes == executed
                 )
             except (OSError, ValueError, KeyError, IndexError, TypeError):
                 complete = False
         if completed.returncode == 0 and complete:
-            print(f"ALL FA {index}/{len(ALL_FA_ROUTE_CASES)} PASS: {case.name}", flush=True)
+            print(f"FA TEST {index}/{len(DEFAULT_FA_ROUTE_CASES)} PASS: {case.name}", flush=True)
         else:
             failures.append(case.name)
             print(
-                f"ALL FA {index}/{len(ALL_FA_ROUTE_CASES)} FAIL: {case.name} "
+                f"FA TEST {index}/{len(DEFAULT_FA_ROUTE_CASES)} FAIL: {case.name} "
                 f"(exit={completed.returncode})",
                 flush=True,
             )
 
     if failures:
-        print(f"\nALL FA INCOMPLETE: {', '.join(failures)}", flush=True)
+        print(f"\nFA TEST INCOMPLETE: {', '.join(failures)}", flush=True)
         raise SystemExit(1)
-    print("\nALL FA COMPLETE", flush=True)
+    print("\nFA TEST COMPLETE", flush=True)
 
 
 def main() -> None:
@@ -746,7 +773,7 @@ def main() -> None:
     print(f"ROUTES: {len(ROUTE_CASES)} (FA={fa_count}, FAG={fag_count})")
     print(
         f"SEARCH: colleague PSO, swarm={SWARM_SIZE}, steps={SEARCH_STEPS}; "
-        "validator labels only and every PSO candidate executes"
+        "validator labels only; each unique candidate executes once and duplicates reuse cache"
     )
 
     for case in ROUTE_CASES:
@@ -762,7 +789,9 @@ def main() -> None:
             "domains": domains,
             "tiling_key": None,
             "baseline_pass": False,
+            "official_duration_us": None,
             "executed": 0,
+            "proposed": 0,
             "counts": {},
         }
         print(
@@ -793,10 +822,14 @@ def main() -> None:
             continue
         golden_trace = result_dir / f"trace_golden_{case.name}.tsv"
         golden_trace.unlink(missing_ok=True)
-        if not prepare_golden(case, input_params, domains, key, run_timeout, golden_trace):
+        baseline_pass, official_duration = prepare_golden(
+            case, input_params, domains, key, run_timeout, golden_trace
+        )
+        if not baseline_pass:
             summaries.append(route_summary)
             continue
         route_summary["baseline_pass"] = True
+        route_summary["official_duration_us"] = official_duration
 
         validator = get_validator(case.name, domains)
         algo = AttentionAuditAlgo(
@@ -805,17 +838,28 @@ def main() -> None:
             input_params=input_params,
             swarm_size=SWARM_SIZE,
             runner="./run_attention.sh",
-            cache_path=str(result_dir / f"search_cache_{case.name}.json"),
+            cache_path=str(result_dir / f"search_cache_{case.name}_{'_'.join(map(str, case.shape))}.json"),
             verbose=True,
             case=case,
             tiling_key=key,
             report_path=report_path,
             run_timeout=run_timeout,
         )
-        algo()
+        search_results = algo()
+        best = min(search_results, key=lambda result: result.duration)
+        improvement = official_duration - best.duration
+        improvement_percent = improvement / official_duration * 100.0
+        print(
+            f"SEARCH VS OFFICIAL: route={case.name} official_us={official_duration} "
+            f"best_us={best.duration} improvement_us={improvement} "
+            f"improvement_percent={improvement_percent}"
+        )
         print(f"AUDIT COUNTS route={case.name}: {dict(algo.counts)}")
         route_summary["executed"] = algo.executed
+        route_summary["proposed"] = algo.proposed
         route_summary["counts"] = dict(algo.counts)
+        route_summary["best_duration_us"] = best.duration
+        route_summary["improvement_percent"] = improvement_percent
         summaries.append(route_summary)
         print(f"ROUTE END: {case.name}")
 

@@ -163,6 +163,20 @@ int FillData(Tensor &tensor, aclDataType dtype, float base)
     return ret;
 }
 
+int FillDropMask(Tensor &tensor)
+{
+    std::vector<uint8_t> host(tensor.bytes);
+    for (size_t i = 0; i < host.size(); ++i) {
+        host[i] = (i % 2 == 0) ? 0xAAU : 0xD5U;
+    }
+    const aclError ret = aclrtMemcpy(tensor.device, tensor.bytes, host.data(), host.size(),
+                                     ACL_MEMCPY_HOST_TO_DEVICE);
+    if (ret != ACL_SUCCESS) {
+        std::fprintf(stderr, "[ERROR] drop-mask copy failed: %d\n", ret);
+    }
+    return ret;
+}
+
 std::vector<int64_t> DataShape(int64_t layout, int64_t batch, int64_t heads, int64_t seq, int64_t dim)
 {
     switch (layout) {
@@ -268,6 +282,9 @@ int RunForward(aclrtStream stream, int64_t b, int64_t n1, int64_t n2, int64_t s1
     if (hasDrop) {
         const int64_t dropElements = (b * n1 * s1 * s2 + 7) / 8;
         if (MakeTensor({dropElements}, ACL_UINT8, sizeof(uint8_t), dropMask) != ACL_SUCCESS) {
+            return 1;
+        }
+        if (FillDropMask(dropMask) != ACL_SUCCESS) {
             return 1;
         }
     }
