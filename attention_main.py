@@ -913,7 +913,7 @@ def main() -> None:
             runner="./run_attention.sh",
             cache_path=str(
                 result_dir
-                / f"search_cache_effective_b_v1_{case.name}_{'_'.join(map(str, case.shape))}.json"
+                / f"search_cache_explicit_host_v2_{case.name}_{'_'.join(map(str, case.shape))}.json"
             ),
             verbose=True,
             case=case,
