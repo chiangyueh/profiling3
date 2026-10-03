@@ -107,8 +107,48 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-# Run the sixth FA case by itself with the key observed in 23.txt.
-ROUTE_CASES = (
+ALL_FA_ROUTE_CASES = (
+    RouteCase(
+        "fa_s1s2",
+        FA,
+        96,
+        (1, 8, 1, 128, 1536, 128, 128),
+        _features(),
+        tiling_key=1144284208,
+    ),
+    RouteCase(
+        "fa_s1",
+        FA,
+        97,
+        (1, 8, 1, 128, 512, 128, 128),
+        _features(DTYPE_BYTES=2),
+        tiling_key=1144808752,
+    ),
+    RouteCase(
+        "fa_varlen",
+        FA,
+        94,
+        (2, 1, 1, 128, 128, 64, 64),
+        _features(LAYOUT=valids.attention.LAYOUT_TND, HAS_ACTUAL_SEQ=1),
+        tiling_key=1145332784,
+    ),
+    RouteCase(
+        "fa_drop_adapter",
+        FA,
+        90,
+        (1, 1, 1, 16, 33, 64, 64),
+        _features(DTYPE_BYTES=2, HAS_DROP=1),
+        tiling_key=3258713696,
+        terminal_priority=98,
+    ),
+    RouteCase(
+        "fa_same_ab",
+        FA,
+        95,
+        (1, 8, 1, 128, 512, 96, 96),
+        _features(DTYPE_BYTES=2),
+        tiling_key=1144809008,
+    ),
     RouteCase(
         "fa_b",
         FA,
@@ -118,6 +158,12 @@ ROUTE_CASES = (
         tiling_key=1111230048,
     ),
 )
+
+ACTIVE_ROUTE = os.environ.get("ATTENTION_ROUTE", "")
+_FA_ROUTE_BY_NAME = {case.name: case for case in ALL_FA_ROUTE_CASES}
+if ACTIVE_ROUTE and ACTIVE_ROUTE not in _FA_ROUTE_BY_NAME:
+    raise ValueError(f"unknown ATTENTION_ROUTE: {ACTIVE_ROUTE}")
+ROUTE_CASES = (_FA_ROUTE_BY_NAME[ACTIVE_ROUTE],) if ACTIVE_ROUTE else ()
 
 # Keep the same minimal search size as the previous single-FA runs.
 SWARM_SIZE = 4
@@ -621,10 +667,72 @@ def _select_npu() -> int:
     return args.id
 
 
+def _run_all_fa_isolated() -> None:
+    """Run each verified FA route through the proven single-route process."""
+
+    npu_id = _select_npu()
+    script_dir = Path(__file__).resolve().parent
+    failures: list[str] = []
+    print(f"ALL FA ROUTES: {len(ALL_FA_ROUTE_CASES)}, physical NPU: {npu_id}", flush=True)
+
+    for index, case in enumerate(ALL_FA_ROUTE_CASES, start=1):
+        result_dir = script_dir / "results" / "attention_audit" / case.name
+        summary_path = result_dir / "summary.json"
+        summary_path.unlink(missing_ok=True)
+        env = dict(os.environ)
+        env["ATTENTION_ROUTE"] = case.name
+        print(
+            f"\nALL FA {index}/{len(ALL_FA_ROUTE_CASES)} START: {case.name}",
+            flush=True,
+        )
+        completed = subprocess.run(
+            [sys.executable, str(script_dir / "main.py"), f"--id={npu_id}"],
+            cwd=script_dir,
+            env=env,
+        )
+
+        complete = False
+        if summary_path.is_file():
+            try:
+                summary = json.loads(summary_path.read_text())
+                shape = summary["shapes"][0]
+                executed = int(shape["executed"])
+                runtime_passes = sum(
+                    int(count)
+                    for category, count in shape["counts"].items()
+                    if category.endswith("runtime_pass")
+                )
+                complete = (
+                    bool(summary.get("complete"))
+                    and executed == SWARM_SIZE * (SEARCH_STEPS + 1)
+                    and runtime_passes == executed
+                )
+            except (OSError, ValueError, KeyError, IndexError, TypeError):
+                complete = False
+        if completed.returncode == 0 and complete:
+            print(f"ALL FA {index}/{len(ALL_FA_ROUTE_CASES)} PASS: {case.name}", flush=True)
+        else:
+            failures.append(case.name)
+            print(
+                f"ALL FA {index}/{len(ALL_FA_ROUTE_CASES)} FAIL: {case.name} "
+                f"(exit={completed.returncode})",
+                flush=True,
+            )
+
+    if failures:
+        print(f"\nALL FA INCOMPLETE: {', '.join(failures)}", flush=True)
+        raise SystemExit(1)
+    print("\nALL FA COMPLETE", flush=True)
+
+
 def main() -> None:
+    if not ACTIVE_ROUTE:
+        _run_all_fa_isolated()
+        return
+
     npu_id = _select_npu()
     run_timeout = int(os.environ.get("ATTENTION_RUN_TIMEOUT", "300"))
-    result_dir = Path("results/attention_audit")
+    result_dir = Path("results/attention_audit") / ACTIVE_ROUTE
     result_dir.mkdir(parents=True, exist_ok=True)
     report_path = result_dir / "validator_audit.jsonl"
     summary_path = result_dir / "summary.json"
