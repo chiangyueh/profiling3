@@ -165,9 +165,9 @@ if ACTIVE_ROUTE and ACTIVE_ROUTE not in _FA_ROUTE_BY_NAME:
     raise ValueError(f"unknown ATTENTION_ROUTE: {ACTIVE_ROUTE}")
 ROUTE_CASES = (_FA_ROUTE_BY_NAME[ACTIVE_ROUTE],) if ACTIVE_ROUTE else ()
 
-# Keep the same minimal search size as the previous single-FA runs.
-SWARM_SIZE = 4
-SEARCH_STEPS = 1
+# Match the colleague's search_det.py PSO search size.
+SWARM_SIZE = 16
+SEARCH_STEPS = 30
 
 ROUTE_CLASSES = {
     "fa_drop_adapter": "FlashAttentionScoreTilingDropMask",
