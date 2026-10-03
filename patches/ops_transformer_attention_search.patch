@@ -32,26 +32,7 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +    }
 +}
 +
-@@ -1922,0 +1939,8 @@ void FlashAttentionScoreTilingBase::SetCoreParams()
-+    int64_t searchValue = 0;
-+    if (ReadPositiveSearchEnv("FA_S1_BASE", searchValue)) {
-+        s1BasicBlock = searchValue;
-+    }
-+    if (ReadPositiveSearchEnv("FA_S2_BASE", searchValue)) {
-+        s2BasicBlock = searchValue;
-+    }
-+
-@@ -1930 +1954,3 @@ void FlashAttentionScoreTilingBase::SetCoreParams()
--        nRatio = std::min(GetNRatio(), coreParams.get_s2OuterSize());
-+        int64_t requestedNRatio = GetNRatio();
-+        ReadPositiveSearchEnv("FA_N_RATIO", requestedNRatio);
-+        nRatio = std::min(requestedNRatio, coreParams.get_s2OuterSize());
-@@ -1933 +1959,3 @@ void FlashAttentionScoreTilingBase::SetCoreParams()
--        nRatio = std::min(GetNRatio(), coreParams.get_s1OuterSize());
-+        int64_t requestedNRatio = GetNRatio();
-+        ReadPositiveSearchEnv("FA_N_RATIO", requestedNRatio);
-+        nRatio = std::min(requestedNRatio, coreParams.get_s1OuterSize());
-@@ -2900,6 +2939,14 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
+@@ -2900,6 +2929,14 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
      void SetCoreParams() override
      {
          auto &coreParams = tilingData->coreParams;
@@ -66,7 +47,7 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +
          int64_t n2 = inputParams.get_n2Size();
          int64_t g = inputParams.get_gSize();
-@@ -2915,6 +2962,7 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
+@@ -2915,6 +2952,7 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
          coreParams.set_s2BaseSize(s2BasicBlock);
          coreParams.set_s2BaseTailSize(CalcTailSize(s2Size, s2BasicBlock));
          coreParams.set_s2OuterSize(CeilDivision(s2Size, s2BasicBlock));
