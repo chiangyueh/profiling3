@@ -859,6 +859,10 @@ def main() -> None:
         route_summary["proposed"] = algo.proposed
         route_summary["counts"] = dict(algo.counts)
         route_summary["best_duration_us"] = best.duration
+        route_summary["best_params"] = {
+            param.name: param.value for param in best.params if not param.is_const
+        }
+        route_summary["better_than_official"] = best.duration < official_duration
         route_summary["improvement_percent"] = improvement_percent
         summaries.append(route_summary)
         print(f"ROUTE END: {case.name}")
