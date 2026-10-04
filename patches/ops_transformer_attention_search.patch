@@ -4,7 +4,7 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 @@ -15,0 +16,2 @@
 +#include <cstdlib>
 +#include <fstream>
-@@ -30,0 +33,40 @@ namespace FA {
+@@ -30,0 +33,53 @@ namespace FA {
 +static bool ReadPositiveSearchEnv(const char *name, int64_t &value)
 +{
 +    const char *raw = std::getenv(name);
@@ -45,6 +45,19 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +    }
 +}
 +
++static void TraceFlashAttentionScoreSameABTiling(int64_t s1Base, int64_t s2Base, int64_t nRatio)
++{
++    const char *path = std::getenv("ATTENTION_EFFECTIVE_TILING_TRACE");
++    if (path == nullptr || *path == '\0') {
++        return;
++    }
++    std::ofstream output(path, std::ios::app);
++    if (output.is_open()) {
++        output << "FlashAttentionScoreTilingS1s2Bn2gs1SameAB" << '\t' << s1Base << '\t' << s2Base << '\t'
++               << nRatio << '\n';
++    }
++}
++
 @@ -2900,6 +2929,14 @@ class FlashAttentionScoreTilingB : public FlashAttentionScoreTilingBase {
      void SetCoreParams() override
      {
@@ -68,7 +81,7 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
          coreParams.set_s1Vec2BaseSize(s1Vec2BasicBlock_);
          coreParams.set_s1Vec2BaseTailSize(CalcTailSize(s1, s1Vec2BasicBlock_));
          coreParams.set_s1Vec2OuterSize(CeilDivision(s1, s1Vec2BasicBlock_));
-@@ -3191,0 +3242,17 @@ class FlashAttentionScoreTilingS1s2Bn2gs1 : public FlashAttentionScoreTilingBase {
+@@ -3191,0 +3255,17 @@ class FlashAttentionScoreTilingS1s2Bn2gs1 : public FlashAttentionScoreTilingBase {
 +    void SetCoreParams() override
 +    {
 +        int64_t searchValue = 0;
@@ -85,6 +98,25 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        FlashAttentionScoreTilingBase::SetCoreParams();
 +        auto &coreParams = tilingData->coreParams;
 +        TraceFlashAttentionScoreS1s2Tiling(coreParams.get_s1BaseSize(), coreParams.get_s2BaseSize(), nRatio);
++    }
+@@ -3499,0 +3580,18 @@ class FlashAttentionScoreTilingS1s2Bn2gs1SameAB : public FlashAttentionScoreTilingBase {
++    void SetCoreParams() override
++    {
++        int64_t searchValue = 0;
++        if (ReadPositiveSearchEnv("FA_S1_BASE", searchValue)) {
++            s1BasicBlock = searchValue;
++        }
++        if (ReadPositiveSearchEnv("FA_S2_BASE", searchValue)) {
++            s2BasicBlock = searchValue;
++        }
++        if (ReadPositiveSearchEnv("FA_N_RATIO", searchValue)) {
++            nRatio = searchValue;
++        }
++
++        s1VecBasicBlock = s1BasicBlock / AIV_AIC_NUM_RATIO;
++        FlashAttentionScoreTilingBase::SetCoreParams();
++        auto &coreParams = tilingData->coreParams;
++        TraceFlashAttentionScoreSameABTiling(coreParams.get_s1BaseSize(), coreParams.get_s2BaseSize(), nRatio);
 +    }
 diff --git a/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp b/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp
 --- a/attention/flash_attention_score_grad/op_host/arch32/flash_attention_score_grad_tiling_s1s2_bn2gs1s2.cpp

@@ -67,6 +67,9 @@ BOOTSTRAP_KEYS = {
 
 DEFAULT_FEATURES = {
     "DTYPE_BYTES": 4,
+    # 0 keeps the legacy byte-based launcher choice; 2 selects BF16 while
+    # retaining DTYPE_BYTES=2 for Host-route and validator calculations.
+    "DTYPE_KIND": 0,
     "LAYOUT": valids.attention.LAYOUT_BNSD,
     "DETERMINISTIC": 0,
     "SPARSE_MODE": 0,
@@ -91,6 +94,7 @@ class RouteCase:
     features: dict[str, int]
     tiling_key: int | None = None
     terminal_priority: int | None = None
+    route: str | None = None
 
     @property
     def grad(self) -> bool:
@@ -100,6 +104,10 @@ class RouteCase:
     def expected_terminal_priority(self) -> int:
         return self.terminal_priority if self.terminal_priority is not None else self.priority
 
+    @property
+    def route_name(self) -> str:
+        return self.route if self.route is not None else self.name
+
 
 def _features(**updates: int) -> dict[str, int]:
     values = dict(DEFAULT_FEATURES)
@@ -107,7 +115,7 @@ def _features(**updates: int) -> dict[str, int]:
     return values
 
 
-ALL_FA_ROUTE_CASES = (
+ROUTE_COVERAGE_CASES = (
     RouteCase(
         "fa_s1s2",
         FA,
@@ -159,9 +167,115 @@ ALL_FA_ROUTE_CASES = (
     ),
 )
 
+# Fully specified per-rank DeepSeek workloads from the supplied training
+# configurations.  BF16 is used for the BF16/FP8 configurations because the
+# aclnnFlashAttentionScoreV2 API used by this evaluator accepts FP32/FP16/BF16,
+# not the operator's separate FP8 interface.
+MODEL_FA_CASES = (
+    RouteCase(
+        "deepseek_v3_generate_s4096_bnsd_tp1",
+        FA,
+        95,
+        (1, 128, 128, 4096, 4096, 192, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_BNSD),
+        route="fa_same_ab",
+    ),
+    RouteCase(
+        "deepseek_v3_pipeline_s4096_sbh_tp1",
+        FA,
+        95,
+        (1, 128, 128, 4096, 4096, 192, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_SBH),
+        route="fa_same_ab",
+    ),
+    RouteCase(
+        "deepseek_v3_pretrain_s4096_sbh_tp2",
+        FA,
+        95,
+        (1, 64, 64, 4096, 4096, 192, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_SBH),
+        route="fa_same_ab",
+    ),
+    RouteCase(
+        "deepseek_v3_tune_s4096_bnsd_tp2",
+        FA,
+        95,
+        (1, 64, 64, 4096, 4096, 192, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_BNSD),
+        route="fa_same_ab",
+    ),
+    RouteCase(
+        "deepseek_v3_pretrain_s4096_sbh_tp4",
+        FA,
+        95,
+        (1, 32, 32, 4096, 4096, 192, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_SBH),
+        route="fa_same_ab",
+    ),
+    RouteCase(
+        "deepseek_v3_surrogate_s4096_bnsd_tp8",
+        FA,
+        95,
+        (1, 16, 16, 4096, 4096, 192, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_BNSD),
+        route="fa_same_ab",
+    ),
+    RouteCase(
+        "deepseek_v3_bf16_s8192_sbh_tp1",
+        FA,
+        95,
+        (1, 128, 128, 8192, 8192, 192, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_SBH),
+        route="fa_same_ab",
+    ),
+    # Pangu's public model-level shapes do not specify the actual training
+    # batch/TP/CP mapping.  B=1 and unsplit Q=96/KV=8 are therefore labelled
+    # explicitly as proxies rather than claimed as per-rank training shapes.
+    RouteCase(
+        "pangu_ultra_dense_s4096_b1_model_proxy",
+        FA,
+        96,
+        (1, 96, 8, 4096, 4096, 128, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_BNSD),
+        route="fa_s1s2",
+    ),
+    RouteCase(
+        "pangu_ultra_dense_s8192_b1_model_proxy",
+        FA,
+        96,
+        (1, 96, 8, 8192, 8192, 128, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_BNSD),
+        route="fa_s1s2",
+    ),
+)
+
+# These public Pangu model-level proxies are selectable individually through
+# ATTENTION_ROUTE, but are not in the default batch because their output dumps
+# alone are about 1.6 GiB and 6.4 GiB respectively.
+LARGE_MODEL_FA_CASES = (
+    RouteCase(
+        "pangu_ultra_dense_s32768_b1_model_proxy",
+        FA,
+        96,
+        (1, 96, 8, 32768, 32768, 128, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_BNSD),
+        route="fa_s1s2",
+    ),
+    RouteCase(
+        "pangu_ultra_dense_s131072_b1_model_proxy",
+        FA,
+        96,
+        (1, 96, 8, 131072, 131072, 128, 128),
+        _features(DTYPE_BYTES=2, DTYPE_KIND=2, LAYOUT=valids.attention.LAYOUT_BNSD),
+        route="fa_s1s2",
+    ),
+)
+
+ALL_FA_ROUTE_CASES = ROUTE_COVERAGE_CASES + MODEL_FA_CASES + LARGE_MODEL_FA_CASES
+
 ACTIVE_ROUTE = os.environ.get("ATTENTION_ROUTE", "")
 _FA_ROUTE_BY_NAME = {case.name: case for case in ALL_FA_ROUTE_CASES}
-DEFAULT_FA_ROUTE_CASES = (_FA_ROUTE_BY_NAME["fa_s1s2"],)
+DEFAULT_FA_ROUTE_CASES = MODEL_FA_CASES
 if ACTIVE_ROUTE and ACTIVE_ROUTE not in _FA_ROUTE_BY_NAME:
     raise ValueError(f"unknown ATTENTION_ROUTE: {ACTIVE_ROUTE}")
 ROUTE_CASES = (_FA_ROUTE_BY_NAME[ACTIVE_ROUTE],) if ACTIVE_ROUTE else ()
@@ -210,11 +324,17 @@ def get_domains(route: str) -> dict[str, list[int]]:
             "FA_S2_BASE": [16, 48, 64],
             "FA_N_RATIO": [1, 2],
         }
-    if route in ("fa_s1", "fa_same_ab"):
+    if route == "fa_s1":
         return {
             "FA_S1_BASE": [64, 128, 256],
             "FA_S2_BASE": [64, 128, 1024],
             "FA_N_RATIO": [1, 2, 8],
+        }
+    if route == "fa_same_ab":
+        return {
+            "FA_S1_BASE": [64, 128, 192, 256],
+            "FA_S2_BASE": [16, 32, 64, 96, 128, 160, 192, 256],
+            "FA_N_RATIO": [1, 2, 4, 5, 6, 8, 12, 16],
         }
     if route == "fa_s1s2":
         return {
@@ -411,6 +531,12 @@ def _read_effective_tiling(path: Path) -> dict[str, int] | None:
                     "FA_S2_BASE": int(fields[2]),
                     "FA_N_RATIO": int(fields[3]),
                 }
+            if len(fields) == 4 and fields[0] == "FlashAttentionScoreTilingS1s2Bn2gs1SameAB":
+                return {
+                    "FA_S1_BASE": int(fields[1]),
+                    "FA_S2_BASE": int(fields[2]),
+                    "FA_N_RATIO": int(fields[3]),
+                }
         except (IndexError, ValueError):
             continue
     return None
@@ -498,7 +624,7 @@ def discover_route(
     trace = result_dir / f"trace_discover_{case.name}.tsv"
     trace.unlink(missing_ok=True)
     env = _case_env(case, input_params, seed_key)
-    for name in get_domains(case.name):
+    for name in get_domains(case.route_name):
         env.pop(name, None)
     env["ATTENTION_REFERENCE"] = "1"
     env["ATTENTION_ROUTE_TRACE"] = str(trace.resolve())
@@ -871,11 +997,12 @@ def main() -> None:
     )
 
     for case in ROUTE_CASES:
-        domains = get_domains(case.name)
+        domains = get_domains(case.route_name)
         input_params = get_input_params(case)
         route_summary: dict[str, object] = {
             "route": case.name,
-            "official_class": ROUTE_CLASSES[case.name],
+            "route_family": case.route_name,
+            "official_class": ROUTE_CLASSES[case.route_name],
             "operator": case.operator,
             "expected_priority": case.priority,
             "expected_terminal_priority": case.expected_terminal_priority,
@@ -889,7 +1016,7 @@ def main() -> None:
             "counts": {},
         }
         print(
-            f"\nROUTE START: {case.name} ({ROUTE_CLASSES[case.name]}), "
+            f"\nROUTE START: {case.name} ({ROUTE_CLASSES[case.route_name]}), "
             f"shape={case.shape}, domains={domains}"
         )
         key = case.tiling_key
@@ -925,7 +1052,7 @@ def main() -> None:
         route_summary["baseline_pass"] = True
         route_summary["official_duration_us"] = official_duration
 
-        validator = get_validator(case.name, domains)
+        validator = get_validator(case.route_name, domains)
         algo = AttentionAuditAlgo(
             is_stop=lambda results: len(results) >= SEARCH_STEPS,
             validator=validator,

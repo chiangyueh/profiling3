@@ -132,6 +132,22 @@ float HalfToFloat(uint16_t value)
     return result;
 }
 
+uint16_t FloatToBFloat16(float value)
+{
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    const uint32_t roundingBias = 0x7fffU + ((bits >> 16) & 1U);
+    return static_cast<uint16_t>((bits + roundingBias) >> 16);
+}
+
+float BFloat16ToFloat(uint16_t value)
+{
+    const uint32_t bits = static_cast<uint32_t>(value) << 16;
+    float result = 0.0F;
+    std::memcpy(&result, &bits, sizeof(result));
+    return result;
+}
+
 int MakeTensor(const std::vector<int64_t> &shape, aclDataType dtype, size_t elementBytes, Tensor &out)
 {
     out.bytes = static_cast<size_t>(Numel(shape)) * elementBytes;
@@ -185,7 +201,7 @@ int FillData(Tensor &tensor, aclDataType dtype, float base)
         std::vector<uint16_t> host(elements);
         for (size_t i = 0; i < elements; ++i) {
             const float value = base + static_cast<float>(static_cast<int>(i % 17) - 8) * 0.001F;
-            host[i] = FloatToHalf(value);
+            host[i] = dtype == ACL_BF16 ? FloatToBFloat16(value) : FloatToHalf(value);
         }
         ret = aclrtMemcpy(tensor.device, tensor.bytes, host.data(), tensor.bytes, ACL_MEMCPY_HOST_TO_DEVICE);
     }
@@ -257,7 +273,7 @@ int DumpOutputs(const std::vector<const Tensor *> &outputs, aclDataType dtype)
             const auto *halves = reinterpret_cast<const uint16_t *>(host.data());
             std::vector<float> converted(host.size() / sizeof(uint16_t));
             for (size_t i = 0; i < converted.size(); ++i) {
-                converted[i] = HalfToFloat(halves[i]);
+                converted[i] = dtype == ACL_BF16 ? BFloat16ToFloat(halves[i]) : HalfToFloat(halves[i]);
             }
             file.write(reinterpret_cast<const char *>(converted.data()),
                        static_cast<std::streamsize>(converted.size() * sizeof(float)));
@@ -502,12 +518,14 @@ int main()
     const int64_t dv = parameter("DV", d);
     const int64_t layout = parameter("LAYOUT", 0);
     const int64_t dtypeBytes = parameter("DTYPE_BYTES", 4);
+    const int64_t dtypeKind = parameter("DTYPE_KIND", 0);
     if (b <= 0 || n1 <= 0 || n2 <= 0 || n1 % n2 != 0 || s1 <= 0 || s2 <= 0 || d <= 0 || dv <= 0 ||
-        (dtypeBytes != 2 && dtypeBytes != 4)) {
+        (dtypeBytes != 2 && dtypeBytes != 4) || (dtypeKind != 0 && dtypeKind != 2) ||
+        (dtypeKind == 2 && dtypeBytes != 2)) {
         std::fprintf(stderr, "[ERROR] invalid attention shape or dtype\n");
         return 2;
     }
-    const aclDataType dtype = dtypeBytes == 4 ? ACL_FLOAT : ACL_FLOAT16;
+    const aclDataType dtype = dtypeKind == 2 ? ACL_BF16 : (dtypeBytes == 4 ? ACL_FLOAT : ACL_FLOAT16);
 
     aclError ret = aclInit(nullptr);
     if (ret != ACL_SUCCESS) return ret;
