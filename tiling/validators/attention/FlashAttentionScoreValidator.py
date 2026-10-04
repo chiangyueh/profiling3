@@ -3,7 +3,7 @@ from __future__ import annotations
 from tiling.base import BaseParam
 from tiling.limits import AttentionLimits
 
-from .AttentionValidator import AttentionValidator, LAYOUT_TND
+from .AttentionValidator import AttentionValidator, LAYOUT_BNSD, LAYOUT_TND
 
 
 FA_ROUTE_DROP_ADAPTER = 90
@@ -202,9 +202,66 @@ def _same_ab_shape(params: dict[str, BaseParam]) -> bool:
 class FlashAttentionScoreSameABValidator(_FlashAttentionScoreTilingValidator):
     """Validator for priority-95 ``flash_attention_score_s1s2_*_sab``."""
 
-    # SameAB normally uses 256 and may select the official 384 best block.
+    # SameAB normally uses S1=256/S2=128, and may select the official S1=384
+    # best block.  S2 and nRatio are not independently bounded: their
+    # effective product is the kernel's S2 window and is checked below.
     max_s1_base = 384
-    max_s2_base = 128
+    max_s2_base = None
+    max_n_ratio = None
+
+    def _route_tile_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
+        s1 = params["FA_S1"].value
+        s2 = params["FA_S2"].value
+        d = params["FA_D"].value
+        dv = params["FA_DV"].value
+        layout = params["FA_LAYOUT"].value
+        s1_base = params["FA_S1_BASE"].value
+        s2_base = params["FA_S2_BASE"].value
+        n_ratio = params["FA_N_RATIO"].value
+
+        nominal_s2_window = s2_base * n_ratio
+        full_s2_window = min(s2, nominal_s2_window)
+        tail_s2_window = s2 % nominal_s2_window or full_s2_window
+
+        # The official Host selects UNSPLITK for BNSD D=192 when S1 and S2
+        # meet its 256/128 alignment contract.  That kernel manually loops
+        # over fixed 128x128 Matmul blocks with integer division (no tail
+        # path).  Its TSCM copy path supports one or two M blocks, and every
+        # full/tail K window must contain complete blocks for that M tile.
+        unsplit_k = (
+            layout == LAYOUT_BNSD
+            and d == 192
+            and s1 % 256 == 0
+            and s2 % 128 == 0
+        )
+        if unsplit_k:
+            tail_s1 = s1 % s1_base or s1_base
+            return (
+                s1_base in (128, 256),
+                tail_s1 % 128 == 0,
+                full_s2_window <= 1024,
+                full_s2_window % s1_base == 0,
+                tail_s2_window % s1_base == 0,
+            )
+
+        # ComputeBmm1Tail derives the vector M tile from an 8x1024-element
+        # budget, so a real S2 window above 1024 produces a zero-sized tile.
+        # For an ND BMM1 result (global S2 is 64-aligned), each combined
+        # window must preserve that 64-element row stride.
+        nd_window_aligned = s2 % 64 != 0 or full_s2_window % 64 == 0
+
+        # SameAB Host fixes baseM=128 whenever either Matmul has a (64, 128]
+        # K/N dimension.  A searched single-M tile smaller than that fixed
+        # block is rejected by MatmulApi rather than being a valid tail.
+        has_fixed_m_128 = 64 < d <= 128 or 64 < dv <= 128
+        fixed_m = min(128, self._align_up(s1, 16))
+        fixed_m_fits = not has_fixed_m_128 or s1_base >= fixed_m
+
+        return (
+            full_s2_window <= 1024,
+            nd_window_aligned,
+            fixed_m_fits,
+        )
 
     def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
         return (
