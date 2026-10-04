@@ -110,13 +110,15 @@ def discover(params: list[base.BaseParam]) -> tuple[int, int]:
     trace.unlink(missing_ok=True)
     env = run_env(params, seed)
     env["FA_ROUTE_TRACE"] = str(trace.resolve())
-    env["FA_DISCOVER_ONLY"] = "1"
     env["FA_PROFILE"] = "0"
     env["FA_SKIP_BUILD"] = "1"
     completed = subprocess.run(["bash", "run.sh"], env=env)
-    if completed.returncode != 0:
-        raise RuntimeError("official Host tiling discovery failed")
-    return read_route(trace)
+    try:
+        return read_route(trace)
+    except RuntimeError:
+        if completed.returncode != 0:
+            raise RuntimeError("official Host tiling discovery failed")
+        raise
 
 
 def profile_time() -> float:
