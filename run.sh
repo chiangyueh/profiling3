@@ -26,6 +26,13 @@ CACHE_BASE=${FA_CACHE_ROOT:-"${SCRIPT_DIR}/out/fa_cache"}
 CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/${FA_TILING_KEY}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/fa_npu"
+LEGACY_CACHE_DIR="${SCRIPT_DIR}/out/attention_cache/${EXPECTED_COMMIT}/${SOC_UNIT}/flash_attention_score/${FA_TILING_KEY}"
+
+if [[ -x "${LEGACY_CACHE_DIR}/attention_npu" ]]; then
+    CACHE_DIR="${LEGACY_CACHE_DIR}"
+    INSTALL_ROOT="${CACHE_DIR}/opp"
+    BINARY="${CACHE_DIR}/attention_npu"
+fi
 
 if [[ "${FA_SKIP_BUILD:-0}" != "1" ]]; then
     bash "${SCRIPT_DIR}/build.sh"
@@ -40,6 +47,7 @@ fi
 
 source "${SET_ENV}"
 export FA_CUSTOM_OPP_ROOT="${SET_ENV%/bin/set_env.bash}"
+export ATTENTION_CUSTOM_OPP_ROOT="${FA_CUSTOM_OPP_ROOT}"
 
 if [[ "${FA_PROFILE:-1}" == "0" ]]; then
     exec "${BINARY}"

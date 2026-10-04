@@ -64,6 +64,13 @@ def run_env(params: list[base.BaseParam], key: int) -> dict[str, str]:
 
 
 def build(key: int) -> None:
+    legacy = Path(
+        "out/attention_cache/6ead121aded45355043b502756b6592fd7c30b14/"
+        f"ascend910b/flash_attention_score/{key}/attention_npu"
+    )
+    if legacy.is_file():
+        print(f"BUILD CACHE HIT: tiling_key={key}")
+        return
     env = dict(os.environ)
     env["FA_TILING_KEY"] = str(key)
     completed = subprocess.run(["bash", "build.sh"], env=env)
@@ -138,6 +145,7 @@ class FaProfileEstimator(estimator_algs.AlgoProfileEst):
         env = run_env(params, self.tiling_key)
         env["FA_SKIP_BUILD"] = "1"
         env["FA_EFFECTIVE_TILING_TRACE"] = str(trace.resolve())
+        env["ATTENTION_EFFECTIVE_TILING_TRACE"] = str(trace.resolve())
         requested = {
             param.name: param.value
             for param in params
