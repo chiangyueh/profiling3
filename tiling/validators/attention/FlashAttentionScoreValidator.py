@@ -19,6 +19,8 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
     max_s1_base: int | None = None
     max_s2_base: int | None = None
     max_n_ratio: int | None = 8
+    cap_s1_base_to_shape = True
+    cap_s2_base_to_shape = True
 
     def __init__(self, limits: AttentionLimits) -> None:
         super().__init__(
@@ -49,13 +51,17 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
         s2_align = self._align_up(params["FA_S2"].value, 16)
         tail = s2_align % s2_base or s2_base
         has_drop = self._value(params, "FA_HAS_DROP", 0) == 1
-        s1_limit = min(s1_align, self.max_s1_base or s1_align)
-        s2_limit = min(s2_align, self.max_s2_base or s2_align)
+        s1_limit = self.max_s1_base
+        if self.cap_s1_base_to_shape:
+            s1_limit = min(s1_align, s1_limit or s1_align)
+        s2_limit = self.max_s2_base
+        if self.cap_s2_base_to_shape:
+            s2_limit = min(s2_align, s2_limit or s2_align)
         return (
             s1_base % 16 == 0,
             s2_base % 16 == 0,
-            s1_base <= s1_limit,
-            s2_base <= s2_limit,
+            s1_limit is None or s1_base <= s1_limit,
+            s2_limit is None or s2_base <= s2_limit,
             not has_drop or (s2_base > 32 and tail > 32),
             *self._route_tile_is_valid(params),
         )
@@ -121,9 +127,40 @@ class _FlashAttentionScoreTilingValidator(AttentionValidator):
 class FlashAttentionScoreGeneralValidator(_FlashAttentionScoreTilingValidator):
     """Validator for priority-96 ``flash_attention_score_s1s2_bn2gs1``."""
 
-    # CalcS1S2BasicBlock selects at most 128 elements on both split axes.
-    max_s1_base = 128
-    max_s2_base = 128
+    # The Host normally selects 128x128/ratio<=8, but those are performance
+    # defaults rather than kernel validity limits.  This template safely
+    # handles a tile larger than the corresponding input axis by clipping the
+    # real tail inside the kernel.
+    max_n_ratio = None
+    cap_s1_base_to_shape = False
+    cap_s2_base_to_shape = False
+
+    def _route_tile_is_valid(self, params: dict[str, BaseParam]) -> tuple[bool, ...]:
+        s1_base = params["FA_S1_BASE"].value
+        s2_base = params["FA_S2_BASE"].value
+        n_ratio = params["FA_N_RATIO"].value
+
+        # ComputeBmm1Tail derives vec1S1BaseSize from
+        # 1024 / s2AlignedSize * 8.  A combined S2 window above 1024 makes
+        # that tile zero-sized and produces an invalid kernel execution.
+        s2_window_fits = s2_base * n_ratio <= 1024
+
+        # InitBuffer always reserves mask-pong and PSE (16 KiB each), three
+        # 8K float work buffers, and one 8K float ND stage1-pong buffer.  NZ
+        # uses a 35-KiB stage1-pong instead, and an attention mask adds 9 KiB.
+        # Five softmax state buffers each consume s1Base * 4 * 8 bytes.
+        calc_bytes = self.limits.calc_type_size
+        fixed_ub = 2 * 16 * 1024 + 3 * 8 * 1024 * calc_bytes
+        bmm1_nz = params["FA_S2"].value % 64 != 0 and params["FA_D"].value != 64
+        fixed_ub += 35 * 1024 if bmm1_nz else 8 * 1024 * calc_bytes
+        if self._value(params, "FA_HAS_MASK", 0) == 1:
+            fixed_ub += 9 * 1024
+        softmax_state_ub = 5 * s1_base * 4 * 8
+
+        return (
+            s2_window_fits,
+            fixed_ub + softmax_state_ub <= self.limits.UB_size,
+        )
 
     def _route_is_valid(self, params: dict[str, BaseParam]) -> bool:
         if not all(self._shape_is_valid(params)):
