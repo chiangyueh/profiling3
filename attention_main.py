@@ -274,11 +274,19 @@ ALL_FA_ROUTE_CASES = ROUTE_COVERAGE_CASES + MODEL_FA_CASES + LARGE_MODEL_FA_CASE
 
 ACTIVE_ROUTE = os.environ.get("ATTENTION_ROUTE", "")
 _FA_ROUTE_BY_NAME = {case.name: case for case in ALL_FA_ROUTE_CASES}
-# Keep the default command on one verified workload.  Additional model cases
-# remain available internally for later batches after this production
-# validator/repair flow has been verified on the NPU.
+# Run the fully specified DeepSeek workloads and the two bounded Pangu model
+# proxies sequentially.  Large or incompletely specified workloads remain
+# opt-in and are not part of the default batch.
 DEFAULT_FA_ROUTE_CASES = (
+    _FA_ROUTE_BY_NAME["deepseek_v3_generate_s4096_bnsd_tp1"],
+    _FA_ROUTE_BY_NAME["deepseek_v3_pipeline_s4096_sbh_tp1"],
     _FA_ROUTE_BY_NAME["deepseek_v3_pretrain_s4096_sbh_tp2"],
+    _FA_ROUTE_BY_NAME["deepseek_v3_tune_s4096_bnsd_tp2"],
+    _FA_ROUTE_BY_NAME["deepseek_v3_pretrain_s4096_sbh_tp4"],
+    _FA_ROUTE_BY_NAME["deepseek_v3_surrogate_s4096_bnsd_tp8"],
+    _FA_ROUTE_BY_NAME["deepseek_v3_bf16_s8192_sbh_tp1"],
+    _FA_ROUTE_BY_NAME["pangu_ultra_dense_s4096_b1_model_proxy"],
+    _FA_ROUTE_BY_NAME["pangu_ultra_dense_s8192_b1_model_proxy"],
 )
 if ACTIVE_ROUTE and ACTIVE_ROUTE not in _FA_ROUTE_BY_NAME:
     raise ValueError(f"unknown ATTENTION_ROUTE: {ACTIVE_ROUTE}")
