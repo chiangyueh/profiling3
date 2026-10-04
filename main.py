@@ -22,8 +22,8 @@ SHAPE = {
     "LAYOUT": "BNSD",
 }
 NPU_ID = 4
-SWARM_SIZE = 16
-ITERATIONS = 30
+SWARM_SIZE = 4
+ITERATIONS = 1
 
 PRIORITY = 96
 TILING_KEY = 1144284208
@@ -201,7 +201,6 @@ def main() -> None:
         calc_type_size=4,
     )
     cache = Path("output/search_cache.json")
-    cache.unlink(missing_ok=True)
     print(f"ROUTE=general PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
     print(f"OFFICIAL_US={baseline}")
     search = Pso(
