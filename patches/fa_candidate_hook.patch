@@ -1,0 +1,108 @@
+diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
+--- a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
++++ b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
+@@ -16,0 +17,4 @@
++// NEW BEGIN
++#include <cstdlib>
++#include <fstream>
++// NEW END
+@@ -30,0 +35,28 @@ namespace FA {
++// NEW BEGIN
++static bool ReadFaCandidate(const char *name, int64_t &value)
++{
++    const char *raw = std::getenv(name);
++    if (raw == nullptr || *raw == '\0') {
++        return false;
++    }
++    char *end = nullptr;
++    const long long parsed = std::strtoll(raw, &end, 10);
++    if (end == raw || *end != '\0' || parsed <= 0) {
++        return false;
++    }
++    value = static_cast<int64_t>(parsed);
++    return true;
++}
++
++static void TraceFaCandidate(const char *name, int64_t s1Base, int64_t s2Base, int64_t nRatio)
++{
++    const char *path = std::getenv("FA_EFFECTIVE_TILING_TRACE");
++    if (path == nullptr || *path == '\0') {
++        return;
++    }
++    std::ofstream output(path, std::ios::app);
++    if (output.is_open()) {
++        output << name << '\t' << s1Base << '\t' << s2Base << '\t' << nRatio << '\n';
++    }
++}
++// NEW END
+@@ -3156,0 +3190,20 @@ protected:
++    // NEW BEGIN
++    void SetCoreParams() override
++    {
++        int64_t value = 0;
++        if (ReadFaCandidate("FA_S1_BASE", value)) {
++            s1BasicBlock = value;
++        }
++        if (ReadFaCandidate("FA_S2_BASE", value)) {
++            s2BasicBlock = value;
++        }
++        if (ReadFaCandidate("FA_N_RATIO", value)) {
++            nRatio = value;
++        }
++        FlashAttentionScoreTilingBase::SetCoreParams();
++        auto &coreParams = tilingData->coreParams;
++        TraceFaCandidate("FlashAttentionScoreTilingS1s2Bn2gs1", coreParams.get_s1BaseSize(),
++                         coreParams.get_s2BaseSize(), coreParams.get_nRatio());
++    }
++    // NEW END
++
+@@ -3462,0 +3516,21 @@ protected:
++    // NEW BEGIN
++    void SetCoreParams() override
++    {
++        int64_t value = 0;
++        if (ReadFaCandidate("FA_S1_BASE", value)) {
++            s1BasicBlock = value;
++        }
++        if (ReadFaCandidate("FA_S2_BASE", value)) {
++            s2BasicBlock = value;
++        }
++        if (ReadFaCandidate("FA_N_RATIO", value)) {
++            nRatio = value;
++        }
++        s1VecBasicBlock = s1BasicBlock / AIV_AIC_NUM_RATIO;
++        FlashAttentionScoreTilingBase::SetCoreParams();
++        auto &coreParams = tilingData->coreParams;
++        TraceFaCandidate("FlashAttentionScoreTilingS1s2Bn2gs1SameAB", coreParams.get_s1BaseSize(),
++                         coreParams.get_s2BaseSize(), coreParams.get_nRatio());
++    }
++    // NEW END
++
+diff --git a/common/include/tiling_base/tiling_templates_registry.h b/common/include/tiling_base/tiling_templates_registry.h
+--- a/common/include/tiling_base/tiling_templates_registry.h
++++ b/common/include/tiling_base/tiling_templates_registry.h
+@@ -18,0 +19,4 @@
++// NEW BEGIN
++#include <cstdlib>
++#include <fstream>
++// NEW END
+@@ -35,0 +40,15 @@ using TilingClassCase = std::unique_ptr<TilingBaseClass> (*)(gert::TilingContext*);
++// NEW BEGIN
++inline void TraceFaRoute(const char *opType, int32_t priority, ge::graphStatus status,
++                         gert::TilingContext *context)
++{
++    const char *path = std::getenv("FA_ROUTE_TRACE");
++    if (path == nullptr || *path == '\0' || std::string(opType) != "FlashAttentionScore") {
++        return;
++    }
++    std::ofstream output(path, std::ios::app);
++    if (output.is_open()) {
++        output << opType << '\t' << priority << '\t' << static_cast<int32_t>(status) << '\t'
++               << context->GetTilingKey() << '\n';
++    }
++}
++// NEW END
+@@ -121,0 +141,3 @@ public:
++                // NEW BEGIN
++                TraceFaRoute(op_type, it->first, status, context);
++                // NEW END

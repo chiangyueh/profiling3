@@ -17,7 +17,7 @@ class OpLimits(AscendLimits):
     
 @dataclass
 class AttentionLimits(OpLimits):
-    """DAV_2201 resources used by FA/FAG route validators."""
-
+    # NEW BEGIN
     aic_num: int
     calc_type_size: int = 4
+    # NEW END
