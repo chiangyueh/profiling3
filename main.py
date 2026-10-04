@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from tiling import base, estimator_algs, limits, pso, valids
+from tiling import base, estimator_algs, limits, sa, valids
 
 
 SHAPE = {
@@ -22,8 +22,7 @@ SHAPE = {
     "LAYOUT": "BNSD",
 }
 NPU_ID = 4
-SWARM_SIZE = 16
-ITERATIONS = 30
+ITERATIONS = 495
 
 PRIORITY = 96
 TILING_KEY = 1144284208
@@ -165,7 +164,7 @@ class FaProfileEstimator(estimator_algs.AlgoProfileEst):
         return self.last_correct
 
 
-class Pso(FaProfileEstimator, pso.PsoAlgo):
+class Sa(FaProfileEstimator, sa.SaAlgo):
     pass
 
 
@@ -200,14 +199,14 @@ def main() -> None:
         domains=search_domains,
         calc_type_size=4,
     )
-    cache = Path("output/search_cache.json")
+    cache = Path("output/search_cache_sa.json")
     print(f"ROUTE=general PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
+    print(f"ALGORITHM=SA PROPOSALS={ITERATIONS + 1}")
     print(f"OFFICIAL_US={baseline}")
-    search = Pso(
+    search = Sa(
         is_stop=lambda results: len(results) >= ITERATIONS,
         validator=valids.attention.FlashAttentionScoreGeneralValidator(hardware),
         input_params=params,
-        swarm_size=SWARM_SIZE,
         runner="./run.sh",
         cache_path=str(cache),
         verbose=False,
