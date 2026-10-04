@@ -6,27 +6,83 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 from tiling import base, estimator_algs, ga, limits, valids
 
 
-SHAPE = {
-    "B": 1,
-    "N1": 128,
-    "N2": 128,
-    "S1": 4096,
-    "S2": 4096,
-    "D": 192,
-    "DV": 128,
-    "DTYPE": "BF16",
-    "LAYOUT": "BNSD",
-}
+CASES = [
+    {
+        "name": "deepseek_v3_generate_s4096_bnsd_tp1",
+        "shape": (1, 128, 128, 4096, 4096, 192, 128, "BF16", "BNSD"),
+        "route": "same_ab",
+        "priority": 95,
+        "key": 69864023600,
+    },
+    {
+        "name": "deepseek_v3_pipeline_s4096_sbh_tp1",
+        "shape": (1, 128, 128, 4096, 4096, 192, 128, "BF16", "SBH"),
+        "route": "same_ab",
+        "priority": 95,
+        "key": 1143498288,
+    },
+    {
+        "name": "deepseek_v3_pretrain_s4096_sbh_tp2",
+        "shape": (1, 64, 64, 4096, 4096, 192, 128, "BF16", "SBH"),
+        "route": "same_ab",
+        "priority": 95,
+        "key": 1143498288,
+    },
+    {
+        "name": "deepseek_v3_tune_s4096_bnsd_tp2",
+        "shape": (1, 64, 64, 4096, 4096, 192, 128, "BF16", "BNSD"),
+        "route": "same_ab",
+        "priority": 95,
+        "key": 69864023600,
+    },
+    {
+        "name": "deepseek_v3_pretrain_s4096_sbh_tp4",
+        "shape": (1, 32, 32, 4096, 4096, 192, 128, "BF16", "SBH"),
+        "route": "same_ab",
+        "priority": 95,
+        "key": 1143498288,
+    },
+    {
+        "name": "deepseek_v3_surrogate_s4096_bnsd_tp8",
+        "shape": (1, 16, 16, 4096, 4096, 192, 128, "BF16", "BNSD"),
+        "route": "same_ab",
+        "priority": 95,
+        "key": 69864023600,
+    },
+    {
+        "name": "deepseek_v3_bf16_s8192_sbh_tp1",
+        "shape": (1, 128, 128, 8192, 8192, 192, 128, "BF16", "SBH"),
+        "route": "same_ab",
+        "priority": 95,
+        "key": 1143498288,
+    },
+    {
+        "name": "pangu_ultra_dense_s4096_b1_model_proxy",
+        "shape": (1, 96, 8, 4096, 4096, 128, 128, "BF16", "BNSD"),
+        "route": "general",
+        "priority": 96,
+        "key": 18324415536,
+    },
+    {
+        "name": "pangu_ultra_dense_s8192_b1_model_proxy",
+        "shape": (1, 96, 8, 8192, 8192, 128, 128, "BF16", "BNSD"),
+        "route": "general",
+        "priority": 96,
+        "key": 18324415536,
+    },
+]
+SHAPE = {}
 NPU_ID = 4
 POPULATION_SIZE = 16
 GENERATIONS = 32
 
-PRIORITY = 95
-TILING_KEY = 69864023600
+PRIORITY = 0
+TILING_KEY = 0
 DTYPES = {"FP32": (0, 4), "FP16": (1, 2), "BF16": (2, 2)}
 LAYOUTS = {"BNSD": 0, "SBH": 1, "BSND": 2}
 
@@ -184,25 +240,66 @@ class GaValidator(valids.attention.FlashAttentionScoreSameABValidator):
         return ga.GaParam(name=name, value=value, is_const=is_const, domain=domain or [value])
 
 
-def domains() -> dict[str, list[int]]:
+class GaGeneralValidator(valids.attention.FlashAttentionScoreGeneralValidator):
+    def _make_param(
+        self, name: str, value: int, is_const: bool, domain: list[int] | None = None
+    ) -> ga.GaParam:
+        return ga.GaParam(name=name, value=value, is_const=is_const, domain=domain or [value])
+
+
+def domains(route: str) -> dict[str, list[int]]:
     return {
-        "FA_S1_BASE": [64, 128, 192, 256],
+        "FA_S1_BASE": [64, 128, 192, 256]
+        if route == "same_ab"
+        else [16, 32, 64, 96, 128, 160, 192, 256],
         "FA_S2_BASE": [16, 32, 64, 96, 128, 160, 192, 256],
         "FA_N_RATIO": [1, 2, 4, 5, 6, 8, 12, 16],
     }
 
 
+def run_all() -> None:
+    failures = []
+    for index, case in enumerate(CASES, 1):
+        name = str(case["name"])
+        print(f"GA TEST {index}/{len(CASES)} START: {name}", flush=True)
+        env = dict(os.environ)
+        env["FA_MODEL_CASE"] = name
+        completed = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "--id", str(NPU_ID)], env=env
+        )
+        status = "PASS" if completed.returncode == 0 else "FAIL"
+        print(f"GA TEST {index}/{len(CASES)} {status}: {name}", flush=True)
+        if completed.returncode != 0:
+            failures.append(name)
+    if failures:
+        print(f"GA TESTS FAILED: {failures}")
+        raise SystemExit(1)
+    print("GA TESTS COMPLETE")
+
+
 def main() -> None:
-    global NPU_ID
+    global NPU_ID, SHAPE, PRIORITY, TILING_KEY
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=NPU_ID)
     args = parser.parse_args()
     NPU_ID = args.id
     os.chdir(Path(__file__).resolve().parent)
+    selected = os.environ.get("FA_MODEL_CASE")
+    if selected is None:
+        run_all()
+        return
+    case = next((item for item in CASES if item["name"] == selected), None)
+    if case is None:
+        raise ValueError(f"unknown FA_MODEL_CASE: {selected}")
+    shape = case["shape"]
+    SHAPE = dict(zip(("B", "N1", "N2", "S1", "S2", "D", "DV", "DTYPE", "LAYOUT"), shape))
+    PRIORITY = int(case["priority"])
+    TILING_KEY = int(case["key"])
+    route = str(case["route"])
     params = shape_params()
     build(TILING_KEY)
     baseline = official_baseline(params, TILING_KEY)
-    search_domains = domains()
+    search_domains = domains(route)
     hardware = limits.AttentionLimits(
         max_cores=48,
         aic_num=24,
@@ -213,15 +310,16 @@ def main() -> None:
         L2_size=192 * 1024**2,
         UB_size=192 * 1024,
         domains=search_domains,
-        calc_type_size=2,
+        calc_type_size=DTYPES[str(SHAPE["DTYPE"])][1],
     )
-    cache = Path("output/search_cache_ga_deepseek_v3_generate_s4096_bnsd_tp1.json")
-    print(f"ROUTE=same_ab PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
+    cache = Path(f"output/search_cache_ga_{selected}.json")
+    print(f"MODEL={selected} SHAPE={shape}")
+    print(f"ROUTE={route} PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
     print(f"ALGORITHM=GA PROPOSALS={2 * POPULATION_SIZE - 1 + (GENERATIONS - 1) * (POPULATION_SIZE - 1)}")
     print(f"OFFICIAL_US={baseline}")
     search = Ga(
         is_stop=lambda results: len(results) >= GENERATIONS,
-        validator=GaValidator(hardware),
+        validator=(GaValidator if route == "same_ab" else GaGeneralValidator)(hardware),
         input_params=params,
         pop_size=POPULATION_SIZE,
         runner="./run.sh",
