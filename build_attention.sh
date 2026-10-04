@@ -17,6 +17,9 @@ PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_attention_search.patch"
 BUILD_PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_incremental_build.patch"
 CACHE_MANIFEST="${CACHE_DIR}/build_manifest.txt"
 PACKAGE_MANIFEST="${OPS_ROOT}/build/attention_search_package_manifest.txt"
+BUILD_LOG="${CACHE_DIR}/build.log"
+INSTALL_LOG="${CACHE_DIR}/install.log"
+BUILD_VERBOSE=${ATTENTION_BUILD_VERBOSE:-0}
 PATCH_ACTIVE=0
 BUILD_PATCH_ACTIVE=0
 
@@ -101,16 +104,14 @@ fi
 if [[ -x "${BINARY}" && \
       "${CACHED_PACKAGE_REUSABLE}" == "1" && \
       "$(<"${CACHE_MANIFEST}")" == "${EVALUATOR_FINGERPRINT}" ]]; then
-    echo "[INFO] cache hit: ${OPERATOR} tiling key ${TILING_KEY}"
-    echo "[INFO] reusing ${BINARY}"
+    if [[ "${BUILD_VERBOSE}" == "1" ]]; then
+        echo "[BUILD] cache hit: ${OPERATOR} tiling key ${TILING_KEY}"
+    fi
     exit 0
 fi
 
-echo "[INFO] evaluator cache miss: checking ${OPERATOR} package for tiling key ${TILING_KEY}"
-
 if [[ "${CACHED_PACKAGE_REUSABLE}" == "1" ]]; then
-    echo "[INFO] operator package cache hit: ${CACHED_CUSTOM_ROOT}"
-    echo "[INFO] only the lightweight attention launcher will be rebuilt"
+    echo "[BUILD] rebuilding launcher for ${OPERATOR} tiling key ${TILING_KEY}"
     CUSTOM_ROOT="${CACHED_CUSTOM_ROOT}"
 else
     PACKAGE=$(latest_package)
@@ -126,16 +127,17 @@ else
     fi
 
     if [[ "${PACKAGE_REUSABLE}" == "1" ]]; then
-        echo "[INFO] reusing completed single-key package: ${PACKAGE}"
+        if [[ "${BUILD_VERBOSE}" == "1" ]]; then
+            echo "[BUILD] reusing completed package: ${PACKAGE}"
+        fi
     else
-        echo "[INFO] package cache miss: compiling ${OPERATOR} tiling key ${TILING_KEY} once"
+        mkdir -p "${CACHE_DIR}"
+        echo "[BUILD] compiling ${OPERATOR} tiling key ${TILING_KEY}; full output: ${BUILD_LOG}"
         if git -C "${OPS_ROOT}" apply --unidiff-zero --check "${PATCH_FILE}" 2>/dev/null; then
             git -C "${OPS_ROOT}" apply --unidiff-zero "${PATCH_FILE}"
             PATCH_ACTIVE=1
-            echo "[INFO] applied FA/FAG search-parameter hook"
         elif git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
             PATCH_ACTIVE=1
-            echo "[INFO] FA/FAG search-parameter hook is already applied"
         else
             echo "[ERROR] the FA/FAG patch does not match this ops-transformer revision" >&2
             exit 1
@@ -144,22 +146,26 @@ else
         if git -C "${OPS_ROOT}" apply --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
             git -C "${OPS_ROOT}" apply "${BUILD_PATCH_FILE}"
             BUILD_PATCH_ACTIVE=1
-            echo "[INFO] preserving the shared build tree between tiling keys"
         elif git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
             BUILD_PATCH_ACTIVE=1
-            echo "[INFO] incremental build hook is already applied"
         else
             echo "[ERROR] the incremental-build patch does not match this ops-transformer revision" >&2
             exit 1
         fi
 
-        (
+        if ! (
             cd "${OPS_ROOT}"
             export ATTENTION_INCREMENTAL_BUILD=1
             bash build.sh -j"${JOBS}" \
                 --ops="${OPERATOR}" \
                 --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
-        )
+        ) >"${BUILD_LOG}" 2>&1; then
+            echo "[ERROR] build failed for ${OPERATOR} tiling key ${TILING_KEY}" >&2
+            echo "[ERROR] full output: ${BUILD_LOG}" >&2
+            tail -n 80 "${BUILD_LOG}" >&2 || true
+            exit 1
+        fi
+        echo "[BUILD] compile complete: ${OPERATOR} tiling key ${TILING_KEY}"
         PACKAGE=$(latest_package)
     fi
 
@@ -172,7 +178,11 @@ else
     printf '%s\n' "${PACKAGE_FINGERPRINT}" > "${PACKAGE_MANIFEST}"
 
     mkdir -p "${INSTALL_ROOT}"
-    "${PACKAGE}" --quiet --install-path="${INSTALL_ROOT}"
+    if ! "${PACKAGE}" --quiet --install-path="${INSTALL_ROOT}" >"${INSTALL_LOG}" 2>&1; then
+        echo "[ERROR] package installation failed; full output: ${INSTALL_LOG}" >&2
+        tail -n 80 "${INSTALL_LOG}" >&2 || true
+        exit 1
+    fi
 
     CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
         -name '*_transformer' -print | head -n 1)
@@ -201,5 +211,4 @@ g++ -O2 -std=c++17 "${MODE_DEFINE}" "${SCRIPT_DIR}/attention_bench.cpp" \
 mkdir -p "${INSTALL_ROOT}"
 printf '%s\n' "${EVALUATOR_FINGERPRINT}" > "${CACHE_MANIFEST}"
 
-echo "[INFO] built ${BINARY}"
-echo "[INFO] custom OPP: ${CUSTOM_ROOT}"
+echo "[BUILD] ready: ${OPERATOR} tiling key ${TILING_KEY}"
