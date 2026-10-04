@@ -3,7 +3,6 @@ from __future__ import annotations
 import __future__
 import argparse
 from collections import Counter, deque
-import copy
 from dataclasses import dataclass
 import importlib.abc
 import importlib.machinery
@@ -726,7 +725,7 @@ def _latest_profile_duration() -> float:
 
 
 class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
-    """Run the framework PSO while treating the validator as a label only."""
+    """Run PSO with validator repair before evaluating a candidate on NPU."""
 
     def __init__(self, *args, case: RouteCase, tiling_key: int, report_path: Path,
                  run_timeout: int, **kwargs) -> None:
@@ -737,15 +736,8 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
         self.counts: Counter[str] = Counter()
         self.executed = 0
         self.proposed = 0
-        self.audit_validator = kwargs.pop("validator")
-
-        # PsoAlgo normally asks the validator for valid initial particles and
-        # BaseAlgo repairs rejected particles.  For validator auditing we must
-        # preserve the generated candidate and execute it regardless of the
-        # prediction, so the PSO receives a shallow copy with no gating rules.
-        proposal_validator = copy.copy(self.audit_validator)
-        proposal_validator.param_funcs = {}
-        super().__init__(*args, validator=proposal_validator, **kwargs)
+        self.audit_validator = kwargs["validator"]
+        super().__init__(*args, **kwargs)
 
     def _is_right(
         self,
@@ -844,6 +836,49 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
     def _duration(self, params: list[base.BaseParam]) -> base.BaseResult:
         params = self.audit_validator.get_all_params(params)
         self.proposed += 1
+
+        requested = {
+            param.name: param.value
+            for param in params
+            if param.name in self.audit_validator.limits.domains
+        }
+        validator_error = ""
+        try:
+            candidate_valid = self.audit_validator.is_valid(params)
+        except Exception as exc:
+            candidate_valid = False
+            validator_error = f"validator: {exc!r}"
+
+        repaired = False
+        if not candidate_valid and not validator_error:
+            try:
+                repaired_params = self.audit_validator.repair(params)
+                if self.audit_validator.is_valid(repaired_params):
+                    params = repaired_params
+                    repaired = True
+                    repaired_values = {
+                        param.name: param.value
+                        for param in params
+                        if param.name in self.audit_validator.limits.domains
+                    }
+                    print(
+                        f"VALIDATOR REPAIR route={self.case.name} "
+                        f"requested={requested} repaired={repaired_values}"
+                    )
+                else:
+                    validator_error = "validator repair did not produce a valid configuration"
+            except Exception as exc:
+                validator_error = f"validator repair: {exc!r}"
+
+        # Match the colleague framework: an invalid configuration is repaired
+        # before evaluation, and an unrepairable one never reaches the NPU.
+        if validator_error:
+            print(
+                f"VALIDATOR REJECT route={self.case.name} requested={requested} "
+                f"reason={validator_error}"
+            )
+            return base.BaseResult(float("inf"), params)
+
         cache_key = self._key(params)
         if cache_key in self._cache:
             duration = self._cache[cache_key]
@@ -853,28 +888,19 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
             )
             return base.BaseResult(duration, params)
 
-        validator_error = ""
-        try:
-            predicted_valid = self.audit_validator.is_valid(params)
-        except Exception as exc:
-            predicted_valid = False
-            validator_error = f"validator: {exc!r}"
-
         self.executed += 1
         try:
             rc, duration, runtime_pass, trace, effective, execution_error = self._execute(
                 params, self.executed
             )
-            error = "; ".join(
-                value for value in (validator_error, execution_error) if value
-            )
+            error = execution_error
         except Exception as exc:
             rc, duration, runtime_pass, trace = 1, float("inf"), False, []
             effective = None
-            error = "; ".join(value for value in (validator_error, f"runtime: {exc!r}") if value)
+            error = f"runtime: {exc!r}"
 
         category = (
-            f"validator_{'accept' if predicted_valid else 'reject'}_"
+            f"validator_{'repair' if repaired else 'accept'}_"
             f"runtime_{'pass' if runtime_pass else 'fail'}"
         )
         self.counts[category] += 1
@@ -891,7 +917,8 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
             "candidate": self.proposed,
             "execution": self.executed,
             "algorithm": "pso",
-            "validator_valid": predicted_valid,
+            "validator_valid": candidate_valid,
+            "validator_repaired": repaired,
             "runtime_exit_code": rc,
             "runtime_pass": runtime_pass,
             "duration_us": None if not math.isfinite(duration) else duration,
@@ -904,7 +931,7 @@ class AttentionAuditAlgo(estimator_algs.AlgoProfileEst, pso.PsoAlgo):
             output.write(json.dumps(record, sort_keys=True) + "\n")
         print(
             f"AUDIT route={self.case.name} candidate={self.proposed} execution={self.executed} algorithm=pso "
-            f"validator={predicted_valid} runtime={runtime_pass} category={category} "
+            f"validator={'repair' if repaired else 'accept'} runtime={runtime_pass} category={category} "
             f"duration_us={record['duration_us']}"
         )
 
@@ -1002,7 +1029,8 @@ def main() -> None:
     print(
         f"SEARCH: colleague PSO, swarm={SWARM_SIZE}, iterations={SEARCH_ITERATIONS}; "
         f"{SWARM_SIZE * (SEARCH_ITERATIONS + 1)} proposals including swarm initialization; "
-        "validator labels only; unique candidates execute and duplicates reuse cache"
+        "validator repairs rejected candidates before NPU; unique repaired candidates execute "
+        "and duplicates reuse cache"
     )
 
     for case in ROUTE_CASES:
