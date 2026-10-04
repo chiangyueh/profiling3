@@ -275,14 +275,22 @@ ALL_FA_ROUTE_CASES = ROUTE_COVERAGE_CASES + MODEL_FA_CASES + LARGE_MODEL_FA_CASE
 
 ACTIVE_ROUTE = os.environ.get("ATTENTION_ROUTE", "")
 _FA_ROUTE_BY_NAME = {case.name: case for case in ALL_FA_ROUTE_CASES}
-DEFAULT_FA_ROUTE_CASES = MODEL_FA_CASES
+# Start the model audit with three representative S=4096 workloads: both
+# DeepSeek layouts on SameAB, plus Pangu GQA on the general S1S2 route.  The
+# remaining model cases stay selectable through ATTENTION_ROUTE and can join a
+# later batch after these new paths have been verified on the NPU.
+DEFAULT_FA_ROUTE_CASES = (
+    _FA_ROUTE_BY_NAME["deepseek_v3_pretrain_s4096_sbh_tp2"],
+    _FA_ROUTE_BY_NAME["deepseek_v3_tune_s4096_bnsd_tp2"],
+    _FA_ROUTE_BY_NAME["pangu_ultra_dense_s4096_b1_model_proxy"],
+)
 if ACTIVE_ROUTE and ACTIVE_ROUTE not in _FA_ROUTE_BY_NAME:
     raise ValueError(f"unknown ATTENTION_ROUTE: {ACTIVE_ROUTE}")
 ROUTE_CASES = (_FA_ROUTE_BY_NAME[ACTIVE_ROUTE],) if ACTIVE_ROUTE else ()
 
 # Match the colleague's search_det.py PSO search size.
 SWARM_SIZE = 16
-SEARCH_STEPS = 30
+SEARCH_ITERATIONS = 30
 
 ROUTE_CLASSES = {
     "fa_drop_adapter": "FlashAttentionScoreTilingDropMask",
@@ -992,8 +1000,9 @@ def main() -> None:
     fag_count = sum(case.operator == FAG for case in ROUTE_CASES)
     print(f"ROUTES: {len(ROUTE_CASES)} (FA={fa_count}, FAG={fag_count})")
     print(
-        f"SEARCH: colleague PSO, swarm={SWARM_SIZE}, steps={SEARCH_STEPS}; "
-        "validator labels only; each unique candidate executes once and duplicates reuse cache"
+        f"SEARCH: colleague PSO, swarm={SWARM_SIZE}, iterations={SEARCH_ITERATIONS}; "
+        f"{SWARM_SIZE * (SEARCH_ITERATIONS + 1)} proposals including swarm initialization; "
+        "validator labels only; unique candidates execute and duplicates reuse cache"
     )
 
     for case in ROUTE_CASES:
@@ -1054,7 +1063,7 @@ def main() -> None:
 
         validator = get_validator(case.route_name, domains)
         algo = AttentionAuditAlgo(
-            is_stop=lambda results: len(results) >= SEARCH_STEPS,
+            is_stop=lambda results: len(results) >= SEARCH_ITERATIONS,
             validator=validator,
             input_params=input_params,
             swarm_size=SWARM_SIZE,
