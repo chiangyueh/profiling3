@@ -18,20 +18,17 @@ SHAPE = {
     "S2": 1536,
     "D": 128,
     "DV": 128,
-    "DTYPE": "BF16",
+    "DTYPE": "FP32",
     "LAYOUT": "BNSD",
 }
 NPU_ID = 4
 SWARM_SIZE = 16
 ITERATIONS = 30
 
-BOOTSTRAP_KEYS = {"FP32": 1144284208, "FP16": 1144808752, "BF16": 1144808752}
+PRIORITY = 96
+TILING_KEY = 1144284208
 DTYPES = {"FP32": (0, 4), "FP16": (1, 2), "BF16": (2, 2)}
 LAYOUTS = {"BNSD": 0, "SBH": 1, "BSND": 2}
-ROUTES = {
-    95: ("same_ab", valids.attention.FlashAttentionScoreSameABValidator),
-    96: ("general", valids.attention.FlashAttentionScoreGeneralValidator),
-}
 
 
 def shape_params() -> list[base.BaseParam]:
@@ -74,16 +71,6 @@ def build(key: int) -> None:
         raise RuntimeError(f"build failed for tiling key {key}")
 
 
-def read_route(path: Path) -> tuple[int, int]:
-    if not path.is_file():
-        raise RuntimeError("Host route trace was not produced")
-    for line in reversed(path.read_text().splitlines()):
-        fields = line.split("\t")
-        if len(fields) == 4 and fields[0] == "FlashAttentionScore" and fields[2] == "0":
-            return int(fields[1]), int(fields[3])
-    raise RuntimeError("official Host tiling did not select a route")
-
-
 def read_effective(path: Path) -> dict[str, int] | None:
     if not path.is_file():
         return None
@@ -99,26 +86,6 @@ def read_effective(path: Path) -> dict[str, int] | None:
                 "FA_N_RATIO": int(fields[3]),
             }
     return None
-
-
-def discover(params: list[base.BaseParam]) -> tuple[int, int]:
-    dtype = str(SHAPE["DTYPE"]).upper()
-    seed = BOOTSTRAP_KEYS[dtype]
-    build(seed)
-    trace = Path("output/route.tsv")
-    trace.parent.mkdir(parents=True, exist_ok=True)
-    trace.unlink(missing_ok=True)
-    env = run_env(params, seed)
-    env["FA_ROUTE_TRACE"] = str(trace.resolve())
-    env["FA_PROFILE"] = "0"
-    env["FA_SKIP_BUILD"] = "1"
-    completed = subprocess.run(["bash", "run.sh"], env=env)
-    try:
-        return read_route(trace)
-    except RuntimeError:
-        if completed.returncode != 0:
-            raise RuntimeError("official Host tiling discovery failed")
-        raise
 
 
 def profile_time() -> float:
@@ -202,19 +169,11 @@ class Pso(FaProfileEstimator, pso.PsoAlgo):
     pass
 
 
-def domains(route: str) -> dict[str, list[int]]:
-    s2 = [16, 32, 64, 96, 128, 160, 192, 256]
-    ratio = [1, 2, 4, 5, 6, 8, 12, 16]
-    if route == "same_ab":
-        return {
-            "FA_S1_BASE": [64, 128, 192, 256],
-            "FA_S2_BASE": s2,
-            "FA_N_RATIO": ratio,
-        }
+def domains() -> dict[str, list[int]]:
     return {
         "FA_S1_BASE": [16, 32, 64, 96, 128, 160, 192, 256],
-        "FA_S2_BASE": s2,
-        "FA_N_RATIO": ratio,
+        "FA_S2_BASE": [16, 32, 64, 96, 128, 160, 192, 256],
+        "FA_N_RATIO": [1, 2, 4, 5, 6, 8, 12, 16],
     }
 
 
@@ -226,13 +185,9 @@ def main() -> None:
     NPU_ID = args.id
     os.chdir(Path(__file__).resolve().parent)
     params = shape_params()
-    priority, key = discover(params)
-    if priority not in ROUTES:
-        raise RuntimeError(f"selected FA Host route {priority} is not supported; supported routes are 95 and 96")
-    route, validator_type = ROUTES[priority]
-    build(key)
-    baseline = official_baseline(params, key)
-    search_domains = domains(route)
+    build(TILING_KEY)
+    baseline = official_baseline(params, TILING_KEY)
+    search_domains = domains()
     hardware = limits.AttentionLimits(
         max_cores=48,
         aic_num=24,
@@ -247,17 +202,17 @@ def main() -> None:
     )
     cache = Path("output/search_cache.json")
     cache.unlink(missing_ok=True)
-    print(f"ROUTE={route} PRIORITY={priority} TILING_KEY={key}")
+    print(f"ROUTE=general PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
     print(f"OFFICIAL_US={baseline}")
     search = Pso(
         is_stop=lambda results: len(results) >= ITERATIONS,
-        validator=validator_type(hardware),
+        validator=valids.attention.FlashAttentionScoreGeneralValidator(hardware),
         input_params=params,
         swarm_size=SWARM_SIZE,
         runner="./run.sh",
         cache_path=str(cache),
         verbose=False,
-        tiling_key=key,
+        tiling_key=TILING_KEY,
     )
     results = search()
     best = min(results, key=lambda result: result.duration)
