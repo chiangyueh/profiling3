@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from tiling import base, estimator_algs, limits, sa, valids
+from tiling import base, estimator_algs, ga, limits, valids
 
 
 SHAPE = {
@@ -22,7 +22,8 @@ SHAPE = {
     "LAYOUT": "BNSD",
 }
 NPU_ID = 4
-ITERATIONS = 495
+POPULATION_SIZE = 16
+GENERATIONS = 32
 
 PRIORITY = 96
 TILING_KEY = 1144284208
@@ -164,8 +165,15 @@ class FaProfileEstimator(estimator_algs.AlgoProfileEst):
         return self.last_correct
 
 
-class Sa(FaProfileEstimator, sa.SaAlgo):
+class Ga(FaProfileEstimator, ga.GaAlgo):
     pass
+
+
+class GaValidator(valids.attention.FlashAttentionScoreGeneralValidator):
+    def _make_param(
+        self, name: str, value: int, is_const: bool, domain: list[int] | None = None
+    ) -> ga.GaParam:
+        return ga.GaParam(name=name, value=value, is_const=is_const, domain=domain or [value])
 
 
 def domains() -> dict[str, list[int]]:
@@ -199,14 +207,15 @@ def main() -> None:
         domains=search_domains,
         calc_type_size=4,
     )
-    cache = Path("output/search_cache_sa.json")
+    cache = Path("output/search_cache_ga.json")
     print(f"ROUTE=general PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
-    print(f"ALGORITHM=SA PROPOSALS={ITERATIONS + 1}")
+    print(f"ALGORITHM=GA PROPOSALS={2 * POPULATION_SIZE - 1 + (GENERATIONS - 1) * (POPULATION_SIZE - 1)}")
     print(f"OFFICIAL_US={baseline}")
-    search = Sa(
-        is_stop=lambda results: len(results) >= ITERATIONS,
-        validator=valids.attention.FlashAttentionScoreGeneralValidator(hardware),
+    search = Ga(
+        is_stop=lambda results: len(results) >= GENERATIONS,
+        validator=GaValidator(hardware),
         input_params=params,
+        pop_size=POPULATION_SIZE,
         runner="./run.sh",
         cache_path=str(cache),
         verbose=False,
