@@ -12,21 +12,21 @@ from tiling import base, estimator_algs, ga, limits, valids
 
 SHAPE = {
     "B": 1,
-    "N1": 8,
-    "N2": 1,
-    "S1": 128,
-    "S2": 1536,
-    "D": 128,
+    "N1": 128,
+    "N2": 128,
+    "S1": 4096,
+    "S2": 4096,
+    "D": 192,
     "DV": 128,
-    "DTYPE": "FP32",
+    "DTYPE": "BF16",
     "LAYOUT": "BNSD",
 }
 NPU_ID = 4
 POPULATION_SIZE = 16
 GENERATIONS = 32
 
-PRIORITY = 96
-TILING_KEY = 1144284208
+PRIORITY = 95
+TILING_KEY = 69864023600
 DTYPES = {"FP32": (0, 4), "FP16": (1, 2), "BF16": (2, 2)}
 LAYOUTS = {"BNSD": 0, "SBH": 1, "BSND": 2}
 
@@ -169,7 +169,7 @@ class Ga(FaProfileEstimator, ga.GaAlgo):
     pass
 
 
-class GaValidator(valids.attention.FlashAttentionScoreGeneralValidator):
+class GaValidator(valids.attention.FlashAttentionScoreSameABValidator):
     def _make_param(
         self, name: str, value: int, is_const: bool, domain: list[int] | None = None
     ) -> ga.GaParam:
@@ -178,7 +178,7 @@ class GaValidator(valids.attention.FlashAttentionScoreGeneralValidator):
 
 def domains() -> dict[str, list[int]]:
     return {
-        "FA_S1_BASE": [16, 32, 64, 96, 128, 160, 192, 256],
+        "FA_S1_BASE": [64, 128, 192, 256],
         "FA_S2_BASE": [16, 32, 64, 96, 128, 160, 192, 256],
         "FA_N_RATIO": [1, 2, 4, 5, 6, 8, 12, 16],
     }
@@ -205,10 +205,10 @@ def main() -> None:
         L2_size=192 * 1024**2,
         UB_size=192 * 1024,
         domains=search_domains,
-        calc_type_size=4,
+        calc_type_size=2,
     )
-    cache = Path("output/search_cache_ga.json")
-    print(f"ROUTE=general PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
+    cache = Path("output/search_cache_ga_deepseek_v3_generate_s4096_bnsd_tp1.json")
+    print(f"ROUTE=same_ab PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
     print(f"ALGORITHM=GA PROPOSALS={2 * POPULATION_SIZE - 1 + (GENERATIONS - 1) * (POPULATION_SIZE - 1)}")
     print(f"OFFICIAL_US={baseline}")
     search = Ga(
