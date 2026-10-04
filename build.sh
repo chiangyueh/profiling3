@@ -14,11 +14,13 @@ CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/${TILING_KEY}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/fa_npu"
 PATCH_FILE="${SCRIPT_DIR}/patches/fa_candidate_hook.patch"
+BUILD_PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_incremental_build.patch"
 CACHE_MANIFEST="${CACHE_DIR}/build_manifest.txt"
 PACKAGE_MANIFEST="${OPS_ROOT}/build/fa_package_manifest.txt"
 BUILD_LOG="${CACHE_DIR}/build.log"
 INSTALL_LOG="${CACHE_DIR}/install.log"
 PATCH_ACTIVE=0
+BUILD_PATCH_ACTIVE=0
 
 latest_package() {
     local roots=()
@@ -39,6 +41,10 @@ restore_source() {
     if [[ "${PATCH_ACTIVE}" == "1" ]] && \
        git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
         git -C "${OPS_ROOT}" apply --unidiff-zero --reverse "${PATCH_FILE}"
+    fi
+    if [[ "${BUILD_PATCH_ACTIVE}" == "1" ]] && \
+       git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
+        git -C "${OPS_ROOT}" apply --reverse "${BUILD_PATCH_FILE}"
     fi
 }
 
@@ -106,8 +112,18 @@ else
             echo "FA candidate patch does not match ops-transformer v8.5.0" >&2
             exit 1
         fi
+        if git -C "${OPS_ROOT}" apply --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
+            git -C "${OPS_ROOT}" apply "${BUILD_PATCH_FILE}"
+            BUILD_PATCH_ACTIVE=1
+        elif git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
+            BUILD_PATCH_ACTIVE=1
+        else
+            echo "incremental build patch does not match ops-transformer v8.5.0" >&2
+            exit 1
+        fi
         if ! (
             cd "${OPS_ROOT}"
+            export ATTENTION_INCREMENTAL_BUILD=1
             bash build.sh -j"${JOBS}" --ops=flash_attention_score \
                 --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
         ) >"${BUILD_LOG}" 2>&1; then
