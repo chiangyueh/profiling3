@@ -14,13 +14,11 @@ CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/${TILING_KEY}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/fa_npu"
 PATCH_FILE="${SCRIPT_DIR}/patches/fa_candidate_hook.patch"
-BUILD_PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_incremental_build.patch"
 CACHE_MANIFEST="${CACHE_DIR}/build_manifest.txt"
 PACKAGE_MANIFEST="${OPS_ROOT}/build/fa_package_manifest.txt"
 BUILD_LOG="${CACHE_DIR}/build.log"
 INSTALL_LOG="${CACHE_DIR}/install.log"
 PATCH_ACTIVE=0
-BUILD_PATCH_ACTIVE=0
 
 latest_package() {
     local roots=()
@@ -42,10 +40,6 @@ restore_source() {
        git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
         git -C "${OPS_ROOT}" apply --unidiff-zero --reverse "${PATCH_FILE}"
     fi
-    if [[ "${BUILD_PATCH_ACTIVE}" == "1" ]] && \
-       git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
-        git -C "${OPS_ROOT}" apply --reverse "${BUILD_PATCH_FILE}"
-    fi
 }
 
 trap restore_source EXIT
@@ -64,15 +58,13 @@ if [[ "$(git -C "${OPS_ROOT}" rev-parse HEAD)" != "${EXPECTED_COMMIT}" ]]; then
 fi
 
 PATCH_SHA256=$(sha256sum "${PATCH_FILE}" | awk '{print $1}')
-BUILD_PATCH_SHA256=$(sha256sum "${BUILD_PATCH_FILE}" | awk '{print $1}')
 LAUNCHER_SHA256=$(sha256sum "${SCRIPT_DIR}/fa_launcher.cpp" | awk '{print $1}')
 PACKAGE_FINGERPRINT=$(printf '%s\n' \
     "schema=1" \
     "commit=${EXPECTED_COMMIT}" \
     "soc=${SOC_UNIT}" \
     "tiling_key=${TILING_KEY}" \
-    "patch=${PATCH_SHA256}" \
-    "build_patch=${BUILD_PATCH_SHA256}")
+    "patch=${PATCH_SHA256}")
 FULL_FINGERPRINT=$(printf '%s\n' "${PACKAGE_FINGERPRINT}" "launcher=${LAUNCHER_SHA256}")
 CACHED_CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
     -name '*_transformer' -print 2>/dev/null | head -n 1 || true)
@@ -114,18 +106,8 @@ else
             echo "FA candidate patch does not match ops-transformer v8.5.0" >&2
             exit 1
         fi
-        if git -C "${OPS_ROOT}" apply --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
-            git -C "${OPS_ROOT}" apply "${BUILD_PATCH_FILE}"
-            BUILD_PATCH_ACTIVE=1
-        elif git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
-            BUILD_PATCH_ACTIVE=1
-        else
-            echo "incremental build patch does not match ops-transformer v8.5.0" >&2
-            exit 1
-        fi
         if ! (
             cd "${OPS_ROOT}"
-            export FA_INCREMENTAL_BUILD=1
             bash build.sh -j"${JOBS}" --ops=flash_attention_score \
                 --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
         ) >"${BUILD_LOG}" 2>&1; then
@@ -156,7 +138,7 @@ TOOLKIT_LIBRARY="${ASCEND_ROOT}/lib64"
 mkdir -p "${CACHE_DIR}"
 g++ -O2 -std=c++17 "${SCRIPT_DIR}/fa_launcher.cpp" \
     -I"${ASCEND_ROOT}/include" -I"${CUSTOM_INCLUDE}" \
-    -L"${CUSTOM_LIBRARY}" -L"${TOOLKIT_LIBRARY}" \
+    -L"${CUSTOM_LIBRARY}" -L"${TOOLKIT_LIBRARY}" -L"${OPS_ROOT}/build" \
     -Wl,-rpath,"${CUSTOM_LIBRARY}" -Wl,-rpath,"${TOOLKIT_LIBRARY}" \
     -lcust_opapi -lopapi_math -lascendcl -lnnopbase -lc_sec -ldl \
     -o "${BINARY}"

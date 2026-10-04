@@ -1,6 +1,7 @@
 # NEW BEGIN
 from __future__ import annotations
 
+import argparse
 import os
 from pathlib import Path
 import shutil
@@ -216,6 +217,11 @@ def domains(route: str) -> dict[str, list[int]]:
 
 
 def main() -> None:
+    global NPU_ID
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--id", type=int, default=NPU_ID)
+    args = parser.parse_args()
+    NPU_ID = args.id
     os.chdir(Path(__file__).resolve().parent)
     params = shape_params()
     priority, key = discover(params)
