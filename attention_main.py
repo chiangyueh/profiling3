@@ -274,14 +274,11 @@ ALL_FA_ROUTE_CASES = ROUTE_COVERAGE_CASES + MODEL_FA_CASES + LARGE_MODEL_FA_CASE
 
 ACTIVE_ROUTE = os.environ.get("ATTENTION_ROUTE", "")
 _FA_ROUTE_BY_NAME = {case.name: case for case in ALL_FA_ROUTE_CASES}
-# Start the model audit with three representative S=4096 workloads: both
-# DeepSeek layouts on SameAB, plus Pangu GQA on the general S1S2 route.  The
-# remaining model cases stay selectable through ATTENTION_ROUTE and can join a
-# later batch after these new paths have been verified on the NPU.
+# Keep the default command on one verified workload.  Additional model cases
+# remain available internally for later batches after this production
+# validator/repair flow has been verified on the NPU.
 DEFAULT_FA_ROUTE_CASES = (
     _FA_ROUTE_BY_NAME["deepseek_v3_pretrain_s4096_sbh_tp2"],
-    _FA_ROUTE_BY_NAME["deepseek_v3_tune_s4096_bnsd_tp2"],
-    _FA_ROUTE_BY_NAME["pangu_ultra_dense_s4096_b1_model_proxy"],
 )
 if ACTIVE_ROUTE and ACTIVE_ROUTE not in _FA_ROUTE_BY_NAME:
     raise ValueError(f"unknown ATTENTION_ROUTE: {ACTIVE_ROUTE}")
