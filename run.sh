@@ -1,5 +1,4 @@
 #!/bin/bash
-# NEW BEGIN
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -20,18 +19,20 @@ if [[ -f "${ASCEND_ROOT}/bin/setenv.bash" ]]; then
     source "${ASCEND_ROOT}/bin/setenv.bash"
 fi
 
-EXPECTED_COMMIT=6ead121aded45355043b502756b6592fd7c30b14
+SOURCE_VERSION=${OPS_TRANSFORMER_VERSION:-v8.5.0}
 SOC_UNIT=${FA_SOC_UNIT:-ascend910b}
 CACHE_BASE=${FA_CACHE_ROOT:-"${SCRIPT_DIR}/out/fa_cache"}
-CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/${FA_TILING_KEY}"
+CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${FA_TILING_KEY}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/fa_npu"
-LEGACY_CACHE_DIR="${SCRIPT_DIR}/out/attention_cache/${EXPECTED_COMMIT}/${SOC_UNIT}/flash_attention_score/${FA_TILING_KEY}"
+LEGACY_BINARY=$(find "${SCRIPT_DIR}/out/attention_cache" -type f \
+    -path "*/${SOC_UNIT}/flash_attention_score/${FA_TILING_KEY}/attention_npu" \
+    -perm -u+x -print -quit 2>/dev/null || true)
 
-if [[ -x "${LEGACY_CACHE_DIR}/attention_npu" ]]; then
-    CACHE_DIR="${LEGACY_CACHE_DIR}"
+if [[ -n "${LEGACY_BINARY}" ]]; then
+    CACHE_DIR=$(dirname "${LEGACY_BINARY}")
     INSTALL_ROOT="${CACHE_DIR}/opp"
-    BINARY="${CACHE_DIR}/attention_npu"
+    BINARY="${LEGACY_BINARY}"
 fi
 
 if [[ "${FA_SKIP_BUILD:-0}" != "1" ]]; then
@@ -53,4 +54,3 @@ if [[ "${FA_PROFILE:-1}" == "0" ]]; then
     exec "${BINARY}"
 fi
 exec msprof op "${BINARY}"
-# NEW END

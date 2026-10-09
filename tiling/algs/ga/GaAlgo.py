@@ -1,4 +1,3 @@
-# NEW BEGIN
 from tiling.base.Base import BaseAlgo, BaseResult, BaseValidator, BaseParam
 from .Population import Individual, Population
 from typing import Callable
@@ -50,4 +49,3 @@ class GaAlgo(BaseAlgo):
 
         best: Individual = min(new_pop, key=lambda i: i.duration)
         return BaseResult(float(best.duration), best.decoded_params)
-# NEW END

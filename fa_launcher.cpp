@@ -1,4 +1,3 @@
-// NEW BEGIN
 #include <acl/acl.h>
 #include "aclnn_flash_attention_score.h"
 
@@ -332,4 +331,3 @@ int main()
     dlclose(hostLibrary);
     return result;
 }
-// NEW END

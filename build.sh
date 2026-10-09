@@ -1,16 +1,15 @@
 #!/bin/bash
-# NEW BEGIN
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 OPS_ROOT=${OPS_TRANSFORMER_ROOT:-"${SCRIPT_DIR}/../ops-transformer-official-8.5.0"}
-EXPECTED_COMMIT=6ead121aded45355043b502756b6592fd7c30b14
+SOURCE_VERSION=${OPS_TRANSFORMER_VERSION:-v8.5.0}
 ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
 SOC_UNIT=${FA_SOC_UNIT:-ascend910b}
 JOBS=${FA_BUILD_JOBS:-1}
 TILING_KEY=${FA_TILING_KEY:-1144808752}
 CACHE_BASE=${FA_CACHE_ROOT:-"${SCRIPT_DIR}/out/fa_cache"}
-CACHE_DIR="${CACHE_BASE}/${EXPECTED_COMMIT}/${SOC_UNIT}/${TILING_KEY}"
+CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${TILING_KEY}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/fa_npu"
 PATCH_FILE="${SCRIPT_DIR}/patches/fa_candidate_hook.patch"
@@ -38,13 +37,11 @@ latest_package() {
 }
 
 restore_source() {
-    if [[ "${PATCH_ACTIVE}" == "1" ]] && \
-       git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
-        git -C "${OPS_ROOT}" apply --unidiff-zero --reverse "${PATCH_FILE}"
+    if [[ "${PATCH_ACTIVE}" == "1" ]]; then
+        (cd "${OPS_ROOT}" && patch --batch --silent -R -p1 <"${PATCH_FILE}") || true
     fi
-    if [[ "${BUILD_PATCH_ACTIVE}" == "1" ]] && \
-       git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
-        git -C "${OPS_ROOT}" apply --reverse "${BUILD_PATCH_FILE}"
+    if [[ "${BUILD_PATCH_ACTIVE}" == "1" ]]; then
+        (cd "${OPS_ROOT}" && patch --batch --silent -R -p1 <"${BUILD_PATCH_FILE}") || true
     fi
 }
 
@@ -58,16 +55,11 @@ if [[ ! "${TILING_KEY}" =~ ^[0-9]+$ ]]; then
     echo "invalid FA_TILING_KEY: ${TILING_KEY}" >&2
     exit 2
 fi
-if [[ "$(git -C "${OPS_ROOT}" rev-parse HEAD)" != "${EXPECTED_COMMIT}" ]]; then
-    echo "ops-transformer must be at ${EXPECTED_COMMIT}: ${OPS_ROOT}" >&2
-    exit 2
-fi
-
 PATCH_SHA256=$(sha256sum "${PATCH_FILE}" | awk '{print $1}')
 LAUNCHER_SHA256=$(sha256sum "${SCRIPT_DIR}/fa_launcher.cpp" | awk '{print $1}')
 PACKAGE_FINGERPRINT=$(printf '%s\n' \
     "schema=1" \
-    "commit=${EXPECTED_COMMIT}" \
+    "version=${SOURCE_VERSION}" \
     "soc=${SOC_UNIT}" \
     "tiling_key=${TILING_KEY}" \
     "patch=${PATCH_SHA256}")
@@ -103,22 +95,18 @@ else
     if [[ -z "${PACKAGE}" ]]; then
         mkdir -p "${CACHE_DIR}"
         echo "BUILD START: tiling_key=${TILING_KEY} log=${BUILD_LOG}"
-        if git -C "${OPS_ROOT}" apply --unidiff-zero --check "${PATCH_FILE}" 2>/dev/null; then
-            git -C "${OPS_ROOT}" apply --unidiff-zero "${PATCH_FILE}"
+        if (cd "${OPS_ROOT}" && patch --batch --forward --dry-run --silent -p1 <"${PATCH_FILE}") 2>/dev/null; then
+            (cd "${OPS_ROOT}" && patch --batch --silent -p1 <"${PATCH_FILE}")
             PATCH_ACTIVE=1
-        elif git -C "${OPS_ROOT}" apply --unidiff-zero --reverse --check "${PATCH_FILE}" 2>/dev/null; then
-            PATCH_ACTIVE=1
-        else
-            echo "FA candidate patch does not match ops-transformer v8.5.0" >&2
+        elif ! (cd "${OPS_ROOT}" && patch --batch --dry-run --silent -R -p1 <"${PATCH_FILE}") 2>/dev/null; then
+            echo "FA candidate patch does not match ops-transformer ${SOURCE_VERSION}" >&2
             exit 1
         fi
-        if git -C "${OPS_ROOT}" apply --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
-            git -C "${OPS_ROOT}" apply "${BUILD_PATCH_FILE}"
+        if (cd "${OPS_ROOT}" && patch --batch --forward --dry-run --silent -p1 <"${BUILD_PATCH_FILE}") 2>/dev/null; then
+            (cd "${OPS_ROOT}" && patch --batch --silent -p1 <"${BUILD_PATCH_FILE}")
             BUILD_PATCH_ACTIVE=1
-        elif git -C "${OPS_ROOT}" apply --reverse --check "${BUILD_PATCH_FILE}" 2>/dev/null; then
-            BUILD_PATCH_ACTIVE=1
-        else
-            echo "incremental build patch does not match ops-transformer v8.5.0" >&2
+        elif ! (cd "${OPS_ROOT}" && patch --batch --dry-run --silent -R -p1 <"${BUILD_PATCH_FILE}") 2>/dev/null; then
+            echo "incremental build patch does not match ops-transformer ${SOURCE_VERSION}" >&2
             exit 1
         fi
         if ! (
@@ -160,4 +148,3 @@ g++ -O2 -std=c++17 "${SCRIPT_DIR}/fa_launcher.cpp" \
     -o "${BINARY}"
 printf '%s\n' "${FULL_FINGERPRINT}" >"${CACHE_MANIFEST}"
 echo "BUILD READY: tiling_key=${TILING_KEY}"
-# NEW END

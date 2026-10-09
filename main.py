@@ -1,4 +1,3 @@
-# NEW BEGIN
 from __future__ import annotations
 
 import argparse
@@ -120,11 +119,11 @@ def run_env(params: list[base.BaseParam], key: int) -> dict[str, str]:
 
 
 def build(key: int) -> None:
-    legacy = Path(
-        "out/attention_cache/6ead121aded45355043b502756b6592fd7c30b14/"
-        f"ascend910b/flash_attention_score/{key}/attention_npu"
+    soc = os.environ.get("FA_SOC_UNIT", "ascend910b")
+    legacy = Path("out/attention_cache").glob(
+        f"*/{soc}/flash_attention_score/{key}/attention_npu"
     )
-    if legacy.is_file():
+    if any(path.is_file() for path in legacy):
         print(f"BUILD CACHE HIT: tiling_key={key}")
         return
     env = dict(os.environ)
@@ -341,4 +340,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-# NEW END

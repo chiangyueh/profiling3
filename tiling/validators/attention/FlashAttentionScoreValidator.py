@@ -1,4 +1,3 @@
-# NEW BEGIN
 from __future__ import annotations
 
 from tiling.base import BaseParam
@@ -171,4 +170,3 @@ class FlashAttentionScoreSameABValidator(FlashAttentionScoreValidator):
             derived.update(self._dense_derived(values))
             derived["FA_ROUTE"] = FA_ROUTE_SAME_AB
         return self._derived_params(derived)
-# NEW END

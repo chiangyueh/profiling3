@@ -1,4 +1,3 @@
-# NEW BEGIN
 from typing import Callable
 from .GaParam import GaParam
 from tiling.base.Base import BaseResult
@@ -62,4 +61,3 @@ class Population(list):
     def tournament(self, k: int = 3) -> Individual:
         contenders = random.sample(list(self), k)
         return min(contenders, key=lambda ind: ind.duration)
-# NEW END

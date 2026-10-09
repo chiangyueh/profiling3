@@ -1,4 +1,3 @@
-# NEW BEGIN
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -90,4 +89,3 @@ class AttentionValidator(BaseValidator):
             return {name: params[name] for name in names if name in params}
         repaired = self.repair_dijkstra(movable, predicate, context=params)
         return {name: repaired.get(name, params[name]) for name in names if name in params}
-# NEW END

@@ -1,4 +1,3 @@
-# NEW BEGIN
 from tiling.base.Base import BaseAlgo, BaseResult, BaseValidator, BaseParam
 from typing import Callable
 import random
@@ -71,4 +70,3 @@ class SaAlgo(BaseAlgo):
         self.temperature = max(self.t_min, self.temperature * self.cooling)
 
         return BaseResult(float(self.best_dur), [copy.copy(p) for p in self.best])
-# NEW END

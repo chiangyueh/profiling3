@@ -1,4 +1,3 @@
-# NEW BEGIN
 from .AttentionValidator import AttentionValidator, LAYOUT_BNSD, LAYOUT_BSND, LAYOUT_SBH
 from .FlashAttentionScoreValidator import (
     FA_ROUTE_GENERAL,
@@ -19,4 +18,3 @@ __all__ = [
     "LAYOUT_BSND",
     "LAYOUT_SBH",
 ]
-# NEW END

@@ -1,13 +1,10 @@
 diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
 --- a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
 +++ b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
-@@ -16,0 +17,4 @@
-+// NEW BEGIN
+@@ -16,0 +17,2 @@
 +#include <cstdlib>
 +#include <fstream>
-+// NEW END
-@@ -30,0 +35,28 @@ namespace FA {
-+// NEW BEGIN
+@@ -30,0 +33,26 @@ namespace FA {
 +static bool ReadFaCandidate(const char *name, int64_t &value)
 +{
 +    const char *raw = std::getenv(name);
@@ -34,9 +31,7 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        output << name << '\t' << s1Base << '\t' << s2Base << '\t' << nRatio << '\n';
 +    }
 +}
-+// NEW END
-@@ -3161,0 +3194,20 @@ protected:
-+    // NEW BEGIN
+@@ -3161,0 +3190,18 @@ protected:
 +    void SetCoreParams() override
 +    {
 +        int64_t value = 0;
@@ -54,10 +49,8 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        TraceFaCandidate("FlashAttentionScoreTilingS1s2Bn2gs1", coreParams.get_s1BaseSize(),
 +                         coreParams.get_s2BaseSize(), coreParams.get_nRatio());
 +    }
-+    // NEW END
 +
-@@ -3467,0 +3520,21 @@ protected:
-+    // NEW BEGIN
+@@ -3467,0 +3514,19 @@ protected:
 +    void SetCoreParams() override
 +    {
 +        int64_t value = 0;
@@ -76,14 +69,11 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        TraceFaCandidate("FlashAttentionScoreTilingS1s2Bn2gs1SameAB", coreParams.get_s1BaseSize(),
 +                         coreParams.get_s2BaseSize(), coreParams.get_nRatio());
 +    }
-+    // NEW END
 +
 diff --git a/cmake/custom_build.cmake b/cmake/custom_build.cmake
 --- a/cmake/custom_build.cmake
 +++ b/cmake/custom_build.cmake
-@@ -551,0 +552,5 @@ target_link_libraries(
-+# NEW BEGIN
+@@ -551,0 +552,3 @@ target_link_libraries(
 +if (TARGET ${COMMON_NAME}_obj)
 +    add_dependencies(cust_opmaster ${COMMON_NAME}_obj)
 +endif()
-+# NEW END

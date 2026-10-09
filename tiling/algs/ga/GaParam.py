@@ -1,4 +1,3 @@
-# NEW BEGIN
 from tiling.base.Base import BaseParam
 from dataclasses import field, dataclass
 import math
@@ -38,4 +37,3 @@ class GaParam(BaseParam):
             index = self._decode(index)
         index = min(index, len(self.domain) - 1)
         super().update(index)
-# NEW END

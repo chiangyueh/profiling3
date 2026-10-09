@@ -17,7 +17,5 @@ class OpLimits(AscendLimits):
     
 @dataclass
 class AttentionLimits(OpLimits):
-    # NEW BEGIN
     aic_num: int
     calc_type_size: int = 4
-    # NEW END
