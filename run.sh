@@ -8,7 +8,8 @@ if [[ ! "${FA_NPU_ID:-}" =~ ^[0-9]+$ ]]; then
     echo "invalid FA_NPU_ID: ${FA_NPU_ID:-}" >&2
     exit 2
 fi
-if [[ ! "${FA_TILING_KEY:-}" =~ ^[0-9]+$ ]]; then
+DISCOVER_ONLY=${FA_DISCOVER_ONLY:-0}
+if [[ "${DISCOVER_ONLY}" != "1" && ! "${FA_TILING_KEY:-}" =~ ^[0-9]+$ ]]; then
     echo "invalid FA_TILING_KEY: ${FA_TILING_KEY:-}" >&2
     exit 2
 fi
@@ -22,12 +23,20 @@ fi
 SOURCE_VERSION=${OPS_TRANSFORMER_VERSION:-v8.5.0}
 SOC_UNIT=${FA_SOC_UNIT:-ascend910b}
 CACHE_BASE=${FA_CACHE_ROOT:-"${SCRIPT_DIR}/out/fa_cache"}
-CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${FA_TILING_KEY}"
+if [[ "${DISCOVER_ONLY}" == "1" ]]; then
+    CACHE_ID=host
+else
+    CACHE_ID=${FA_TILING_KEY}
+fi
+CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${CACHE_ID}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/fa_npu"
-LEGACY_BINARY=$(find "${SCRIPT_DIR}/out/attention_cache" -type f \
-    -path "*/${SOC_UNIT}/flash_attention_score/${FA_TILING_KEY}/attention_npu" \
-    -perm -u+x -print -quit 2>/dev/null || true)
+LEGACY_BINARY=""
+if [[ "${DISCOVER_ONLY}" != "1" ]]; then
+    LEGACY_BINARY=$(find "${SCRIPT_DIR}/out/attention_cache" -type f \
+        -path "*/${SOC_UNIT}/flash_attention_score/${FA_TILING_KEY}/attention_npu" \
+        -perm -u+x -print -quit 2>/dev/null || true)
+fi
 
 if [[ -n "${LEGACY_BINARY}" ]]; then
     CACHE_DIR=$(dirname "${LEGACY_BINARY}")
@@ -42,7 +51,7 @@ fi
 SET_ENV=$(find "${INSTALL_ROOT}/vendors" -mindepth 3 -maxdepth 3 -type f \
     -path '*/bin/set_env.bash' -print 2>/dev/null | head -n 1 || true)
 if [[ -z "${SET_ENV}" || ! -x "${BINARY}" ]]; then
-    echo "FA build cache is incomplete for tiling key ${FA_TILING_KEY}" >&2
+    echo "FA build cache is incomplete for ${CACHE_ID}" >&2
     exit 2
 fi
 

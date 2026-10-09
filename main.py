@@ -14,65 +14,38 @@ CASES = [
     {
         "name": "deepseek_v3_generate_s4096_bnsd_tp1",
         "shape": (1, 128, 128, 4096, 4096, 192, 128, "BF16", "BNSD"),
-        "route": "same_ab",
-        "priority": 95,
-        "key": 69864023600,
     },
     {
         "name": "deepseek_v3_pipeline_s4096_sbh_tp1",
         "shape": (1, 128, 128, 4096, 4096, 192, 128, "BF16", "SBH"),
-        "route": "same_ab",
-        "priority": 95,
-        "key": 1143498288,
     },
     {
         "name": "deepseek_v3_pretrain_s4096_sbh_tp2",
         "shape": (1, 64, 64, 4096, 4096, 192, 128, "BF16", "SBH"),
-        "route": "same_ab",
-        "priority": 95,
-        "key": 1143498288,
     },
     {
         "name": "deepseek_v3_tune_s4096_bnsd_tp2",
         "shape": (1, 64, 64, 4096, 4096, 192, 128, "BF16", "BNSD"),
-        "route": "same_ab",
-        "priority": 95,
-        "key": 69864023600,
     },
     {
         "name": "deepseek_v3_pretrain_s4096_sbh_tp4",
         "shape": (1, 32, 32, 4096, 4096, 192, 128, "BF16", "SBH"),
-        "route": "same_ab",
-        "priority": 95,
-        "key": 1143498288,
     },
     {
         "name": "deepseek_v3_surrogate_s4096_bnsd_tp8",
         "shape": (1, 16, 16, 4096, 4096, 192, 128, "BF16", "BNSD"),
-        "route": "same_ab",
-        "priority": 95,
-        "key": 69864023600,
     },
     {
         "name": "deepseek_v3_bf16_s8192_sbh_tp1",
         "shape": (1, 128, 128, 8192, 8192, 192, 128, "BF16", "SBH"),
-        "route": "same_ab",
-        "priority": 95,
-        "key": 1143498288,
     },
     {
         "name": "pangu_ultra_dense_s4096_b1_model_proxy",
         "shape": (1, 96, 8, 4096, 4096, 128, 128, "BF16", "BNSD"),
-        "route": "general",
-        "priority": 96,
-        "key": 18324415536,
     },
     {
         "name": "pangu_ultra_dense_s8192_b1_model_proxy",
         "shape": (1, 96, 8, 8192, 8192, 128, 128, "BF16", "BNSD"),
-        "route": "general",
-        "priority": 96,
-        "key": 18324415536,
     },
 ]
 SHAPE = {}
@@ -80,10 +53,9 @@ NPU_ID = 4
 POPULATION_SIZE = 16
 GENERATIONS = 32
 
-PRIORITY = 0
-TILING_KEY = 0
 DTYPES = {"FP32": (0, 4), "FP16": (1, 2), "BF16": (2, 2)}
 LAYOUTS = {"BNSD": 0, "SBH": 1, "BSND": 2}
+ROUTES = {95: "same_ab", 96: "general"}
 
 
 def shape_params() -> list[base.BaseParam]:
@@ -107,12 +79,16 @@ def shape_params() -> list[base.BaseParam]:
     return [base.BaseParam(name=name, value=value, is_const=True) for name, value in values.items()]
 
 
-def run_env(params: list[base.BaseParam], key: int) -> dict[str, str]:
+def run_env(params: list[base.BaseParam], key: int | None) -> dict[str, str]:
     env = dict(os.environ)
+    env.pop("FA_DISCOVER_ONLY", None)
     for name in ("FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO"):
         env.pop(name, None)
     env["FA_NPU_ID"] = str(NPU_ID)
-    env["FA_TILING_KEY"] = str(key)
+    if key is None:
+        env.pop("FA_TILING_KEY", None)
+    else:
+        env["FA_TILING_KEY"] = str(key)
     for param in params:
         env[param.name] = str(param.value)
     return env
@@ -127,10 +103,52 @@ def build(key: int) -> None:
         print(f"BUILD CACHE HIT: tiling_key={key}")
         return
     env = dict(os.environ)
+    env.pop("FA_DISCOVER_ONLY", None)
     env["FA_TILING_KEY"] = str(key)
     completed = subprocess.run(["bash", "build.sh"], env=env)
     if completed.returncode != 0:
         raise RuntimeError(f"build failed for tiling key {key}")
+
+
+def build_host() -> None:
+    env = dict(os.environ)
+    env["FA_DISCOVER_ONLY"] = "1"
+    env.pop("FA_TILING_KEY", None)
+    completed = subprocess.run(["bash", "build.sh"], env=env)
+    if completed.returncode != 0:
+        raise RuntimeError("Host tiling build failed")
+
+
+def read_route(path: Path) -> tuple[int, int]:
+    if not path.is_file():
+        raise RuntimeError("Host route trace was not produced")
+    for line in reversed(path.read_text().splitlines()):
+        fields = line.split("\t")
+        if len(fields) == 4 and fields[0] == "FlashAttentionScore" and fields[2] == "0":
+            return int(fields[1]), int(fields[3])
+    raise RuntimeError("official Host tiling did not select a route")
+
+
+def discover(params: list[base.BaseParam]) -> tuple[int, int]:
+    build_host()
+    trace = Path("output/route.tsv")
+    trace.parent.mkdir(parents=True, exist_ok=True)
+    trace.unlink(missing_ok=True)
+    env = run_env(params, None)
+    env["FA_ROUTE_TRACE"] = str(trace.resolve())
+    env["FA_DISCOVER_ONLY"] = "1"
+    env["FA_PROFILE"] = "0"
+    env["FA_SKIP_BUILD"] = "1"
+    completed = subprocess.run(
+        ["bash", "run.sh"], env=env, capture_output=True, text=True
+    )
+    try:
+        return read_route(trace)
+    except RuntimeError:
+        output = (completed.stdout + completed.stderr).strip().splitlines()
+        if output:
+            print(output[-1])
+        raise RuntimeError("official Host tiling discovery failed")
 
 
 def read_effective(path: Path) -> dict[str, int] | None:
@@ -277,7 +295,7 @@ def run_all() -> None:
 
 
 def main() -> None:
-    global NPU_ID, SHAPE, PRIORITY, TILING_KEY
+    global NPU_ID, SHAPE
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=NPU_ID)
     args = parser.parse_args()
@@ -292,12 +310,15 @@ def main() -> None:
         raise ValueError(f"unknown FA_MODEL_CASE: {selected}")
     shape = case["shape"]
     SHAPE = dict(zip(("B", "N1", "N2", "S1", "S2", "D", "DV", "DTYPE", "LAYOUT"), shape))
-    PRIORITY = int(case["priority"])
-    TILING_KEY = int(case["key"])
-    route = str(case["route"])
     params = shape_params()
-    build(TILING_KEY)
-    baseline = official_baseline(params, TILING_KEY)
+    priority, tiling_key = discover(params)
+    if priority not in ROUTES:
+        raise RuntimeError(
+            f"selected FA Host route {priority} is not supported; supported routes are 95 and 96"
+        )
+    route = ROUTES[priority]
+    build(tiling_key)
+    baseline = official_baseline(params, tiling_key)
     search_domains = domains(route)
     hardware = limits.AttentionLimits(
         max_cores=48,
@@ -313,7 +334,7 @@ def main() -> None:
     )
     cache = Path(f"output/search_cache_ga_{selected}.json")
     print(f"MODEL={selected} SHAPE={shape}")
-    print(f"ROUTE={route} PRIORITY={PRIORITY} TILING_KEY={TILING_KEY}")
+    print(f"ROUTE={route} PRIORITY={priority} TILING_KEY={tiling_key}")
     print(f"ALGORITHM=GA PROPOSALS={2 * POPULATION_SIZE - 1 + (GENERATIONS - 1) * (POPULATION_SIZE - 1)}")
     print(f"OFFICIAL_US={baseline}")
     search = Ga(
@@ -324,7 +345,7 @@ def main() -> None:
         runner="./run.sh",
         cache_path=str(cache),
         verbose=False,
-        tiling_key=TILING_KEY,
+        tiling_key=tiling_key,
     )
     results = search()
     best = min(results, key=lambda result: result.duration)

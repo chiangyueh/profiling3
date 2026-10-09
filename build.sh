@@ -7,9 +7,17 @@ SOURCE_VERSION=${OPS_TRANSFORMER_VERSION:-v8.5.0}
 ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
 SOC_UNIT=${FA_SOC_UNIT:-ascend910b}
 JOBS=${FA_BUILD_JOBS:-1}
-TILING_KEY=${FA_TILING_KEY:-1144808752}
+TILING_KEY=${FA_TILING_KEY:-}
+DISCOVER_ONLY=${FA_DISCOVER_ONLY:-0}
 CACHE_BASE=${FA_CACHE_ROOT:-"${SCRIPT_DIR}/out/fa_cache"}
-CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${TILING_KEY}"
+if [[ "${DISCOVER_ONLY}" == "1" ]]; then
+    BUILD_MODE=host
+    CACHE_ID=host
+else
+    BUILD_MODE=kernel
+    CACHE_ID=${TILING_KEY}
+fi
+CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${CACHE_ID}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/fa_npu"
 PATCH_FILE="${SCRIPT_DIR}/patches/fa_candidate_hook.patch"
@@ -51,7 +59,7 @@ if [[ ! -f "${OPS_ROOT}/build.sh" ]]; then
     echo "ops-transformer v8.5.0 not found: ${OPS_ROOT}" >&2
     exit 2
 fi
-if [[ ! "${TILING_KEY}" =~ ^[0-9]+$ ]]; then
+if [[ "${BUILD_MODE}" == "kernel" && ! "${TILING_KEY}" =~ ^[0-9]+$ ]]; then
     echo "invalid FA_TILING_KEY: ${TILING_KEY}" >&2
     exit 2
 fi
@@ -61,7 +69,8 @@ PACKAGE_FINGERPRINT=$(printf '%s\n' \
     "schema=1" \
     "version=${SOURCE_VERSION}" \
     "soc=${SOC_UNIT}" \
-    "tiling_key=${TILING_KEY}" \
+    "mode=${BUILD_MODE}" \
+    "tiling_key=${TILING_KEY:-none}" \
     "patch=${PATCH_SHA256}")
 FULL_FINGERPRINT=$(printf '%s\n' "${PACKAGE_FINGERPRINT}" "launcher=${LAUNCHER_SHA256}")
 CACHED_CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
@@ -72,7 +81,7 @@ if [[ -x "${BINARY}" && -n "${CACHED_CUSTOM_ROOT}" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score.h" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" && \
       -f "${CACHE_MANIFEST}" && "$(<"${CACHE_MANIFEST}")" == "${FULL_FINGERPRINT}" ]]; then
-    echo "BUILD CACHE HIT: tiling_key=${TILING_KEY}"
+    echo "BUILD CACHE HIT: ${BUILD_MODE}=${CACHE_ID}"
     exit 0
 fi
 
@@ -94,7 +103,7 @@ else
     fi
     if [[ -z "${PACKAGE}" ]]; then
         mkdir -p "${CACHE_DIR}"
-        echo "BUILD START: tiling_key=${TILING_KEY} log=${BUILD_LOG}"
+        echo "BUILD START: ${BUILD_MODE}=${CACHE_ID} log=${BUILD_LOG}"
         if (cd "${OPS_ROOT}" && patch --batch --forward --dry-run --silent -p1 <"${PATCH_FILE}") 2>/dev/null; then
             (cd "${OPS_ROOT}" && patch --batch --silent -p1 <"${PATCH_FILE}")
             PATCH_ACTIVE=1
@@ -112,8 +121,13 @@ else
         if ! (
             cd "${OPS_ROOT}"
             export ATTENTION_INCREMENTAL_BUILD=1
-            bash build.sh -j"${JOBS}" --ops=flash_attention_score \
-                --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
+            if [[ "${BUILD_MODE}" == "host" ]]; then
+                bash build.sh -j"${JOBS}" --ops=flash_attention_score \
+                    --soc="${SOC_UNIT}" --jit --pkg
+            else
+                bash build.sh -j"${JOBS}" --ops=flash_attention_score \
+                    --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
+            fi
         ) >"${BUILD_LOG}" 2>&1; then
             echo "build failed: ${BUILD_LOG}" >&2
             tail -n 40 "${BUILD_LOG}" >&2 || true
@@ -147,4 +161,4 @@ g++ -O2 -std=c++17 "${SCRIPT_DIR}/fa_launcher.cpp" \
     -lcust_opapi -lopapi_math -lascendcl -lnnopbase -lc_sec -ldl \
     -o "${BINARY}"
 printf '%s\n' "${FULL_FINGERPRINT}" >"${CACHE_MANIFEST}"
-echo "BUILD READY: tiling_key=${TILING_KEY}"
+echo "BUILD READY: ${BUILD_MODE}=${CACHE_ID}"
