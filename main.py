@@ -486,8 +486,7 @@ def main() -> None:
     os.chdir(Path(__file__).resolve().parent)
     selected = os.environ.get("FA_MODEL_CASE")
     if selected is None:
-        run_all()
-        return
+        selected = str(CASES[0]["name"])
     case = next((item for item in CASES if item["name"] == selected), None)
     if case is None:
         raise ValueError(f"unknown FA_MODEL_CASE: {selected}")
