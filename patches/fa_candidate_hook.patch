@@ -1,10 +1,20 @@
 diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
+index 911fd8474..36898ce26 100644
 --- a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
 +++ b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
-@@ -16,0 +17,2 @@
+@@ -14,6 +14,8 @@
+  */
+ 
+ #include <numeric>
 +#include <cstdlib>
 +#include <fstream>
-@@ -30,0 +33,30 @@ namespace FA {
+ #include <alog_pub.h>
+ #include <register/tilingdata_base.h>
+ #include <tiling/tiling_api.h>
+@@ -28,6 +30,37 @@
+ using namespace Ops::Transformer::OpTiling;
+ namespace optiling {
+ namespace FA {
 +static bool ReadFaCandidate(const char *name, int64_t &value)
 +{
 +    const char *raw = std::getenv(name);
@@ -35,11 +45,14 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +               << bmm2BaseM << '\t' << bmm2BaseN << '\t' << bmm2BaseK << '\n';
 +    }
 +}
-@@ -2054,6 +2086,32 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock,
-     if (!SetBmm1TilingInput(tmpS1BasicBlock, tmpS2BasicBlock, batch, bmm1) ||
-         !SetBmm2TilingInput(tmpS1BasicBlock, tmpS2BasicBlock, tmpDBasicBlock, batch, bmm2)) {
++
+ static const uint32_t BYTE_BLOCK = 32;
+ static const int64_t GM_ALIGN = 512;
+ static const int64_t FRACTAL_NUM = 16L;
+@@ -2056,6 +2089,34 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock, int
          return false;
      }
+ 
 +    int64_t bmmPreset = 0;
 +    if (ReadFaCandidate("FA_BMM_PRESET", bmmPreset)) {
 +        if (bmmPreset > 6) {
@@ -67,25 +80,27 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +            }
 +        }
 +    }
--
++
      if (bmm1.GetTiling(tilingData->bmm1TilingData) == -1) {
-@@ -2087,10 +2145,13 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock,
-     tilingData->bmm2TilingData.shareL0CSize = aicoreParams_.l0cSize;
--
-     mm1BaseM = bmm1.GetBaseM();
-     mm1BaseN = bmm1.GetBaseN();
-     mm1BaseK = bmm1.GetBaseK();
-     mm2BaseM = bmm2.GetBaseM();
+         OP_LOGE(context_, "BMM1 tiling failed.");
+         return false;
+@@ -2093,6 +2154,12 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock, int
      mm2BaseN = bmm2.GetBaseN();
      mm2BaseK = bmm2.GetBaseK();
+ 
 +    auto &coreParams = tilingData->coreParams;
 +    const char *traceName = isSameAB ? "FlashAttentionScoreTilingS1s2Bn2gs1SameAB"
 +                                     : "FlashAttentionScoreTilingS1s2Bn2gs1";
 +    TraceFaCandidate(traceName, coreParams.get_s1BaseSize(), coreParams.get_s2BaseSize(), coreParams.get_nRatio(),
 +                     bmmPreset, mm1BaseM, mm1BaseN, mm1BaseK, mm2BaseM, mm2BaseN, mm2BaseK);
--
++
      return true;
-@@ -3161,0 +3225,15 @@ protected:
+ }
+ 
+@@ -3150,6 +3217,21 @@ public:
+     ~FlashAttentionScoreTilingS1s2Bn2gs1() override = default;
+ 
+ protected:
 +    void SetCoreParams() override
 +    {
 +        int64_t value = 0;
@@ -101,7 +116,13 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        FlashAttentionScoreTilingBase::SetCoreParams();
 +    }
 +
-@@ -3467,0 +3546,15 @@ protected:
+     int64_t s2sizeLimitMin = 1024;
+     int64_t dAlignSize = 16;
+     bool enableL1Reuse = false;
+@@ -3456,6 +3538,22 @@ public:
+     ~FlashAttentionScoreTilingS1s2Bn2gs1SameAB() override = default;
+ 
+ protected:
 +    void SetCoreParams() override
 +    {
 +        int64_t value = 0;
@@ -118,13 +139,48 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        FlashAttentionScoreTilingBase::SetCoreParams();
 +    }
 +
+     int64_t s2sizeLimitMin = 1024;
+     int64_t dAlignSize = 16;
+     int64_t sAlignSize = 64;
+diff --git a/cmake/custom_build.cmake b/cmake/custom_build.cmake
+index 881e0d6ce..fd6bfbd85 100644
+--- a/cmake/custom_build.cmake
++++ b/cmake/custom_build.cmake
+@@ -550,6 +550,10 @@ target_link_libraries(
+     $<$<TARGET_EXISTS:opsbase>:opsbase>
+ )
+ 
++if (TARGET ${COMMON_NAME}_obj)
++    add_dependencies(cust_opmaster ${COMMON_NAME}_obj)
++endif()
++
+ target_link_libraries(
+     cust_proto
+     PUBLIC ${OPHOST_NAME}_infer_obj
+@@ -827,4 +831,4 @@ if (NOT ENABLE_BUILT_IN AND BUILD_OPEN_PROJECT)
+     endif()
+     set(CPACK_EXTERNAL_BUILT_PACKAGES ${CPACK_PACKAGE_DIRECTORY}/_CPack_Packages/Linux/External/${CPACK_PACKAGE_FILE_NAME}/${CPACK_PACKAGE_FILE_NAME})
+     include(CPack)
+-endif ()
+\ No newline at end of file
++endif ()
 diff --git a/common/include/tiling_base/tiling_templates_registry.h b/common/include/tiling_base/tiling_templates_registry.h
+index c62a09ab8..521fe1a1b 100644
 --- a/common/include/tiling_base/tiling_templates_registry.h
 +++ b/common/include/tiling_base/tiling_templates_registry.h
-@@ -18,0 +19,2 @@
+@@ -18,6 +18,8 @@
+ #include <map>
+ #include <string>
+ #include <memory>
 +#include <cstdlib>
 +#include <fstream>
-@@ -35,0 +38,13 @@ using TilingClassCase = std::unique_ptr<TilingBaseClass> (*)(gert::TilingContext*);
+ #include "exe_graph/runtime/tiling_context.h"
+ #include "tiling_base/tiling_base.h"
+ #include "log/log.h"
+@@ -34,6 +36,20 @@ std::unique_ptr<TilingBaseClass> TILING_CLASS(gert::TilingContext* context)
+ 
+ using TilingClassCase = std::unique_ptr<TilingBaseClass> (*)(gert::TilingContext*);
+ 
 +inline void TraceFaRoute(const char *opType, int32_t priority, ge::graphStatus status,
 +                         gert::TilingContext *context)
 +{
@@ -138,12 +194,15 @@ diff --git a/common/include/tiling_base/tiling_templates_registry.h b/common/inc
 +               << context->GetTilingKey() << '\n';
 +    }
 +}
-@@ -121,0 +137,1 @@ public:
++
+ class TilingCases {
+ public:
+     explicit TilingCases(std::string op_type) : op_type_(std::move(op_type))
+@@ -119,6 +135,7 @@ public:
+             auto tilingTemplate = it->second(context);
+             if (tilingTemplate != nullptr) {
+                 ge::graphStatus status = tilingTemplate->DoTiling();
 +                TraceFaRoute(op_type, it->first, status, context);
-diff --git a/cmake/custom_build.cmake b/cmake/custom_build.cmake
---- a/cmake/custom_build.cmake
-+++ b/cmake/custom_build.cmake
-@@ -551,0 +552,3 @@ target_link_libraries(
-+if (TARGET ${COMMON_NAME}_obj)
-+    add_dependencies(cust_opmaster ${COMMON_NAME}_obj)
-+endif()
+                 if (status != ge::GRAPH_PARAM_INVALID) {
+                     OP_LOGD(context, "Do general op tiling success priority=%d", it->first);
+                     return status;

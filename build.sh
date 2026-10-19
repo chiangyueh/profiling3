@@ -46,11 +46,28 @@ latest_package() {
 
 restore_source() {
     if [[ "${PATCH_ACTIVE}" == "1" ]]; then
-        (cd "${OPS_ROOT}" && patch --batch --silent -R -p1 <"${PATCH_FILE}") || true
+        (cd "${OPS_ROOT}" && git apply -R "${PATCH_FILE}") || true
     fi
     if [[ "${BUILD_PATCH_ACTIVE}" == "1" ]]; then
-        (cd "${OPS_ROOT}" && patch --batch --silent -R -p1 <"${BUILD_PATCH_FILE}") || true
+        (cd "${OPS_ROOT}" && git apply -R "${BUILD_PATCH_FILE}") || true
     fi
+}
+
+apply_source_patch() {
+    local patch_file=$1
+    local label=$2
+
+    if (cd "${OPS_ROOT}" && git apply --check "${patch_file}") 2>/dev/null; then
+        (cd "${OPS_ROOT}" && git apply "${patch_file}")
+        return 0
+    fi
+    if (cd "${OPS_ROOT}" && git apply -R --check "${patch_file}") 2>/dev/null; then
+        (cd "${OPS_ROOT}" && git apply -R "${patch_file}")
+        (cd "${OPS_ROOT}" && git apply "${patch_file}")
+        return 0
+    fi
+    echo "${label} does not match ops-transformer ${SOURCE_VERSION}" >&2
+    return 1
 }
 
 trap restore_source EXIT
@@ -104,20 +121,10 @@ else
     if [[ -z "${PACKAGE}" ]]; then
         mkdir -p "${CACHE_DIR}"
         echo "BUILD START: ${BUILD_MODE}=${CACHE_ID} log=${BUILD_LOG}"
-        if (cd "${OPS_ROOT}" && patch --batch --forward --dry-run --silent -p1 <"${PATCH_FILE}") 2>/dev/null; then
-            (cd "${OPS_ROOT}" && patch --batch --silent -p1 <"${PATCH_FILE}")
-            PATCH_ACTIVE=1
-        elif ! (cd "${OPS_ROOT}" && patch --batch --dry-run --silent -R -p1 <"${PATCH_FILE}") 2>/dev/null; then
-            echo "FA candidate patch does not match ops-transformer ${SOURCE_VERSION}" >&2
-            exit 1
-        fi
-        if (cd "${OPS_ROOT}" && patch --batch --forward --dry-run --silent -p1 <"${BUILD_PATCH_FILE}") 2>/dev/null; then
-            (cd "${OPS_ROOT}" && patch --batch --silent -p1 <"${BUILD_PATCH_FILE}")
-            BUILD_PATCH_ACTIVE=1
-        elif ! (cd "${OPS_ROOT}" && patch --batch --dry-run --silent -R -p1 <"${BUILD_PATCH_FILE}") 2>/dev/null; then
-            echo "incremental build patch does not match ops-transformer ${SOURCE_VERSION}" >&2
-            exit 1
-        fi
+        apply_source_patch "${PATCH_FILE}" "FA candidate patch"
+        PATCH_ACTIVE=1
+        apply_source_patch "${BUILD_PATCH_FILE}" "incremental build patch"
+        BUILD_PATCH_ACTIVE=1
         if ! (
             cd "${OPS_ROOT}"
             export ATTENTION_INCREMENTAL_BUILD=1
