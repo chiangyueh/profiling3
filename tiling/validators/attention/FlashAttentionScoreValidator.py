@@ -22,7 +22,7 @@ def same_ab_shape(params: dict[str, BaseParam]) -> bool:
 
 
 class FlashAttentionScoreValidator(AttentionValidator):
-    tile_names = ("FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO")
+    tile_names = ("FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO", "FA_BMM_PRESET")
 
     def __init__(self, limits: AttentionLimits) -> None:
         super().__init__(
@@ -44,16 +44,50 @@ class FlashAttentionScoreValidator(AttentionValidator):
         required = self.tile_names + ("FA_S1", "FA_S2")
         if any(name not in params for name in required):
             return False
-        s1_base, s2_base, ratio = (params[name].value for name in self.tile_names)
-        if s1_base <= 0 or s2_base <= 0 or ratio <= 0:
+        s1_base = params["FA_S1_BASE"].value
+        s2_base = params["FA_S2_BASE"].value
+        ratio = params["FA_N_RATIO"].value
+        preset = params["FA_BMM_PRESET"].value
+        if s1_base <= 0 or s2_base <= 0 or ratio <= 0 or preset < 0:
             return False
         s2_outer = self._ceil_div(params["FA_S2"].value, s2_base)
         return (
             s1_base % 16 == 0
             and s2_base % 16 == 0
             and ratio <= max(1, s2_outer)
+            and self._bmm_preset_is_valid(params)
             and self._route_tile_is_valid(params)
         )
+
+    def _bmm_preset_is_valid(self, params: dict[str, BaseParam]) -> bool:
+        preset = params["FA_BMM_PRESET"].value
+        domain = self.limits.domains.get("FA_BMM_PRESET", [0])
+        if preset not in domain or preset > 6:
+            return False
+        if preset == 0:
+            return True
+        s1 = min(params["FA_S1_BASE"].value, self._align_up(params["FA_S1"].value, 16))
+        window = min(
+            params["FA_S2"].value,
+            params["FA_S2_BASE"].value * params["FA_N_RATIO"].value,
+        )
+        d = self._align_up(params["FA_D"].value, 16)
+        dv = self._align_up(params["FA_DV"].value, 16)
+        bmm1_m = min(64 if preset in (1, 5) else 128, s1)
+        bmm1_n = min(64 if preset in (2, 6) else 128, self._align_up(window, 16))
+        bmm2_m = min(64 if preset in (3, 5) else 128, s1)
+        bmm2_n = min(64 if preset in (4, 6) else 128, dv)
+        uses_bmm1 = preset in (1, 2, 5, 6)
+        uses_bmm2 = preset in (3, 4, 5, 6)
+        if uses_bmm1 and (
+            bmm1_m * d * self.limits.calc_type_size > self.limits.L0A_size
+            or bmm1_n * d * self.limits.calc_type_size > self.limits.L0B_size
+            or bmm1_m * bmm1_n * 4 > self.limits.L0C_size
+        ):
+            return False
+        if uses_bmm2 and bmm2_m * bmm2_n * 4 > self.limits.L0C_size:
+            return False
+        return True
 
     def _route_tile_is_valid(self, params: dict[str, BaseParam]) -> bool:
         raise NotImplementedError

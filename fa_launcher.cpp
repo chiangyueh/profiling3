@@ -260,35 +260,57 @@ int Run(aclrtStream stream)
         return 1;
     }
 
-    uint64_t workspaceSize = 0;
-    aclOpExecutor *executor = nullptr;
     const double scale = 1.0 / std::sqrt(static_cast<double>(d));
     const int64_t tokens = std::numeric_limits<int32_t>::max();
     char layoutName[5] = {};
     std::strncpy(layoutName, Layout(layout), sizeof(layoutName) - 1);
-    aclnnStatus ret = aclnnFlashAttentionScoreV2GetWorkspaceSize(
-        q.tensor, k.tensor, v.tensor, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        scale, 1.0, tokens, tokens, n1, layoutName, 0, 0, 1,
-        softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor, &workspaceSize, &executor);
-    if (ret != ACL_SUCCESS) {
-        std::fprintf(stderr, "GetWorkspaceSize failed: %d, %s\n", ret, aclGetRecentErrMsg());
-        return ret;
+    const int64_t discoverOnly = EnvI64("FA_DISCOVER_ONLY", 0);
+    const int64_t warmup = discoverOnly == 0 ? EnvI64("FA_WARMUP", 2) : 0;
+    const int64_t repeat = discoverOnly == 0 ? EnvI64("FA_REPEAT", 5) : 1;
+    if (warmup < 0 || repeat <= 0 || warmup + repeat > 100) {
+        return 2;
     }
-
     void *workspace = nullptr;
-    if (EnvI64("FA_DISCOVER_ONLY", 0) == 0) {
-        if (workspaceSize != 0 && aclrtMalloc(&workspace, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
-            return 1;
+    uint64_t workspaceCapacity = 0;
+    aclnnStatus ret = ACL_SUCCESS;
+    const int64_t iterations = discoverOnly == 0 ? warmup + repeat : 1;
+    for (int64_t iteration = 0; iteration < iterations; ++iteration) {
+        uint64_t workspaceSize = 0;
+        aclOpExecutor *executor = nullptr;
+        ret = aclnnFlashAttentionScoreV2GetWorkspaceSize(
+            q.tensor, k.tensor, v.tensor, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            scale, 1.0, tokens, tokens, n1, layoutName, 0, 0, 1,
+            softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor, &workspaceSize, &executor);
+        if (ret != ACL_SUCCESS) {
+            std::fprintf(stderr, "GetWorkspaceSize failed: %d, %s\n", ret, aclGetRecentErrMsg());
+            break;
+        }
+        if (discoverOnly != 0) {
+            continue;
+        }
+        if (workspaceSize > workspaceCapacity) {
+            if (workspace != nullptr) {
+                aclrtFree(workspace);
+                workspace = nullptr;
+            }
+            if (workspaceSize != 0 &&
+                aclrtMalloc(&workspace, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
+                ret = 1;
+                break;
+            }
+            workspaceCapacity = workspaceSize;
         }
         ret = aclnnFlashAttentionScoreV2(workspace, workspaceSize, executor, stream);
         if (ret == ACL_SUCCESS) {
             ret = aclrtSynchronizeStream(stream);
         }
-        if (ret == ACL_SUCCESS) {
-            ret = Dump(attention, dtype);
-        } else {
+        if (ret != ACL_SUCCESS) {
             std::fprintf(stderr, "execution failed: %d, %s\n", ret, aclGetRecentErrMsg());
+            break;
         }
+    }
+    if (ret == ACL_SUCCESS && discoverOnly == 0) {
+        ret = Dump(attention, dtype);
     }
 
     if (workspace != nullptr) {

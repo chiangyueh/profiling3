@@ -4,7 +4,7 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 @@ -16,0 +17,2 @@
 +#include <cstdlib>
 +#include <fstream>
-@@ -30,0 +33,26 @@ namespace FA {
+@@ -30,0 +33,30 @@ namespace FA {
 +static bool ReadFaCandidate(const char *name, int64_t &value)
 +{
 +    const char *raw = std::getenv(name);
@@ -20,7 +20,9 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +    return true;
 +}
 +
-+static void TraceFaCandidate(const char *name, int64_t s1Base, int64_t s2Base, int64_t nRatio)
++static void TraceFaCandidate(const char *name, int64_t s1Base, int64_t s2Base, int64_t nRatio,
++                             int64_t bmmPreset, int64_t bmm1BaseM, int64_t bmm1BaseN, int64_t bmm1BaseK,
++                             int64_t bmm2BaseM, int64_t bmm2BaseN, int64_t bmm2BaseK)
 +{
 +    const char *path = std::getenv("FA_EFFECTIVE_TILING_TRACE");
 +    if (path == nullptr || *path == '\0') {
@@ -28,10 +30,62 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +    }
 +    std::ofstream output(path, std::ios::app);
 +    if (output.is_open()) {
-+        output << name << '\t' << s1Base << '\t' << s2Base << '\t' << nRatio << '\n';
++        output << name << '\t' << s1Base << '\t' << s2Base << '\t' << nRatio << '\t' << bmmPreset << '\t'
++               << bmm1BaseM << '\t' << bmm1BaseN << '\t' << bmm1BaseK << '\t'
++               << bmm2BaseM << '\t' << bmm2BaseN << '\t' << bmm2BaseK << '\n';
 +    }
 +}
-@@ -3161,0 +3190,18 @@ protected:
+@@ -2054,6 +2086,32 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock,
+     if (!SetBmm1TilingInput(tmpS1BasicBlock, tmpS2BasicBlock, batch, bmm1) ||
+         !SetBmm2TilingInput(tmpS1BasicBlock, tmpS2BasicBlock, tmpDBasicBlock, batch, bmm2)) {
+         return false;
+     }
++    int64_t bmmPreset = 0;
++    if (ReadFaCandidate("FA_BMM_PRESET", bmmPreset)) {
++        if (bmmPreset > 6) {
++            return false;
++        }
++        auto &coreParams = tilingData->coreParams;
++        const int64_t s1Aligned = AlignUp(std::min(tmpS1BasicBlock, s1Size), FRACTAL_NUM);
++        const int64_t s2Window = std::min(tmpS2BasicBlock * coreParams.get_nRatio(), s2Size);
++        const int64_t s2Aligned = AlignUp(s2Window, FRACTAL_NUM);
++        const int64_t d2Aligned = AlignUp(d2Size, FRACTAL_NUM);
++        const bool changeBmm1 = bmmPreset == 1 || bmmPreset == 2 || bmmPreset == 5 || bmmPreset == 6;
++        const bool changeBmm2 = bmmPreset == 3 || bmmPreset == 4 || bmmPreset == 5 || bmmPreset == 6;
++        if (changeBmm1) {
++            const int64_t baseM = std::min((bmmPreset == 1 || bmmPreset == 5) ? 64L : 128L, s1Aligned);
++            const int64_t baseN = std::min((bmmPreset == 2 || bmmPreset == 6) ? 64L : 128L, s2Aligned);
++            if (bmm1.SetFixSplit(baseM, baseN, alignedD) != 0) {
++                return false;
++            }
++        }
++        if (changeBmm2) {
++            const int64_t baseM = std::min((bmmPreset == 3 || bmmPreset == 5) ? 64L : 128L, s1Aligned);
++            const int64_t baseN = std::min((bmmPreset == 4 || bmmPreset == 6) ? 64L : 128L, d2Aligned);
++            if (bmm2.SetFixSplit(baseM, baseN) != 0) {
++                return false;
++            }
++        }
++    }
+-
+     if (bmm1.GetTiling(tilingData->bmm1TilingData) == -1) {
+@@ -2087,10 +2145,13 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock,
+     tilingData->bmm2TilingData.shareL0CSize = aicoreParams_.l0cSize;
+-
+     mm1BaseM = bmm1.GetBaseM();
+     mm1BaseN = bmm1.GetBaseN();
+     mm1BaseK = bmm1.GetBaseK();
+     mm2BaseM = bmm2.GetBaseM();
+     mm2BaseN = bmm2.GetBaseN();
+     mm2BaseK = bmm2.GetBaseK();
++    auto &coreParams = tilingData->coreParams;
++    const char *traceName = isSameAB ? "FlashAttentionScoreTilingS1s2Bn2gs1SameAB"
++                                     : "FlashAttentionScoreTilingS1s2Bn2gs1";
++    TraceFaCandidate(traceName, coreParams.get_s1BaseSize(), coreParams.get_s2BaseSize(), coreParams.get_nRatio(),
++                     bmmPreset, mm1BaseM, mm1BaseN, mm1BaseK, mm2BaseM, mm2BaseN, mm2BaseK);
+-
+     return true;
+@@ -3161,0 +3225,15 @@ protected:
 +    void SetCoreParams() override
 +    {
 +        int64_t value = 0;
@@ -45,12 +99,9 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +            nRatio = value;
 +        }
 +        FlashAttentionScoreTilingBase::SetCoreParams();
-+        auto &coreParams = tilingData->coreParams;
-+        TraceFaCandidate("FlashAttentionScoreTilingS1s2Bn2gs1", coreParams.get_s1BaseSize(),
-+                         coreParams.get_s2BaseSize(), coreParams.get_nRatio());
 +    }
 +
-@@ -3467,0 +3514,19 @@ protected:
+@@ -3467,0 +3546,15 @@ protected:
 +    void SetCoreParams() override
 +    {
 +        int64_t value = 0;
@@ -65,9 +116,6 @@ diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_scor
 +        }
 +        s1VecBasicBlock = s1BasicBlock / AIV_AIC_NUM_RATIO;
 +        FlashAttentionScoreTilingBase::SetCoreParams();
-+        auto &coreParams = tilingData->coreParams;
-+        TraceFaCandidate("FlashAttentionScoreTilingS1s2Bn2gs1SameAB", coreParams.get_s1BaseSize(),
-+                         coreParams.get_s2BaseSize(), coreParams.get_nRatio());
 +    }
 +
 diff --git a/common/include/tiling_base/tiling_templates_registry.h b/common/include/tiling_base/tiling_templates_registry.h

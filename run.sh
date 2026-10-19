@@ -31,18 +31,6 @@ fi
 CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${CACHE_ID}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
 BINARY="${CACHE_DIR}/fa_npu"
-LEGACY_BINARY=""
-if [[ "${DISCOVER_ONLY}" != "1" ]]; then
-    LEGACY_BINARY=$(find "${SCRIPT_DIR}/out/attention_cache" -type f \
-        -path "*/${SOC_UNIT}/flash_attention_score/${FA_TILING_KEY}/attention_npu" \
-        -perm -u+x -print -quit 2>/dev/null || true)
-fi
-
-if [[ -n "${LEGACY_BINARY}" ]]; then
-    CACHE_DIR=$(dirname "${LEGACY_BINARY}")
-    INSTALL_ROOT="${CACHE_DIR}/opp"
-    BINARY="${LEGACY_BINARY}"
-fi
 
 if [[ "${FA_SKIP_BUILD:-0}" != "1" ]]; then
     bash "${SCRIPT_DIR}/build.sh"
