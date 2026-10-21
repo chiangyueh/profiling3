@@ -1,19 +1,13 @@
 diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
-index 911fd8474..36898ce26 100644
+index 911fd8474..d9b920d25 100644
 --- a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
 +++ b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
-@@ -14,6 +14,8 @@
-  */
- 
+@@ -16,2 +16,4 @@
  #include <numeric>
 +#include <cstdlib>
 +#include <fstream>
  #include <alog_pub.h>
- #include <register/tilingdata_base.h>
- #include <tiling/tiling_api.h>
-@@ -28,6 +30,37 @@
- using namespace Ops::Transformer::OpTiling;
- namespace optiling {
+@@ -30,2 +32,137 @@ namespace optiling {
  namespace FA {
 +static bool ReadFaCandidate(const char *name, int64_t &value)
 +{
@@ -30,9 +24,8 @@ index 911fd8474..36898ce26 100644
 +    return true;
 +}
 +
-+static void TraceFaCandidate(const char *name, int64_t s1Base, int64_t s2Base, int64_t nRatio,
-+                             int64_t bmmPreset, int64_t bmm1BaseM, int64_t bmm1BaseN, int64_t bmm1BaseK,
-+                             int64_t bmm2BaseM, int64_t bmm2BaseN, int64_t bmm2BaseK)
++static void TraceFaCandidate(const char *name, int64_t bmmPreset, uint32_t blockDim, size_t workspace,
++                             const FlashAttentionScoreGeneralTilingData &data)
 +{
 +    const char *path = std::getenv("FA_EFFECTIVE_TILING_TRACE");
 +    if (path == nullptr || *path == '\0') {
@@ -40,18 +33,125 @@ index 911fd8474..36898ce26 100644
 +    }
 +    std::ofstream output(path, std::ios::app);
 +    if (output.is_open()) {
-+        output << name << '\t' << s1Base << '\t' << s2Base << '\t' << nRatio << '\t' << bmmPreset << '\t'
-+               << bmm1BaseM << '\t' << bmm1BaseN << '\t' << bmm1BaseK << '\t'
-+               << bmm2BaseM << '\t' << bmm2BaseN << '\t' << bmm2BaseK << '\n';
++        const auto &core = data.coreParams;
++        const auto &multi = data.multiCoreParams;
++        const auto &tensor = data.tensorSizeParams;
++        const auto &bmm1 = data.bmm1TilingData;
++        const auto &bmm2 = data.bmm2TilingData;
++        const auto &softmax = data.softmaxFlashTilingData;
++        const auto &transpose = data.transposeTilingData;
++        output << "FINAL\t" << name
++               << "\tFA_BMM_PRESET=" << bmmPreset
++               << "\tFA_BLOCK_DIM=" << blockDim
++               << "\tFA_WORKSPACE_BYTES=" << workspace
++               << "\tFA_CORE_NUM=" << multi.get_coreNum()
++               << "\tFA_TOTAL_TASKS=" << multi.get_totalSize()
++               << "\tFA_SPLIT_FACTOR=" << multi.get_splitFactorSize()
++               << "\tFA_SPLIT_TAIL=" << multi.get_splitFactorTailSize()
++               << "\tFA_S1_BASE=" << core.get_s1BaseSize()
++               << "\tFA_S1_TAIL=" << core.get_s1BaseTailSize()
++               << "\tFA_S1_OUTER=" << core.get_s1OuterSize()
++               << "\tFA_S1_VEC2_BASE=" << core.get_s1Vec2BaseSize()
++               << "\tFA_S1_VEC2_TAIL=" << core.get_s1Vec2BaseTailSize()
++               << "\tFA_S1_VEC2_OUTER=" << core.get_s1Vec2OuterSize()
++               << "\tFA_S2_BASE=" << core.get_s2BaseSize()
++               << "\tFA_S2_TAIL=" << core.get_s2BaseTailSize()
++               << "\tFA_S2_OUTER=" << core.get_s2OuterSize()
++               << "\tFA_D_BASE=" << core.get_dBaseSize()
++               << "\tFA_D_TAIL=" << core.get_dBaseTailSize()
++               << "\tFA_D_OUTER=" << core.get_dOuterSize()
++               << "\tFA_B_OUTER=" << core.get_bOuterSize()
++               << "\tFA_N2_OUTER=" << core.get_n2OuterSize()
++               << "\tFA_G_OUTER=" << core.get_gOuterSize()
++               << "\tFA_N_RATIO=" << core.get_nRatio()
++               << "\tFA_BMM1_RES_UB_SIZE=" << tensor.get_bmm1ResUbSize()
++               << "\tFA_BMM2_RES_UB_SIZE=" << tensor.get_bmm2ResUbSize()
++               << "\tFA_SOFTMAX_MAX_UB_SIZE=" << tensor.get_softmaxMaxUbSize()
++               << "\tFA_SOFTMAX_SUM_UB_SIZE=" << tensor.get_softmaxSumUbSize()
++               << "\tFA_SOFTMAX_EXP_UB_SIZE=" << tensor.get_softmaxExpUbSize()
++               << "\tFA_API_TMP_BUFFER_BYTES=" << tensor.get_apiTmpBufferBytes()
++               << "\tFA_INPUT_QUE_BYTES=" << tensor.get_inputQueBytes()
++               << "\tFA_OUTPUT_QUE_BYTES=" << tensor.get_outputQueBytes()
++               << "\tFA_TMP_BUF_BYTES=" << tensor.get_tmpBufBytes()
++               << "\tFA_SOFTMAX_SRC_M=" << softmax.srcM
++               << "\tFA_SOFTMAX_SRC_K=" << softmax.srcK
++               << "\tFA_SOFTMAX_SRC_SIZE=" << softmax.srcSize
++               << "\tFA_SOFTMAX_OUT_MAX_M=" << softmax.outMaxM
++               << "\tFA_SOFTMAX_OUT_MAX_K=" << softmax.outMaxK
++               << "\tFA_SOFTMAX_OUT_MAX_SIZE=" << softmax.outMaxSize
++               << "\tFA_SOFTMAX_SPLIT_M=" << softmax.splitM
++               << "\tFA_SOFTMAX_SPLIT_K=" << softmax.splitK
++               << "\tFA_SOFTMAX_SPLIT_SIZE=" << softmax.splitSize
++               << "\tFA_SOFTMAX_REDUCE_M=" << softmax.reduceM
++               << "\tFA_SOFTMAX_REDUCE_K=" << softmax.reduceK
++               << "\tFA_SOFTMAX_REDUCE_SIZE=" << softmax.reduceSize
++               << "\tFA_SOFTMAX_RANGE_M=" << softmax.rangeM
++               << "\tFA_SOFTMAX_TAIL_M=" << softmax.tailM
++               << "\tFA_SOFTMAX_TAIL_SPLIT_SIZE=" << softmax.tailSplitSize
++               << "\tFA_SOFTMAX_TAIL_REDUCE_SIZE=" << softmax.tailReduceSize
++               << "\tFA_TRANSPOSE_DST_B=" << transpose.get_dstShapeB()
++               << "\tFA_TRANSPOSE_DST_N=" << transpose.get_dstShapeN()
++               << "\tFA_TRANSPOSE_DST_S=" << transpose.get_dstShapeS()
++               << "\tFA_TRANSPOSE_DST_HN=" << transpose.get_dstShapeHN()
++               << "\tFA_TRANSPOSE_DST_H=" << transpose.get_dstShapeH()
++               << "\tFA_TRANSPOSE_SRC_B=" << transpose.get_srcShapeB()
++               << "\tFA_TRANSPOSE_SRC_N=" << transpose.get_srcShapeN()
++               << "\tFA_TRANSPOSE_SRC_S=" << transpose.get_srcShapeS()
++               << "\tFA_TRANSPOSE_SRC_HN=" << transpose.get_srcShapeHN()
++               << "\tFA_TRANSPOSE_ORIGINAL_N_BYTES=" << transpose.get_originalShapeNLen()
++               << "\tFA_BMM1_USED_CORES=" << bmm1.usedCoreNum
++               << "\tFA_BMM1_M=" << bmm1.M
++               << "\tFA_BMM1_N=" << bmm1.N
++               << "\tFA_BMM1_KA=" << bmm1.Ka
++               << "\tFA_BMM1_KB=" << bmm1.Kb
++               << "\tFA_BMM1_SINGLE_M=" << bmm1.singleCoreM
++               << "\tFA_BMM1_SINGLE_N=" << bmm1.singleCoreN
++               << "\tFA_BMM1_SINGLE_K=" << bmm1.singleCoreK
++               << "\tFA_BMM1_BASE_M=" << bmm1.baseM
++               << "\tFA_BMM1_BASE_N=" << bmm1.baseN
++               << "\tFA_BMM1_BASE_K=" << bmm1.baseK
++               << "\tFA_BMM1_DEPTH_A1=" << bmm1.depthA1
++               << "\tFA_BMM1_DEPTH_B1=" << bmm1.depthB1
++               << "\tFA_BMM1_STEP_M=" << bmm1.stepM
++               << "\tFA_BMM1_STEP_N=" << bmm1.stepN
++               << "\tFA_BMM1_STEP_KA=" << bmm1.stepKa
++               << "\tFA_BMM1_STEP_KB=" << bmm1.stepKb
++               << "\tFA_BMM1_DB_L0A=" << bmm1.dbL0A
++               << "\tFA_BMM1_DB_L0B=" << bmm1.dbL0B
++               << "\tFA_BMM1_DB_L0C=" << bmm1.dbL0C
++               << "\tFA_BMM1_ITERATE_ORDER=" << bmm1.iterateOrder
++               << "\tFA_BMM2_USED_CORES=" << bmm2.usedCoreNum
++               << "\tFA_BMM2_M=" << bmm2.M
++               << "\tFA_BMM2_N=" << bmm2.N
++               << "\tFA_BMM2_KA=" << bmm2.Ka
++               << "\tFA_BMM2_KB=" << bmm2.Kb
++               << "\tFA_BMM2_SINGLE_M=" << bmm2.singleCoreM
++               << "\tFA_BMM2_SINGLE_N=" << bmm2.singleCoreN
++               << "\tFA_BMM2_SINGLE_K=" << bmm2.singleCoreK
++               << "\tFA_BMM2_BASE_M=" << bmm2.baseM
++               << "\tFA_BMM2_BASE_N=" << bmm2.baseN
++               << "\tFA_BMM2_BASE_K=" << bmm2.baseK
++               << "\tFA_BMM2_DEPTH_A1=" << bmm2.depthA1
++               << "\tFA_BMM2_DEPTH_B1=" << bmm2.depthB1
++               << "\tFA_BMM2_STEP_M=" << bmm2.stepM
++               << "\tFA_BMM2_STEP_N=" << bmm2.stepN
++               << "\tFA_BMM2_STEP_KA=" << bmm2.stepKa
++               << "\tFA_BMM2_STEP_KB=" << bmm2.stepKb
++               << "\tFA_BMM2_DB_L0A=" << bmm2.dbL0A
++               << "\tFA_BMM2_DB_L0B=" << bmm2.dbL0B
++               << "\tFA_BMM2_DB_L0C=" << bmm2.dbL0C
++               << "\tFA_BMM2_ITERATE_ORDER=" << bmm2.iterateOrder << '\n';
 +    }
 +}
 +
  static const uint32_t BYTE_BLOCK = 32;
- static const int64_t GM_ALIGN = 512;
- static const int64_t FRACTAL_NUM = 16L;
-@@ -2056,6 +2089,34 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock, int
-         return false;
-     }
+@@ -2026,1 +2163,5 @@ ge::graphStatus FlashAttentionScoreTilingBase::PostTiling()
++    int64_t bmmPreset = 0;
++    ReadFaCandidate("FA_BMM_PRESET", bmmPreset);
++    TraceFaCandidate(templateName, bmmPreset, blockDim, workspaces[0], *tilingData);
++
+     return ge::GRAPH_SUCCESS;
+@@ -2058,2 +2199,30 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock, int
  
 +    int64_t bmmPreset = 0;
 +    if (ReadFaCandidate("FA_BMM_PRESET", bmmPreset)) {
@@ -82,24 +182,7 @@ index 911fd8474..36898ce26 100644
 +    }
 +
      if (bmm1.GetTiling(tilingData->bmm1TilingData) == -1) {
-         OP_LOGE(context_, "BMM1 tiling failed.");
-         return false;
-@@ -2093,6 +2154,12 @@ bool FlashAttentionScoreTilingBase::SetMatMulTiling(int64_t tmpS1BasicBlock, int
-     mm2BaseN = bmm2.GetBaseN();
-     mm2BaseK = bmm2.GetBaseK();
- 
-+    auto &coreParams = tilingData->coreParams;
-+    const char *traceName = isSameAB ? "FlashAttentionScoreTilingS1s2Bn2gs1SameAB"
-+                                     : "FlashAttentionScoreTilingS1s2Bn2gs1";
-+    TraceFaCandidate(traceName, coreParams.get_s1BaseSize(), coreParams.get_s2BaseSize(), coreParams.get_nRatio(),
-+                     bmmPreset, mm1BaseM, mm1BaseN, mm1BaseK, mm2BaseM, mm2BaseN, mm2BaseK);
-+
-     return true;
- }
- 
-@@ -3150,6 +3217,21 @@ public:
-     ~FlashAttentionScoreTilingS1s2Bn2gs1() override = default;
- 
+@@ -3152,2 +3321,17 @@ public:
  protected:
 +    void SetCoreParams() override
 +    {
@@ -117,11 +200,7 @@ index 911fd8474..36898ce26 100644
 +    }
 +
      int64_t s2sizeLimitMin = 1024;
-     int64_t dAlignSize = 16;
-     bool enableL1Reuse = false;
-@@ -3456,6 +3538,22 @@ public:
-     ~FlashAttentionScoreTilingS1s2Bn2gs1SameAB() override = default;
- 
+@@ -3458,2 +3642,18 @@ public:
  protected:
 +    void SetCoreParams() override
 +    {
@@ -140,26 +219,18 @@ index 911fd8474..36898ce26 100644
 +    }
 +
      int64_t s2sizeLimitMin = 1024;
-     int64_t dAlignSize = 16;
-     int64_t sAlignSize = 64;
 diff --git a/cmake/custom_build.cmake b/cmake/custom_build.cmake
 index 881e0d6ce..fd6bfbd85 100644
 --- a/cmake/custom_build.cmake
 +++ b/cmake/custom_build.cmake
-@@ -550,6 +550,10 @@ target_link_libraries(
-     $<$<TARGET_EXISTS:opsbase>:opsbase>
- )
+@@ -552,2 +552,6 @@ target_link_libraries(
  
 +if (TARGET ${COMMON_NAME}_obj)
 +    add_dependencies(cust_opmaster ${COMMON_NAME}_obj)
 +endif()
 +
  target_link_libraries(
-     cust_proto
-     PUBLIC ${OPHOST_NAME}_infer_obj
-@@ -827,4 +831,4 @@ if (NOT ENABLE_BUILT_IN AND BUILD_OPEN_PROJECT)
-     endif()
-     set(CPACK_EXTERNAL_BUILT_PACKAGES ${CPACK_PACKAGE_DIRECTORY}/_CPack_Packages/Linux/External/${CPACK_PACKAGE_FILE_NAME}/${CPACK_PACKAGE_FILE_NAME})
+@@ -829,2 +833,2 @@ if (NOT ENABLE_BUILT_IN AND BUILD_OPEN_PROJECT)
      include(CPack)
 -endif ()
 \ No newline at end of file
@@ -168,18 +239,12 @@ diff --git a/common/include/tiling_base/tiling_templates_registry.h b/common/inc
 index c62a09ab8..521fe1a1b 100644
 --- a/common/include/tiling_base/tiling_templates_registry.h
 +++ b/common/include/tiling_base/tiling_templates_registry.h
-@@ -18,6 +18,8 @@
- #include <map>
- #include <string>
+@@ -20,2 +20,4 @@
  #include <memory>
 +#include <cstdlib>
 +#include <fstream>
  #include "exe_graph/runtime/tiling_context.h"
- #include "tiling_base/tiling_base.h"
- #include "log/log.h"
-@@ -34,6 +36,20 @@ std::unique_ptr<TilingBaseClass> TILING_CLASS(gert::TilingContext* context)
- 
- using TilingClassCase = std::unique_ptr<TilingBaseClass> (*)(gert::TilingContext*);
+@@ -36,2 +38,16 @@ using TilingClassCase = std::unique_ptr<TilingBaseClass> (*)(gert::TilingContext
  
 +inline void TraceFaRoute(const char *opType, int32_t priority, ge::graphStatus status,
 +                         gert::TilingContext *context)
@@ -196,13 +261,7 @@ index c62a09ab8..521fe1a1b 100644
 +}
 +
  class TilingCases {
- public:
-     explicit TilingCases(std::string op_type) : op_type_(std::move(op_type))
-@@ -119,6 +135,7 @@ public:
-             auto tilingTemplate = it->second(context);
-             if (tilingTemplate != nullptr) {
+@@ -121,2 +137,3 @@ public:
                  ge::graphStatus status = tilingTemplate->DoTiling();
 +                TraceFaRoute(op_type, it->first, status, context);
                  if (status != ge::GRAPH_PARAM_INVALID) {
-                     OP_LOGD(context, "Do general op tiling success priority=%d", it->first);
-                     return status;

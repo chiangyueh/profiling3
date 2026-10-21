@@ -169,6 +169,17 @@ def read_effective(path: Path) -> dict[str, int] | None:
         return None
     for line in reversed(path.read_text().splitlines()):
         fields = line.split("\t")
+        if len(fields) > 2 and fields[0] == "FINAL" and fields[1] in {
+            "FlashAttentionScoreTilingS1s2Bn2gs1",
+            "FlashAttentionScoreTilingS1s2Bn2gs1SameAB",
+        }:
+            values = {}
+            for field in fields[2:]:
+                name, separator, raw = field.partition("=")
+                if separator:
+                    values[name] = int(raw)
+            if all(name in values for name in SEARCH_NAMES):
+                return values
         if len(fields) == 11 and fields[0] in {
             "FlashAttentionScoreTilingS1s2Bn2gs1",
             "FlashAttentionScoreTilingS1s2Bn2gs1SameAB",

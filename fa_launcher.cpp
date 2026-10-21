@@ -270,6 +270,23 @@ int Run(aclrtStream stream)
     if (warmup < 0 || repeat <= 0 || warmup + repeat > 100) {
         return 2;
     }
+    const char *latencyPath = std::getenv("FA_LATENCY_TRACE");
+    std::ofstream latencyFile;
+    aclrtEvent startEvent = nullptr;
+    aclrtEvent endEvent = nullptr;
+    if (discoverOnly == 0 && latencyPath != nullptr && *latencyPath != '\0') {
+        latencyFile.open(latencyPath, std::ios::trunc);
+        if (!latencyFile.is_open() || aclrtCreateEvent(&startEvent) != ACL_SUCCESS ||
+            aclrtCreateEvent(&endEvent) != ACL_SUCCESS) {
+            if (startEvent != nullptr) {
+                aclrtDestroyEvent(startEvent);
+            }
+            if (endEvent != nullptr) {
+                aclrtDestroyEvent(endEvent);
+            }
+            return 1;
+        }
+    }
     void *workspace = nullptr;
     uint64_t workspaceCapacity = 0;
     aclnnStatus ret = ACL_SUCCESS;
@@ -300,9 +317,25 @@ int Run(aclrtStream stream)
             }
             workspaceCapacity = workspaceSize;
         }
-        ret = aclnnFlashAttentionScoreV2(workspace, workspaceSize, executor, stream);
+        const bool measured = iteration >= warmup && startEvent != nullptr;
+        if (measured) {
+            ret = aclrtRecordEvent(startEvent, stream);
+        }
         if (ret == ACL_SUCCESS) {
-            ret = aclrtSynchronizeStream(stream);
+            ret = aclnnFlashAttentionScoreV2(workspace, workspaceSize, executor, stream);
+        }
+        if (ret == ACL_SUCCESS && measured) {
+            ret = aclrtRecordEvent(endEvent, stream);
+        }
+        if (ret == ACL_SUCCESS) {
+            ret = measured ? aclrtSynchronizeEvent(endEvent) : aclrtSynchronizeStream(stream);
+        }
+        if (ret == ACL_SUCCESS && measured) {
+            float elapsedMs = 0.0F;
+            ret = aclrtEventElapsedTime(&elapsedMs, startEvent, endEvent);
+            if (ret == ACL_SUCCESS) {
+                latencyFile << elapsedMs * 1000.0F << '\n';
+            }
         }
         if (ret != ACL_SUCCESS) {
             std::fprintf(stderr, "execution failed: %d, %s\n", ret, aclGetRecentErrMsg());
@@ -315,6 +348,12 @@ int Run(aclrtStream stream)
 
     if (workspace != nullptr) {
         aclrtFree(workspace);
+    }
+    if (startEvent != nullptr) {
+        aclrtDestroyEvent(startEvent);
+    }
+    if (endEvent != nullptr) {
+        aclrtDestroyEvent(endEvent);
     }
     Destroy(q);
     Destroy(k);
