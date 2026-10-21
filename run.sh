@@ -13,6 +13,10 @@ if [[ "${DISCOVER_ONLY}" != "1" && ! "${FA_TILING_KEY:-}" =~ ^[0-9]+$ ]]; then
     echo "invalid FA_TILING_KEY: ${FA_TILING_KEY:-}" >&2
     exit 2
 fi
+if [[ "${DISCOVER_ONLY}" != "1" && ! "${FA_DTYPE_KIND:-}" =~ ^[0-2]$ ]]; then
+    echo "invalid FA_DTYPE_KIND: ${FA_DTYPE_KIND:-}" >&2
+    exit 2
+fi
 
 export ASCEND_RT_VISIBLE_DEVICES="${FA_NPU_ID}"
 ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
@@ -26,7 +30,7 @@ CACHE_BASE=${FA_CACHE_ROOT:-"${SCRIPT_DIR}/out/fa_cache"}
 if [[ "${DISCOVER_ONLY}" == "1" ]]; then
     CACHE_ID=host
 else
-    CACHE_ID=${FA_TILING_KEY}
+    CACHE_ID="${FA_TILING_KEY}/dtype_${FA_DTYPE_KIND}"
 fi
 CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${CACHE_ID}"
 INSTALL_ROOT="${CACHE_DIR}/opp"

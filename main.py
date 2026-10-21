@@ -118,6 +118,7 @@ def build(key: int) -> None:
     env = dict(os.environ)
     env.pop("FA_DISCOVER_ONLY", None)
     env["FA_TILING_KEY"] = str(key)
+    env["FA_DTYPE_KIND"] = str(DTYPES[str(SHAPE["DTYPE"]).upper()][0])
     completed = subprocess.run(["bash", "build.sh"], env=env)
     if completed.returncode != 0:
         raise RuntimeError(f"build failed for tiling key {key}")

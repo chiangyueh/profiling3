@@ -16,7 +16,7 @@ import main as fa
 from tiling import base
 
 
-VERSION = "sameab_latency_v2"
+VERSION = "sameab_latency_v3"
 WARMUP = 3
 REPEAT = 10
 ROUNDS = 2
@@ -238,8 +238,11 @@ def manifest_payload() -> dict:
     tracked = (
         Path(__file__),
         Path("main.py"),
+        Path("build.sh"),
+        Path("run.sh"),
         Path("fa_launcher.cpp"),
         Path("patches/fa_candidate_hook.patch"),
+        Path("patches/ops_transformer_incremental_build.patch"),
         Path("tiling/validators/attention/AttentionValidator.py"),
         Path("tiling/validators/attention/FlashAttentionScoreValidator.py"),
     )
@@ -247,6 +250,7 @@ def manifest_payload() -> dict:
         "version": VERSION,
         "scope": "dense BF16 FlashAttentionScore SameAB, DeepSeek D=192/DV=128 family",
         "timing_source": "aclrtEventElapsedTime around aclnnFlashAttentionScoreV2",
+        "timing_scope": "device execution only; excludes Host tiling, allocation, and transfers",
         "operator_attributes": {
             "keep_prob": 1.0,
             "pre_tokens": 2147483647,
@@ -267,6 +271,9 @@ def manifest_payload() -> dict:
         "npu_id": fa.NPU_ID,
         "soc_unit": os.environ.get("FA_SOC_UNIT", "ascend910b"),
         "ops_transformer_version": os.environ.get("OPS_TRANSFORMER_VERSION", "v8.5.0"),
+        "ascend_home_path": str(
+            Path(os.environ.get("ASCEND_HOME_PATH", "/usr/local/Ascend/ascend-toolkit/latest")).resolve()
+        ),
         "source_sha256": {str(path): digest(path) for path in tracked},
     }
     payload["signature"] = hashlib.sha256(
@@ -767,6 +774,10 @@ def main() -> None:
             except Exception as error:
                 failures += 1
                 print(f"CASE_FAILED split={split} name={name} error={error}", flush=True)
+                print(f"CALIBRATION_DATA={calibration}")
+                print(f"HOLDOUT_DATA={holdout}")
+                print(f"FAILURES={failures}")
+                raise SystemExit(1) from error
     print(f"CALIBRATION_DATA={calibration}")
     print(f"HOLDOUT_DATA={holdout}")
     print(f"FAILURES={failures}")

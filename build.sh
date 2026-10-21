@@ -8,6 +8,7 @@ ASCEND_ROOT=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}
 SOC_UNIT=${FA_SOC_UNIT:-ascend910b}
 JOBS=${FA_BUILD_JOBS:-1}
 TILING_KEY=${FA_TILING_KEY:-}
+DTYPE_KIND=${FA_DTYPE_KIND:-}
 DISCOVER_ONLY=${FA_DISCOVER_ONLY:-0}
 CACHE_BASE=${FA_CACHE_ROOT:-"${SCRIPT_DIR}/out/fa_cache"}
 if [[ "${DISCOVER_ONLY}" == "1" ]]; then
@@ -15,7 +16,7 @@ if [[ "${DISCOVER_ONLY}" == "1" ]]; then
     CACHE_ID=host
 else
     BUILD_MODE=kernel
-    CACHE_ID=${TILING_KEY}
+    CACHE_ID="${TILING_KEY}/dtype_${DTYPE_KIND}"
 fi
 CACHE_DIR="${CACHE_BASE}/${SOURCE_VERSION}/${SOC_UNIT}/${CACHE_ID}"
 INSTALL_ROOT="${CACHE_DIR}/opp"
@@ -23,25 +24,53 @@ BINARY="${CACHE_DIR}/fa_npu"
 PATCH_FILE="${SCRIPT_DIR}/patches/fa_candidate_hook.patch"
 BUILD_PATCH_FILE="${SCRIPT_DIR}/patches/ops_transformer_incremental_build.patch"
 CACHE_MANIFEST="${CACHE_DIR}/build_manifest.txt"
-PACKAGE_MANIFEST="${OPS_ROOT}/build/fa_package_manifest.txt"
 BUILD_LOG="${CACHE_DIR}/build.log"
 INSTALL_LOG="${CACHE_DIR}/install.log"
+PACKAGE_OUTPUT="${OPS_ROOT}/build_out/cann-ops-transformer-custom_linux-$(uname -m).run"
 PATCH_ACTIVE=0
 BUILD_PATCH_ACTIVE=0
 
-latest_package() {
-    local roots=()
-    local root
-    for root in "${OPS_ROOT}/output" "${OPS_ROOT}/build" "${OPS_ROOT}/build_out"; do
-        [[ -d "${root}" ]] && roots+=("${root}")
-    done
-    if [[ ${#roots[@]} -eq 0 ]]; then
+kernel_cache_valid() {
+    local custom_root=$1
+    if [[ "${BUILD_MODE}" == "host" ]]; then
         return 0
     fi
-    find "${roots[@]}" -type f \
-        \( -name 'cann-ops-transformer-*_linux-*.run' -o \
-           -name 'cann-ops-transformer-*-linux-*.run' \) \
-        -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-
+    python3 - "${custom_root}" "${SOC_UNIT}" "${TILING_KEY}" "${DTYPE_KIND}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+soc = sys.argv[2]
+tiling_key = int(sys.argv[3])
+dtype = {"0": "float", "1": "float16", "2": "bfloat16"}[sys.argv[4]]
+paths = root.glob(f"op_impl/ai_core/tbe/kernel/{soc}/flash_attention_score/*.json")
+for path in paths:
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        continue
+    keys = {int(item["tilingKey"]) for item in data.get("kernelList", []) if "tilingKey" in item}
+    inputs = {item.get("name"): item for item in data.get("supportInfo", {}).get("inputs", [])}
+    binary = path.with_name(data.get("binFileName", "") + data.get("binFileSuffix", ".o"))
+    if tiling_key in keys and inputs.get("query", {}).get("dtype") == dtype and binary.is_file():
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+reset_kernel_target() {
+    local binary_root="${OPS_ROOT}/build/binary/${SOC_UNIT}"
+    local generated="${binary_root}/gen"
+    local kernels="${binary_root}/bin/flash_attention_score"
+    if [[ -d "${generated}" ]]; then
+        find "${generated}" -maxdepth 1 -type f \
+            -name 'flash_attention_score_*.done' -delete
+    fi
+    if [[ -d "${kernels}" ]]; then
+        find "${kernels}" -maxdepth 1 -type f \
+            \( -name 'FlashAttentionScore_*.json' -o -name 'FlashAttentionScore_*.o' \) -delete
+    fi
 }
 
 restore_source() {
@@ -80,14 +109,19 @@ if [[ "${BUILD_MODE}" == "kernel" && ! "${TILING_KEY}" =~ ^[0-9]+$ ]]; then
     echo "invalid FA_TILING_KEY: ${TILING_KEY}" >&2
     exit 2
 fi
+if [[ "${BUILD_MODE}" == "kernel" && ! "${DTYPE_KIND}" =~ ^[0-2]$ ]]; then
+    echo "invalid FA_DTYPE_KIND: ${DTYPE_KIND}" >&2
+    exit 2
+fi
 PATCH_SHA256=$(sha256sum "${PATCH_FILE}" | awk '{print $1}')
 LAUNCHER_SHA256=$(sha256sum "${SCRIPT_DIR}/fa_launcher.cpp" | awk '{print $1}')
 PACKAGE_FINGERPRINT=$(printf '%s\n' \
-    "schema=1" \
+    "schema=2" \
     "version=${SOURCE_VERSION}" \
     "soc=${SOC_UNIT}" \
     "mode=${BUILD_MODE}" \
     "tiling_key=${TILING_KEY:-none}" \
+    "dtype_kind=${DTYPE_KIND:-none}" \
     "patch=${PATCH_SHA256}")
 FULL_FINGERPRINT=$(printf '%s\n' "${PACKAGE_FINGERPRINT}" "launcher=${LAUNCHER_SHA256}")
 CACHED_CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
@@ -97,7 +131,8 @@ if [[ -x "${BINARY}" && -n "${CACHED_CUSTOM_ROOT}" && \
       -f "${CACHED_CUSTOM_ROOT}/bin/set_env.bash" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score.h" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" && \
-      -f "${CACHE_MANIFEST}" && "$(<"${CACHE_MANIFEST}")" == "${FULL_FINGERPRINT}" ]]; then
+      -f "${CACHE_MANIFEST}" && "$(<"${CACHE_MANIFEST}")" == "${FULL_FINGERPRINT}" ]] && \
+      kernel_cache_valid "${CACHED_CUSTOM_ROOT}"; then
     echo "BUILD CACHE HIT: ${BUILD_MODE}=${CACHE_ID}"
     exit 0
 fi
@@ -111,38 +146,36 @@ if [[ -n "${CACHED_CUSTOM_ROOT}" && \
       -f "${CACHED_CUSTOM_ROOT}/bin/set_env.bash" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/include/aclnnop/aclnn_flash_attention_score.h" && \
       -f "${CACHED_CUSTOM_ROOT}/op_api/lib/libcust_opapi.so" && \
-      "${CACHED_PACKAGE_FINGERPRINT}" == "${PACKAGE_FINGERPRINT}" ]]; then
+      "${CACHED_PACKAGE_FINGERPRINT}" == "${PACKAGE_FINGERPRINT}" ]] && \
+      kernel_cache_valid "${CACHED_CUSTOM_ROOT}"; then
     CUSTOM_ROOT="${CACHED_CUSTOM_ROOT}"
 else
-    PACKAGE=""
-    if [[ -f "${PACKAGE_MANIFEST}" && "$(<"${PACKAGE_MANIFEST}")" == "${PACKAGE_FINGERPRINT}" ]]; then
-        PACKAGE=$(latest_package)
+    mkdir -p "${CACHE_DIR}"
+    echo "BUILD START: ${BUILD_MODE}=${CACHE_ID} log=${BUILD_LOG}"
+    apply_source_patch "${PATCH_FILE}" "FA candidate patch"
+    PATCH_ACTIVE=1
+    apply_source_patch "${BUILD_PATCH_FILE}" "incremental build patch"
+    BUILD_PATCH_ACTIVE=1
+    rm -f -- "${PACKAGE_OUTPUT}"
+    if [[ "${BUILD_MODE}" == "kernel" ]]; then
+        reset_kernel_target
     fi
-    if [[ -z "${PACKAGE}" ]]; then
-        mkdir -p "${CACHE_DIR}"
-        echo "BUILD START: ${BUILD_MODE}=${CACHE_ID} log=${BUILD_LOG}"
-        apply_source_patch "${PATCH_FILE}" "FA candidate patch"
-        PATCH_ACTIVE=1
-        apply_source_patch "${BUILD_PATCH_FILE}" "incremental build patch"
-        BUILD_PATCH_ACTIVE=1
-        if ! (
-            cd "${OPS_ROOT}"
-            export ATTENTION_INCREMENTAL_BUILD=1
-            if [[ "${BUILD_MODE}" == "host" ]]; then
-                bash build.sh -j"${JOBS}" --ops=flash_attention_score \
-                    --soc="${SOC_UNIT}" --jit --pkg
-            else
-                bash build.sh -j"${JOBS}" --ops=flash_attention_score \
-                    --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
-            fi
-        ) >"${BUILD_LOG}" 2>&1; then
-            echo "build failed: ${BUILD_LOG}" >&2
-            tail -n 40 "${BUILD_LOG}" >&2 || true
-            exit 1
+    if ! (
+        cd "${OPS_ROOT}"
+        export ATTENTION_INCREMENTAL_BUILD=1
+        if [[ "${BUILD_MODE}" == "host" ]]; then
+            bash build.sh -j"${JOBS}" --ops=flash_attention_score \
+                --soc="${SOC_UNIT}" --jit --pkg
+        else
+            bash build.sh -j"${JOBS}" --ops=flash_attention_score \
+                --soc="${SOC_UNIT}" --tiling_key="${TILING_KEY}" --pkg
         fi
-        PACKAGE=$(latest_package)
-        printf '%s\n' "${PACKAGE_FINGERPRINT}" >"${PACKAGE_MANIFEST}"
+    ) >"${BUILD_LOG}" 2>&1; then
+        echo "build failed: ${BUILD_LOG}" >&2
+        tail -n 40 "${BUILD_LOG}" >&2 || true
+        exit 1
     fi
+    PACKAGE="${PACKAGE_OUTPUT}"
     if [[ -z "${PACKAGE}" || ! -f "${PACKAGE}" ]]; then
         echo "custom operator package was not produced" >&2
         exit 1
@@ -155,6 +188,10 @@ else
     fi
     CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
         -name '*_transformer' -print | head -n 1)
+    if ! kernel_cache_valid "${CUSTOM_ROOT}"; then
+        echo "built package is missing FlashAttentionScore tiling_key=${TILING_KEY} dtype_kind=${DTYPE_KIND}: ${PACKAGE}" >&2
+        exit 1
+    fi
 fi
 
 CUSTOM_INCLUDE="${CUSTOM_ROOT}/op_api/include/aclnnop"
