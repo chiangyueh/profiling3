@@ -16,7 +16,7 @@ import main as fa
 from tiling import base
 
 
-VERSION = "sameab_latency_v3"
+VERSION = "sameab_latency_v4"
 WARMUP = 3
 REPEAT = 10
 ROUNDS = 2

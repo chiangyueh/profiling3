@@ -45,6 +45,7 @@ soc = sys.argv[2]
 tiling_key = int(sys.argv[3])
 dtype = {"0": "float", "1": "float16", "2": "bfloat16"}[sys.argv[4]]
 paths = root.glob(f"op_impl/ai_core/tbe/kernel/{soc}/flash_attention_score/*.json")
+selected = None
 for path in paths:
     try:
         data = json.loads(path.read_text())
@@ -54,8 +55,29 @@ for path in paths:
     inputs = {item.get("name"): item for item in data.get("supportInfo", {}).get("inputs", [])}
     binary = path.with_name(data.get("binFileName", "") + data.get("binFileSuffix", ".o"))
     if tiling_key in keys and inputs.get("query", {}).get("dtype") == dtype and binary.is_file():
-        raise SystemExit(0)
-raise SystemExit(1)
+        selected = (path, data)
+        break
+if selected is None:
+    raise SystemExit(1)
+path, data = selected
+config_root = root / "op_impl/ai_core/tbe/kernel/config" / soc
+try:
+    binary_info = json.loads((config_root / "binary_info_config.json").read_text())
+    op_config = json.loads((config_root / "flash_attention_score.json").read_text())
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(1)
+relative = f"{soc}/flash_attention_score/{path.name}"
+simplified = set(data.get("supportInfo", {}).get("simplifiedKey", []))
+registered = any(
+    item.get("jsonPath") == relative and simplified.intersection(item.get("simplifiedKey", []))
+    for item in binary_info.get("FlashAttentionScore", {}).get("binaryList", [])
+)
+listed = any(
+    item.get("binInfo", {}).get("jsonFilePath") == relative
+    and simplified.intersection(item.get("simplifiedKey", []))
+    for item in op_config.get("binList", [])
+)
+raise SystemExit(0 if registered and listed else 1)
 PY
 }
 
@@ -71,6 +93,8 @@ reset_kernel_target() {
         find "${kernels}" -maxdepth 1 -type f \
             \( -name 'FlashAttentionScore_*.json' -o -name 'FlashAttentionScore_*.o' \) -delete
     fi
+    rm -f -- "${binary_root}/bin/binary_info_config.json" \
+        "${binary_root}/bin/flash_attention_score.json"
 }
 
 restore_source() {
@@ -116,7 +140,7 @@ fi
 PATCH_SHA256=$(sha256sum "${PATCH_FILE}" | awk '{print $1}')
 LAUNCHER_SHA256=$(sha256sum "${SCRIPT_DIR}/fa_launcher.cpp" | awk '{print $1}')
 PACKAGE_FINGERPRINT=$(printf '%s\n' \
-    "schema=2" \
+    "schema=3" \
     "version=${SOURCE_VERSION}" \
     "soc=${SOC_UNIT}" \
     "mode=${BUILD_MODE}" \
