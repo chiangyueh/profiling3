@@ -8,6 +8,7 @@ import math
 import os
 import statistics
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -831,6 +832,24 @@ def main() -> None:
             invalid_candidates += collect_case("external", case, external, done)
         print(f"EXTERNAL_DATA={external}")
         print(f"INVALID_CANDIDATES={invalid_candidates}")
+        calibration = root / "output" / VERSION / "calibration.csv"
+        holdout = root / "output" / VERSION / "holdout.csv"
+        if not calibration.is_file() or not holdout.is_file():
+            raise RuntimeError(
+                f"latency calibration data is missing: {calibration}, {holdout}"
+            )
+        evaluation = subprocess.run(
+            [
+                sys.executable,
+                str(root / "fit_sameab_latency.py"),
+                str(calibration),
+                str(holdout),
+                "--external-csv",
+                str(external),
+            ]
+        )
+        if evaluation.returncode != 0:
+            raise RuntimeError("external latency evaluation failed")
         return
     validate_design(cases)
     calibration, holdout = prepare_output(root / "output" / VERSION)
