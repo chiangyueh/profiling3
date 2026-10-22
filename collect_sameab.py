@@ -17,6 +17,7 @@ from tiling import base
 
 
 VERSION = "sameab_latency_v4"
+EXTERNAL_VERSION = "sameab_latency_external_v1"
 WARMUP = 3
 REPEAT = 10
 ROUNDS = 2
@@ -30,6 +31,16 @@ CALIBRATION_CASES = (
 HOLDOUT_CASES = (
     "deepseek_v3_surrogate_s4096_bnsd_tp8",
     "deepseek_v3_bf16_s8192_sbh_tp1",
+)
+EXTERNAL_CASES = (
+    {
+        "name": "sameab_external_s6144_bnsd_n32",
+        "shape": (1, 32, 32, 6144, 6144, 192, 128, "BF16", "BNSD"),
+    },
+    {
+        "name": "sameab_external_s6144_sbh_n64",
+        "shape": (1, 64, 64, 6144, 6144, 192, 128, "BF16", "SBH"),
+    },
 )
 FIXED_CONFIGS = (
     ("macro_128_16_8", 128, 16, 8, 0),
@@ -297,7 +308,7 @@ def prepare_output(root: Path) -> tuple[Path, Path]:
     return root / "calibration.csv", root / "holdout.csv"
 
 
-def completed(path: Path) -> set[tuple[str, str, str, str]]:
+def completed(path: Path, include_failures: bool = False) -> set[tuple[str, str, str, str]]:
     if not path.is_file():
         return set()
     rows = csv.DictReader(path.open(newline=""))
@@ -305,6 +316,7 @@ def completed(path: Path) -> set[tuple[str, str, str, str]]:
         (row["case"], row["round"], row["record_type"], row["config_id"])
         for row in rows
         if row.get("status") == "ok"
+        or (include_failures and bool(row.get("status")))
     }
 
 
@@ -595,6 +607,54 @@ def validate_design(cases: dict[str, dict]) -> None:
             raise RuntimeError(f"{name} is outside the declared SameAB calibration scope")
 
 
+def prepare_external_output(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": EXTERNAL_VERSION,
+        "dataset_schema": VERSION,
+        "purpose": "frozen model external validation",
+        "cases": [
+            {"name": case["name"], "shape": list(case["shape"])}
+            for case in EXTERNAL_CASES
+        ],
+        "fixed_configs": [list(item) for item in FIXED_CONFIGS],
+        "warmup": WARMUP,
+        "repeat": REPEAT,
+        "rounds": ROUNDS,
+    }
+    payload["signature"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    manifest = root / "manifest.json"
+    if manifest.is_file():
+        current = json.loads(manifest.read_text())
+        if current.get("signature") != payload["signature"]:
+            raise RuntimeError(f"external dataset manifest mismatch: {manifest}")
+    else:
+        temporary = manifest.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        temporary.replace(manifest)
+    return root / "external.csv"
+
+
+def validate_external_design(cases: dict[str, dict]) -> None:
+    known_shapes = {
+        tuple(cases[name]["shape"])
+        for name in CALIBRATION_CASES + HOLDOUT_CASES
+    }
+    names = set()
+    shapes = set()
+    for case in EXTERNAL_CASES:
+        name = str(case["name"])
+        shape = tuple(case["shape"])
+        if name in names or shape in shapes or shape in known_shapes:
+            raise RuntimeError(f"external case is not independent: {name}")
+        if shape[5:8] != (192, 128, "BF16") or shape[8] not in ("BNSD", "SBH"):
+            raise RuntimeError(f"external case is outside model scope: {name}")
+        names.add(name)
+        shapes.add(shape)
+
+
 def base_row(split: str, case: str, priority: int, key: int, round_index: int, direction: str) -> dict:
     return {
         "version": VERSION,
@@ -745,6 +805,7 @@ def collect_case(split: str, case: dict, path: Path, done: set[tuple[str, str, s
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=4)
+    parser.add_argument("--external", action="store_true")
     args = parser.parse_args()
     fa.NPU_ID = args.id
     fa.PROFILE_WARMUP = WARMUP
@@ -752,6 +813,25 @@ def main() -> None:
     root = Path(__file__).resolve().parent
     os.chdir(root)
     cases = {str(case["name"]): case for case in fa.CASES}
+    if args.external:
+        validate_external_design(cases)
+        external = prepare_external_output(root / "output" / EXTERNAL_VERSION)
+        done = completed(external, include_failures=True)
+        maximum_configs = len(FIXED_CONFIGS) + 1
+        print(
+            f"EXTERNAL_DESIGN shapes={len(EXTERNAL_CASES)} rounds={ROUNDS} "
+            f"maximum_configs_per_shape={maximum_configs} "
+            f"maximum_measurements={len(EXTERNAL_CASES) * ROUNDS * (maximum_configs + 2)}",
+            flush=True,
+        )
+        invalid_candidates = 0
+        for index, case in enumerate(EXTERNAL_CASES, 1):
+            name = str(case["name"])
+            print(f"CASE split=external index={index}/{len(EXTERNAL_CASES)} name={name}", flush=True)
+            invalid_candidates += collect_case("external", case, external, done)
+        print(f"EXTERNAL_DATA={external}")
+        print(f"INVALID_CANDIDATES={invalid_candidates}")
+        return
     validate_design(cases)
     calibration, holdout = prepare_output(root / "output" / VERSION)
     maximum_configs = len(FIXED_CONFIGS) + 1
