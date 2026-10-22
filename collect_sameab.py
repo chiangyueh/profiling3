@@ -806,7 +806,9 @@ def collect_case(split: str, case: dict, path: Path, done: set[tuple[str, str, s
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=4)
-    parser.add_argument("--external", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--external", action="store_true")
+    mode.add_argument("--calibration", action="store_true")
     args = parser.parse_args()
     fa.NPU_ID = args.id
     fa.PROFILE_WARMUP = WARMUP
@@ -814,7 +816,7 @@ def main() -> None:
     root = Path(__file__).resolve().parent
     os.chdir(root)
     cases = {str(case["name"]): case for case in fa.CASES}
-    if args.external:
+    if args.external or not args.calibration:
         validate_external_design(cases)
         external = prepare_external_output(root / "output" / EXTERNAL_VERSION)
         done = completed(external, include_failures=True)
