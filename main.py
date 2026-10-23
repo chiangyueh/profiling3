@@ -62,7 +62,7 @@ PROFILE_WARMUP = 2
 PROFILE_REPEAT = 5
 
 DTYPES = {"FP32": (0, 4), "FP16": (1, 2), "BF16": (2, 2)}
-LAYOUTS = {"BNSD": 0, "SBH": 1, "BSND": 2}
+LAYOUTS = {"BNSD": 0, "SBH": 1, "BSND": 2, "TND": 3}
 ROUTES = {95: "same_ab", 96: "general"}
 SEARCH_NAMES = ("FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO", "FA_BMM_PRESET")
 BMM_PRESETS = {
@@ -80,7 +80,7 @@ def shape_params() -> list[base.BaseParam]:
     dtype = str(SHAPE["DTYPE"]).upper()
     layout = str(SHAPE["LAYOUT"]).upper()
     if dtype not in DTYPES or layout not in LAYOUTS:
-        raise ValueError("DTYPE must be FP32, FP16, or BF16; LAYOUT must be BNSD, SBH, or BSND")
+        raise ValueError("DTYPE must be FP32, FP16, or BF16; LAYOUT must be BNSD, SBH, BSND, or TND")
     dtype_kind, dtype_bytes = DTYPES[dtype]
     values = {
         "FA_B": int(SHAPE["B"]),
@@ -111,6 +111,7 @@ def run_env(params: list[base.BaseParam], key: int | None) -> dict[str, str]:
         env["FA_TILING_KEY"] = str(key)
     for param in params:
         env[param.name] = str(param.value)
+    env["FA_HAS_DROP"] = str(int(SHAPE.get("HAS_DROP", 0)))
     return env
 
 
@@ -170,10 +171,7 @@ def read_effective(path: Path) -> dict[str, int] | None:
         return None
     for line in reversed(path.read_text().splitlines()):
         fields = line.split("\t")
-        if len(fields) > 2 and fields[0] == "FINAL" and fields[1] in {
-            "FlashAttentionScoreTilingS1s2Bn2gs1",
-            "FlashAttentionScoreTilingS1s2Bn2gs1SameAB",
-        }:
+        if len(fields) > 2 and fields[0] == "FINAL":
             values = {}
             for field in fields[2:]:
                 name, separator, raw = field.partition("=")

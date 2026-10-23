@@ -167,6 +167,15 @@ int Fill(Tensor &tensor, aclDataType dtype, float base)
     return aclrtMemcpy(tensor.device, tensor.bytes, host.data(), tensor.bytes, ACL_MEMCPY_HOST_TO_DEVICE);
 }
 
+int FillDropMask(Tensor &tensor)
+{
+    std::vector<uint8_t> host(tensor.bytes);
+    for (size_t i = 0; i < host.size(); ++i) {
+        host[i] = (i % 2 == 0) ? 0xAAU : 0xD5U;
+    }
+    return aclrtMemcpy(tensor.device, tensor.bytes, host.data(), host.size(), ACL_MEMCPY_HOST_TO_DEVICE);
+}
+
 std::vector<int64_t> Shape(int64_t layout, int64_t b, int64_t n, int64_t s, int64_t d)
 {
     if (layout == 0) {
@@ -177,6 +186,9 @@ std::vector<int64_t> Shape(int64_t layout, int64_t b, int64_t n, int64_t s, int6
     }
     if (layout == 2) {
         return {b, s, n, d};
+    }
+    if (layout == 3) {
+        return {b * s, n, d};
     }
     std::exit(2);
 }
@@ -192,7 +204,18 @@ const char *Layout(int64_t layout)
     if (layout == 2) {
         return "BSND";
     }
+    if (layout == 3) {
+        return "TND";
+    }
     return "";
+}
+
+std::vector<int64_t> SoftmaxShape(int64_t layout, int64_t b, int64_t n, int64_t s)
+{
+    if (layout == 3) {
+        return {b * s, n, 8};
+    }
+    return {b, n, s, 8};
 }
 
 void Destroy(Tensor &tensor)
@@ -242,16 +265,16 @@ int Run(aclrtStream stream)
     const aclDataType dtype = dtypeKind == 2 ? ACL_BF16 : (dtypeKind == 1 ? ACL_FLOAT16 : ACL_FLOAT);
     const size_t typeBytes = dtype == ACL_FLOAT ? sizeof(float) : sizeof(uint16_t);
     if (b <= 0 || n1 <= 0 || n2 <= 0 || n1 % n2 != 0 || s1 <= 0 || s2 <= 0 || d <= 0 || dv <= 0 ||
-        layout < 0 || layout > 2 || dtypeKind < 0 || dtypeKind > 2) {
+        layout < 0 || layout > 3 || dtypeKind < 0 || dtypeKind > 2) {
         return 2;
     }
 
-    Tensor q, k, v, softmaxMax, softmaxSum, attention;
+    Tensor q, k, v, dropMask, softmaxMax, softmaxSum, attention;
     if (MakeTensor(Shape(layout, b, n1, s1, d), dtype, typeBytes, q) != ACL_SUCCESS ||
         MakeTensor(Shape(layout, b, n2, s2, d), dtype, typeBytes, k) != ACL_SUCCESS ||
         MakeTensor(Shape(layout, b, n2, s2, dv), dtype, typeBytes, v) != ACL_SUCCESS ||
-        MakeTensor({b, n1, s1, 8}, ACL_FLOAT, sizeof(float), softmaxMax) != ACL_SUCCESS ||
-        MakeTensor({b, n1, s1, 8}, ACL_FLOAT, sizeof(float), softmaxSum) != ACL_SUCCESS ||
+        MakeTensor(SoftmaxShape(layout, b, n1, s1), ACL_FLOAT, sizeof(float), softmaxMax) != ACL_SUCCESS ||
+        MakeTensor(SoftmaxShape(layout, b, n1, s1), ACL_FLOAT, sizeof(float), softmaxSum) != ACL_SUCCESS ||
         MakeTensor(Shape(layout, b, n1, s1, dv), dtype, typeBytes, attention) != ACL_SUCCESS) {
         return 1;
     }
@@ -260,7 +283,17 @@ int Run(aclrtStream stream)
         return 1;
     }
 
+    const bool hasDrop = EnvI64("FA_HAS_DROP", 0) != 0;
+    if (hasDrop) {
+        const int64_t dropElements = (b * n1 * s1 * s2 + 7) / 8;
+        if (MakeTensor({dropElements}, ACL_UINT8, sizeof(uint8_t), dropMask) != ACL_SUCCESS ||
+            FillDropMask(dropMask) != ACL_SUCCESS) {
+            return 1;
+        }
+    }
+
     const double scale = 1.0 / std::sqrt(static_cast<double>(d));
+    const double keepProb = hasDrop ? 0.9 : 1.0;
     const int64_t tokens = std::numeric_limits<int32_t>::max();
     char layoutName[5] = {};
     std::strncpy(layoutName, Layout(layout), sizeof(layoutName) - 1);
@@ -274,6 +307,21 @@ int Run(aclrtStream stream)
     std::ofstream latencyFile;
     aclrtEvent startEvent = nullptr;
     aclrtEvent endEvent = nullptr;
+    aclIntArray *actualQ = nullptr;
+    aclIntArray *actualKv = nullptr;
+    std::vector<int64_t> actualQData;
+    std::vector<int64_t> actualKvData;
+    if (layout == 3) {
+        for (int64_t index = 1; index <= b; ++index) {
+            actualQData.push_back(index * s1);
+            actualKvData.push_back(index * s2);
+        }
+        actualQ = aclCreateIntArray(actualQData.data(), actualQData.size());
+        actualKv = aclCreateIntArray(actualKvData.data(), actualKvData.size());
+        if (actualQ == nullptr || actualKv == nullptr) {
+            return 1;
+        }
+    }
     if (discoverOnly == 0 && latencyPath != nullptr && *latencyPath != '\0') {
         latencyFile.open(latencyPath, std::ios::trunc);
         if (!latencyFile.is_open() || aclrtCreateEvent(&startEvent) != ACL_SUCCESS ||
@@ -294,10 +342,19 @@ int Run(aclrtStream stream)
     for (int64_t iteration = 0; iteration < iterations; ++iteration) {
         uint64_t workspaceSize = 0;
         aclOpExecutor *executor = nullptr;
-        ret = aclnnFlashAttentionScoreV2GetWorkspaceSize(
-            q.tensor, k.tensor, v.tensor, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-            scale, 1.0, tokens, tokens, n1, layoutName, 0, 0, 1,
-            softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor, &workspaceSize, &executor);
+        if (layout == 3) {
+            char softmaxLayout[] = "same_as_input";
+            ret = aclnnFlashAttentionVarLenScoreV4GetWorkspaceSize(
+                q.tensor, k.tensor, v.tensor, nullptr, dropMask.tensor, nullptr, nullptr, nullptr,
+                actualQ, actualKv, scale, keepProb, tokens, tokens, n1, layoutName, 0, 0,
+                softmaxLayout, softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor,
+                &workspaceSize, &executor);
+        } else {
+            ret = aclnnFlashAttentionScoreV2GetWorkspaceSize(
+                q.tensor, k.tensor, v.tensor, nullptr, dropMask.tensor, nullptr, nullptr, nullptr, nullptr, nullptr,
+                scale, keepProb, tokens, tokens, n1, layoutName, 0, 0, 1,
+                softmaxMax.tensor, softmaxSum.tensor, nullptr, attention.tensor, &workspaceSize, &executor);
+        }
         if (ret != ACL_SUCCESS) {
             std::fprintf(stderr, "GetWorkspaceSize failed: %d, %s\n", ret, aclGetRecentErrMsg());
             break;
@@ -322,7 +379,9 @@ int Run(aclrtStream stream)
             ret = aclrtRecordEvent(startEvent, stream);
         }
         if (ret == ACL_SUCCESS) {
-            ret = aclnnFlashAttentionScoreV2(workspace, workspaceSize, executor, stream);
+            ret = layout == 3
+                ? aclnnFlashAttentionVarLenScoreV4(workspace, workspaceSize, executor, stream)
+                : aclnnFlashAttentionScoreV2(workspace, workspaceSize, executor, stream);
         }
         if (ret == ACL_SUCCESS && measured) {
             ret = aclrtRecordEvent(endEvent, stream);
@@ -355,9 +414,16 @@ int Run(aclrtStream stream)
     if (endEvent != nullptr) {
         aclrtDestroyEvent(endEvent);
     }
+    if (actualQ != nullptr) {
+        aclDestroyIntArray(actualQ);
+    }
+    if (actualKv != nullptr) {
+        aclDestroyIntArray(actualKv);
+    }
     Destroy(q);
     Destroy(k);
     Destroy(v);
+    Destroy(dropMask);
     Destroy(softmaxMax);
     Destroy(softmaxSum);
     Destroy(attention);
