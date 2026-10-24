@@ -43,7 +43,7 @@ from pathlib import Path
 root = Path(sys.argv[1])
 soc = sys.argv[2]
 tiling_key = int(sys.argv[3])
-dtype = {"0": "float", "1": "float16", "2": "bfloat16"}[sys.argv[4]]
+dtype = {"0": "float32", "1": "float16", "2": "bfloat16"}[sys.argv[4]]
 paths = root.glob(f"op_impl/ai_core/tbe/kernel/{soc}/flash_attention_score/*.json")
 selected = None
 for path in paths:
