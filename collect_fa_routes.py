@@ -613,6 +613,9 @@ def main() -> None:
     write_prediction_report(
         output.parent / "sameab_prediction_report.json", output, model_path
     )
+    from fit_fa_latency import build_models
+
+    build_models([output], root / "output" / "fa_latency_model_v1", model_path)
 
 
 if __name__ == "__main__":
