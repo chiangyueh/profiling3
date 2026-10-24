@@ -243,9 +243,12 @@ def predict_us(row: dict, model: dict) -> float:
     return model["intercept_us"] + model["coefficient_us_per_mflop"] * (row[feature] if feature else 0)
 
 
-def predict_latency(row: dict, artifact: dict) -> float:
-    prepared = {**row, **repetition_features(row)}
-    return predict_us(prepared, artifact["families"][row["family"]])
+def predict_latency(inputs: dict, artifact: dict) -> float:
+    from fa_latency_inputs import VERSION, predict
+
+    if artifact.get("version") != VERSION:
+        raise ValueError("legacy effective-tiling models do not support input-only prediction")
+    return predict(inputs, artifact)["predicted_us"]
 
 
 def prediction(row: dict, model: dict, evaluation: str) -> dict:

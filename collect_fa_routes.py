@@ -1,405 +1,39 @@
 from __future__ import annotations
 
 import argparse
+import configparser
 import csv
-import hashlib
 import json
 import math
 import os
+import platform
+import shutil
 import statistics
 import subprocess
+import tempfile
+from collections import Counter
 from pathlib import Path
 
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+
+import numpy as np
+
 import main as fa
+import fa_latency_inputs as cost
 
 
-VERSION = "fa_working_routes_latency_v1"
-WARMUP = 3
+VERSION = cost.VERSION
+WARMUP = 5
 REPEAT = 10
-MODEL_PATH = Path("output/sameab_latency_model_v1/model.json")
+ROUNDS = 3
 FIELDS = (
-    "version",
-    "split",
-    "family",
-    "case",
-    "expected_route",
-    "route_attempts",
-    "priority",
-    "route",
-    "tiling_key",
-    "B",
-    "N1",
-    "N2",
-    "S1",
-    "S2",
-    "D",
-    "DV",
-    "dtype",
-    "layout",
-    "has_drop_mask",
-    "q_bytes",
-    "k_bytes",
-    "v_bytes",
-    "output_bytes",
-    "bmm1_flops",
-    "bmm2_flops",
-    "npu_id",
-    "soc_unit",
-    "warmup",
-    "repeat",
-    "effective_tiling",
-    "duration_us",
-    "samples_us",
-    "sample_count",
-    "model_version",
-    "model_sha256",
-    "predicted_baseline_us",
-    "predicted_ratio",
-    "predicted_us",
-    "prediction_abs_error_us",
-    "prediction_ape_percent",
-    "prediction_status",
-    "prediction_error",
-    "status",
-    "stage",
-    "error",
+    "version", "case", "split", "family", "inputs", "priority", "tiling_key",
+    "effective_tiling", "derived_schedule", "duration_us", "samples_us",
+    "round_medians_us", "sample_count", "median_ci95_low_us", "median_ci95_high_us",
+    "stable", "correctness", "model_sha256", "prediction_before_measurement",
+    "predicted_us", "ape_percent", "pass_10_percent", "status", "stage", "error",
 )
-CASES = (
-    {
-        "name": "sameab_external_s1536_bnsd_n16",
-        "family": "same_ab",
-        "split": "external",
-        "expected": 95,
-        "shape": (1, 16, 16, 1536, 1536, 192, 128, "BF16", "BNSD", 0),
-    },
-    {
-        "name": "sameab_external_s2048_sbh_n16",
-        "family": "same_ab",
-        "split": "external",
-        "expected": 95,
-        "shape": (1, 16, 16, 2048, 2048, 192, 128, "BF16", "SBH", 0),
-    },
-    {
-        "name": "sameab_external_s2560_bnsd_n32",
-        "family": "same_ab",
-        "split": "external",
-        "expected": 95,
-        "shape": (1, 32, 32, 2560, 2560, 192, 128, "BF16", "BNSD", 0),
-    },
-    {
-        "name": "sameab_external_s3072_sbh_n32",
-        "family": "same_ab",
-        "split": "external",
-        "expected": 95,
-        "shape": (1, 32, 32, 3072, 3072, 192, 128, "BF16", "SBH", 0),
-    },
-    {
-        "name": "sameab_external_s3584_bnsd_n64",
-        "family": "same_ab",
-        "split": "external",
-        "expected": 95,
-        "shape": (1, 64, 64, 3584, 3584, 192, 128, "BF16", "BNSD", 0),
-    },
-    {
-        "name": "sameab_external_s5120_sbh_n32",
-        "family": "same_ab",
-        "split": "external",
-        "expected": 95,
-        "shape": (1, 32, 32, 5120, 5120, 192, 128, "BF16", "SBH", 0),
-    },
-    {
-        "name": "sameab_external_s7168_bnsd_n16",
-        "family": "same_ab",
-        "split": "external",
-        "expected": 95,
-        "shape": (1, 16, 16, 7168, 7168, 192, 128, "BF16", "BNSD", 0),
-    },
-    {
-        "name": "sameab_external_s10240_sbh_n16",
-        "family": "same_ab",
-        "split": "external",
-        "expected": 95,
-        "shape": (1, 16, 16, 10240, 10240, 192, 128, "BF16", "SBH", 0),
-    },
-    {
-        "name": "s1_b1_n8_s64_s256",
-        "family": "s1",
-        "split": "calibration",
-        "expected": 97,
-        "shape": (1, 8, 1, 64, 256, 128, 128, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "s1_b1_n8_s96_s384",
-        "family": "s1",
-        "split": "calibration",
-        "expected": 97,
-        "shape": (1, 8, 1, 96, 384, 128, 128, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "s1_b1_n8_s128_s512",
-        "family": "s1",
-        "split": "calibration",
-        "expected": 97,
-        "shape": (1, 8, 1, 128, 512, 128, 128, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "s1_b1_n8_s192_s640",
-        "family": "s1",
-        "split": "calibration",
-        "expected": 97,
-        "shape": (1, 8, 1, 192, 640, 128, 128, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "s1_b1_n8_s256_s768",
-        "family": "s1",
-        "split": "calibration",
-        "expected": 97,
-        "shape": (1, 8, 1, 256, 768, 128, 128, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "s1_b2_n8_s128_s896",
-        "family": "s1",
-        "split": "calibration",
-        "expected": 97,
-        "shape": (2, 8, 1, 128, 896, 128, 128, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "s1_b1_n16_n2_s384_s1024",
-        "family": "s1",
-        "split": "holdout",
-        "expected": 97,
-        "shape": (1, 16, 2, 384, 1024, 128, 128, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "s1_b2_n16_n2_s256_s512",
-        "family": "s1",
-        "split": "holdout",
-        "expected": 97,
-        "shape": (2, 16, 2, 256, 512, 128, 128, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "b_b1_n1_s16_s16",
-        "family": "b",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 1, 1, 16, 16, 64, 64, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "b_b1_n2_s16_s32",
-        "family": "b",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 2, 1, 16, 32, 64, 64, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "b_b1_n4_s32_s32",
-        "family": "b",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 4, 1, 32, 32, 64, 64, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "b_b1_n4_s32_s64",
-        "family": "b",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 4, 1, 32, 64, 64, 64, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "b_b2_n8_s64_s64",
-        "family": "b",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (2, 8, 1, 64, 64, 64, 64, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "b_b1_n4_n2_s128_s64",
-        "family": "b",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 4, 2, 128, 64, 64, 64, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "b_b1_n8_s64_s128",
-        "family": "b",
-        "split": "holdout",
-        "expected": 98,
-        "shape": (1, 8, 1, 64, 128, 64, 64, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "b_b4_n2_s128_s64",
-        "family": "b",
-        "split": "holdout",
-        "expected": 98,
-        "shape": (4, 2, 1, 128, 64, 64, 64, "FP16", "BNSD", 0),
-    },
-    {
-        "name": "drop_b1_n1_s16_s33",
-        "family": "b_drop",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 1, 1, 16, 33, 64, 64, "FP16", "BNSD", 1),
-    },
-    {
-        "name": "drop_b1_n1_s31_s65",
-        "family": "b_drop",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 1, 1, 31, 65, 64, 64, "FP16", "BNSD", 1),
-    },
-    {
-        "name": "drop_b1_n2_s32_s48",
-        "family": "b_drop",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 2, 1, 32, 48, 64, 64, "FP16", "BNSD", 1),
-    },
-    {
-        "name": "drop_b1_n4_s48_s80",
-        "family": "b_drop",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 4, 1, 48, 80, 64, 64, "FP16", "BNSD", 1),
-    },
-    {
-        "name": "drop_b2_n4_s64_s96",
-        "family": "b_drop",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (2, 4, 1, 64, 96, 64, 64, "FP16", "BNSD", 1),
-    },
-    {
-        "name": "drop_b1_n4_n2_s96_s64",
-        "family": "b_drop",
-        "split": "calibration",
-        "expected": 98,
-        "shape": (1, 4, 2, 96, 64, 64, 64, "FP16", "BNSD", 1),
-    },
-    {
-        "name": "drop_b1_n8_s64_s128",
-        "family": "b_drop",
-        "split": "holdout",
-        "expected": 98,
-        "shape": (1, 8, 1, 64, 128, 64, 64, "FP16", "BNSD", 1),
-    },
-    {
-        "name": "drop_b4_n2_s128_s64",
-        "family": "b_drop",
-        "split": "holdout",
-        "expected": 98,
-        "shape": (4, 2, 1, 128, 64, 64, 64, "FP16", "BNSD", 1),
-    },
-)
-ROUTE_NAMES = {94: "varlen", 95: "same_ab", 96: "general", 97: "s1", 98: "b"}
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def load_sameab_model(path: Path) -> tuple[dict | None, str]:
-    if not path.is_file():
-        return None, ""
-    model = json.loads(path.read_text())
-    if model.get("model_version") != "sameab_latency_model_v1":
-        raise RuntimeError(f"unsupported SameAB model: {path}")
-    return model, digest(path)
-
-
-def derived_fields(case: dict) -> dict:
-    values = shape_row(case)
-    dtype_bytes = fa.DTYPES[str(values["dtype"]).upper()][1]
-    b = values["B"]
-    n1 = values["N1"]
-    n2 = values["N2"]
-    s1 = values["S1"]
-    s2 = values["S2"]
-    d = values["D"]
-    dv = values["DV"]
-    return {
-        "q_bytes": b * n1 * s1 * d * dtype_bytes,
-        "k_bytes": b * n2 * s2 * d * dtype_bytes,
-        "v_bytes": b * n2 * s2 * dv * dtype_bytes,
-        "output_bytes": b * n1 * s1 * dv * dtype_bytes,
-        "bmm1_flops": 2 * b * n1 * s1 * s2 * d,
-        "bmm2_flops": 2 * b * n1 * s1 * s2 * dv,
-    }
-
-
-def predict_sameab(row: dict, model: dict | None, model_sha256: str) -> dict:
-    if row["family"] != "same_ab":
-        return {"prediction_status": "not_applicable"}
-    if model is None:
-        return {"prediction_status": "model_missing", "prediction_error": str(MODEL_PATH)}
-    scope = model["scope"]
-    if (
-        row["dtype"] != scope["dtype"]
-        or int(row["D"]) != int(scope["D"])
-        or int(row["DV"]) != int(scope["DV"])
-        or row["layout"] not in scope["layouts"]
-    ):
-        return {"prediction_status": "outside_model_scope"}
-    coefficient = float(
-        model["baseline_model"]["coefficient_us_per_flop"][row["layout"]]
-    )
-    baseline = coefficient * (int(row["bmm1_flops"]) + int(row["bmm2_flops"]))
-    ratio = 1.0
-    predicted = baseline
-    actual = float(row["duration_us"])
-    return {
-        "model_version": model["model_version"],
-        "model_sha256": model_sha256,
-        "predicted_baseline_us": baseline,
-        "predicted_ratio": ratio,
-        "predicted_us": predicted,
-        "prediction_abs_error_us": abs(predicted - actual),
-        "prediction_ape_percent": abs(predicted - actual) / actual * 100.0,
-        "prediction_status": "ok",
-    }
-
-
-def write_prediction_report(path: Path, csv_path: Path, model_path: Path) -> None:
-    if not csv_path.is_file():
-        return
-    rows = [
-        row
-        for row in csv.DictReader(csv_path.open(newline=""))
-        if row.get("status") == "ok" and row.get("prediction_status") == "ok"
-    ]
-    if not rows:
-        print("SAMEAB_PREDICTIONS=0")
-        return
-    errors = [float(row["prediction_ape_percent"]) for row in rows]
-    absolute = [float(row["prediction_abs_error_us"]) for row in rows]
-    ordered = sorted(errors)
-    p90_index = math.ceil(0.9 * len(ordered)) - 1
-    report = {
-        "model": str(model_path),
-        "model_sha256": rows[0]["model_sha256"],
-        "count": len(rows),
-        "mape_percent": statistics.mean(errors),
-        "median_ape_percent": statistics.median(errors),
-        "p90_ape_percent": ordered[p90_index],
-        "max_ape_percent": max(errors),
-        "mae_us": statistics.mean(absolute),
-        "cases": [
-            {
-                "case": row["case"],
-                "actual_us": float(row["duration_us"]),
-                "predicted_us": float(row["predicted_us"]),
-                "ape_percent": float(row["prediction_ape_percent"]),
-            }
-            for row in rows
-        ],
-    }
-    path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    print(f"SAMEAB_PREDICTION_REPORT={path}")
-    print(
-        f"SAMEAB_PREDICTION count={len(rows)} MAPE={report['mape_percent']:.3f}% "
-        f"MEDIAN_APE={report['median_ape_percent']:.3f}% "
-        f"P90_APE={report['p90_ape_percent']:.3f}% "
-        f"MAX_APE={report['max_ape_percent']:.3f}%"
-    )
 
 
 def append(path: Path, row: dict) -> None:
@@ -408,214 +42,375 @@ def append(path: Path, row: dict) -> None:
         writer = csv.DictWriter(output, fieldnames=FIELDS)
         if not exists:
             writer.writeheader()
-        writer.writerow({name: row.get(name, "") for name in FIELDS})
+        writer.writerow({name: json.dumps(row[name], sort_keys=True) if isinstance(row.get(name), (dict, list)) else row.get(name, "") for name in FIELDS})
 
 
-def completed(path: Path) -> set[str]:
+def recorded(path: Path) -> dict:
     if not path.is_file():
-        return set()
-    return {
-        row["case"]
-        for row in csv.DictReader(path.open(newline=""))
-        if row.get("status") == "ok"
-    }
-
-
-def error_text(process: subprocess.CompletedProcess[str]) -> str:
-    lines = (process.stdout + process.stderr).strip().splitlines()
-    return lines[-1] if lines else f"exit={process.returncode}"
-
-
-def route_attempts(path: Path) -> list[dict[str, int]]:
-    attempts = []
-    if not path.is_file():
-        return attempts
-    for line in path.read_text().splitlines():
-        fields = line.split("\t")
-        if len(fields) == 4 and fields[0] == "FlashAttentionScore":
-            attempts.append(
-                {"priority": int(fields[1]), "status": int(fields[2]), "tiling_key": int(fields[3])}
-            )
-    return attempts
-
-
-def discover(params) -> tuple[list[dict[str, int]], int, int]:
-    fa.build_host()
-    trace = Path("output/route.tsv")
-    trace.parent.mkdir(parents=True, exist_ok=True)
-    trace.unlink(missing_ok=True)
-    env = fa.run_env(params, None)
-    env["FA_ROUTE_TRACE"] = str(trace.resolve())
-    env["FA_DISCOVER_ONLY"] = "1"
-    env["FA_PROFILE"] = "0"
-    env["FA_SKIP_BUILD"] = "1"
-    process = subprocess.run(["bash", "run.sh"], env=env, capture_output=True, text=True)
-    attempts = route_attempts(trace)
-    selected = [item for item in attempts if item["status"] == 0]
-    if process.returncode != 0 or not selected:
-        raise RuntimeError(error_text(process))
-    terminal = selected[-1]
-    return attempts, terminal["priority"], terminal["tiling_key"]
-
-
-def latency_data(path: Path) -> list[float]:
-    if not path.is_file():
-        return []
-    try:
-        return [float(line) for line in path.read_text().splitlines() if line.strip()]
-    except ValueError:
-        return []
-
-
-def measure(params, key: int) -> tuple[dict[str, int], list[float]]:
-    output = Path("output/output.bin")
-    trace = Path("output/route_effective.tsv")
-    latency = Path("output/route_latency.tsv")
-    output.unlink(missing_ok=True)
-    trace.unlink(missing_ok=True)
-    latency.unlink(missing_ok=True)
-    env = fa.run_env(params, key)
-    env["FA_SKIP_BUILD"] = "1"
-    env["FA_PROFILE"] = "0"
-    env["FA_EFFECTIVE_TILING_TRACE"] = str(trace.resolve())
-    env["FA_LATENCY_TRACE"] = str(latency.resolve())
-    process = subprocess.run(["bash", "run.sh"], env=env, capture_output=True, text=True)
-    effective = fa.read_effective(trace)
-    samples = latency_data(latency)
-    if process.returncode != 0:
-        raise RuntimeError(error_text(process))
-    if effective is None:
-        raise RuntimeError("effective tiling trace was not produced")
-    if len(samples) != REPEAT:
-        raise RuntimeError(f"expected {REPEAT} latency samples, got {len(samples)}")
-    if not output.is_file():
-        raise RuntimeError("output was not produced")
-    return effective, samples
-
-
-def shape_row(case: dict) -> dict:
-    names = ("B", "N1", "N2", "S1", "S2", "D", "DV", "dtype", "layout", "has_drop_mask")
-    return dict(zip(names, case["shape"]))
+        return {}
+    rows = {}
+    with path.open(newline="") as source:
+        for row in csv.DictReader(source):
+            for key in ("inputs", "samples_us", "derived_schedule", "correctness", "round_medians_us"):
+                if row.get(key):
+                    row[key] = json.loads(row[key])
+            rows[row["case"]] = row
+    return rows
 
 
 def select_shape(case: dict) -> None:
-    values = shape_row(case)
+    p = case["inputs"]
     fa.SHAPE = {
-        "B": values["B"],
-        "N1": values["N1"],
-        "N2": values["N2"],
-        "S1": values["S1"],
-        "S2": values["S2"],
-        "D": values["D"],
-        "DV": values["DV"],
-        "DTYPE": values["dtype"],
-        "LAYOUT": values["layout"],
-        "HAS_DROP": values["has_drop_mask"],
+        **{key: p[key] for key in cost.INPUT_FIELDS[:7]},
+        "DTYPE": p["dtype"], "LAYOUT": p["layout"], "HAS_DROP": p["has_drop_mask"],
     }
+
+
+def discover(params, directory: Path, hardware_trace: Path | None = None) -> tuple[int, int]:
+    fa.build_host()
+    trace = directory / "host_route.tsv"
+    trace.unlink(missing_ok=True)
+    env = fa.run_env(params, None)
+    env.update(FA_ROUTE_TRACE=str(trace), FA_DISCOVER_ONLY="1", FA_PROFILE="0", FA_SKIP_BUILD="1")
+    if hardware_trace is not None:
+        env["FA_HARDWARE_TRACE"] = str(hardware_trace)
+    process = subprocess.run(["bash", "run.sh"], env=env, capture_output=True, text=True)
+    (directory / "host.log").write_text(process.stdout + process.stderr)
+    if process.returncode:
+        raise RuntimeError(f"Host discovery failed; see {directory / 'host.log'}")
+    return fa.read_route(trace)
+
+
+def hardware_profile(directory: Path, npu_id: int) -> dict:
+    saved = directory / "hardware.json"
+    if saved.is_file():
+        hardware = json.loads(saved.read_text())
+        if hardware["physical_npu_id"] != npu_id:
+            raise RuntimeError("this dataset belongs to a different physical NPU")
+        return hardware
+    trace = directory / "hardware_runtime.json"
+    seed = {"inputs": dict(zip(cost.INPUT_FIELDS, (1, 1, 1, 16, 16, 64, 64, "FP16", "BNSD", 0)))}
+    select_shape(seed)
+    discover(fa.shape_params(), directory, trace)
+    hardware = json.loads(trace.read_text())
+    sdk = Path(os.environ.get("ASCEND_HOME_PATH", "/usr/local/Ascend/ascend-toolkit/latest")).resolve()
+    name = hardware["soc"] + ".ini"
+    candidates = [sdk / "data/platform_config" / name, sdk / f"{platform.machine()}-linux/data/platform_config" / name]
+    candidates.extend(sdk.glob(f"*/data/platform_config/{name}"))
+    ini = next((path for path in candidates if path.is_file()), None)
+    if ini is None:
+        raise RuntimeError(f"platform specification is missing for {hardware['soc']} under {sdk}")
+    spec = configparser.ConfigParser()
+    spec.read(ini)
+    hardware.update(
+        physical_npu_id=npu_id,
+        l1_bytes=spec.getint("AICoreSpec", "l1_size"),
+        l0c_bytes=spec.getint("AICoreSpec", "l0_c_size"),
+        ub_bytes=spec.getint("AICoreSpec", "ub_size"),
+        l2_bytes=spec.getint("SoCInfo", "l2_size"),
+        platform_spec=dict(spec["AICoreSpec"]),
+        platform_rates=dict(spec["AICoreMemoryRates"]),
+        platform_spec_sha256=cost.sha256(dict((section, dict(spec[section])) for section in spec.sections())),
+        cann_root=str(sdk),
+    )
+    cost.save_json(saved, hardware)
+    return hardware
+
+
+def quantized(indices: np.ndarray, base: float, dtype: str) -> np.ndarray:
+    salt = 0x12345678 if base < 0.015 else (0x87654321 if base < 0.025 else 0x31415926)
+    hashed = indices.astype(np.uint32) ^ np.uint32(salt)
+    hashed ^= hashed >> 16
+    hashed *= np.uint32(0x7feb352d)
+    hashed ^= hashed >> 15
+    hashed *= np.uint32(0x846ca68b)
+    hashed ^= hashed >> 16
+    values = ((hashed & 2047).astype(np.int32) - 1024).astype(np.float32) / np.float32(1024.0)
+    if dtype == "FP16":
+        return values.astype(np.float16).astype(np.float64)
+    if dtype == "BF16":
+        bits = values.view(np.uint32)
+        rounded = ((bits + np.uint32(0x7fff) + ((bits >> 16) & 1)) >> 16).astype(np.uint32)
+        return (rounded << 16).view(np.float32).astype(np.float64)
+    return values.astype(np.float64)
+
+
+def tensor_indices(p: dict, b: int, h: int, rows: np.ndarray, heads: int, sequence: int, width: int) -> np.ndarray:
+    columns = np.arange(width, dtype=np.int64)
+    if p["layout"] == "BNSD":
+        return ((b * heads + h) * sequence + rows[:, None]) * width + columns
+    return ((rows[:, None] * p["B"] + b) * heads + h) * width + columns
+
+
+def check_output(inputs: dict) -> dict:
+    p = cost.normalize(inputs)
+    path = Path("output/output.bin")
+    elements = p["B"] * p["N1"] * p["S1"] * p["DV"]
+    if not path.is_file() or path.stat().st_size != elements * 4:
+        raise RuntimeError("output is missing or has an incorrect size")
+    output = np.memmap(path, dtype=np.float32, mode="r")
+    checked = 0
+    max_error = 0.0
+    key_positions = np.arange(p["S2"], dtype=np.int64)
+    for batch in sorted({0, p["B"] - 1}):
+        for head in sorted({0, p["N1"] - 1}):
+            kv_head = head // (p["N1"] // p["N2"])
+            keys = quantized(tensor_indices(p, batch, kv_head, key_positions, p["N2"], p["S2"], p["D"]), 0.02, p["dtype"])
+            values = quantized(tensor_indices(p, batch, kv_head, key_positions, p["N2"], p["S2"], p["DV"]), 0.03, p["dtype"])
+            for query in sorted({0, p["S1"] // 2, p["S1"] - 1}):
+                q = quantized(tensor_indices(p, batch, head, np.array([query]), p["N1"], p["S1"], p["D"]), 0.01, p["dtype"])[0]
+                score = keys @ q / math.sqrt(p["D"])
+                weights = np.exp(score - np.max(score))
+                weights /= np.sum(weights)
+                if p["has_drop_mask"]:
+                    bit_indices = ((batch * p["N1"] + head) * p["S1"] + query) * p["S2"] + key_positions
+                    packed = np.where((bit_indices // 8) % 2 == 0, 0xAA, 0xD5)
+                    mask = (packed >> (bit_indices % 8)) & 1
+                    weights *= mask / 0.9
+                golden = weights @ values
+                indices = tensor_indices(p, batch, head, np.array([query]), p["N1"], p["S1"], p["DV"])[0]
+                actual = np.asarray(output[indices], dtype=np.float64)
+                if not np.all(np.isfinite(actual)) or not np.allclose(actual, golden, rtol=0.01, atol=1e-4):
+                    raise RuntimeError(f"independent numerical spot-check failed: b={batch} h={head} q={query}")
+                max_error = max(max_error, float(np.max(np.abs(actual - golden))))
+                checked += p["DV"]
+    return {"method": "independent FP64 attention over all K/V positions for sampled query rows", "checked_elements": checked, "max_abs_error": max_error}
+
+
+def profile_measure(case: dict, params, key: int, priority: int, hardware: dict, directory: Path) -> dict:
+    samples = []
+    medians = []
+    correctness = None
+    effective = None
+    for round_id in range(ROUNDS):
+        summary = directory / f"round_{round_id + 1}"
+        summary.mkdir(parents=True, exist_ok=True)
+        checkpoint = summary / "measurement.json"
+        if checkpoint.is_file():
+            cached = json.loads(checkpoint.read_text())
+            samples.extend(cached["samples_us"])
+            medians.append(statistics.median(cached["samples_us"]))
+            effective = cached["effective_tiling"]
+            correctness = cached["correctness"]
+            print(f"MEASURE CACHE HIT: case={case['name']} round={round_id + 1}/{ROUNDS}", flush=True)
+            continue
+        scratch = Path(tempfile.mkdtemp(prefix="profile_", dir=directory))
+        trace = summary / "effective.tsv"
+        trace.unlink(missing_ok=True)
+        Path("output/output.bin").unlink(missing_ok=True)
+        env = fa.run_env(params, key)
+        env.update(FA_SKIP_BUILD="1", FA_PROFILE="1", FA_PROFILE_OUTPUT=str(scratch), FA_EFFECTIVE_TILING_TRACE=str(trace), FA_INPUT_PATTERN="1")
+        print(f"MEASURE case={case['name']} round={round_id + 1}/{ROUNDS} log={summary / 'profile.log'}", flush=True)
+        try:
+            with (summary / "profile.log").open("w") as log:
+                process = subprocess.run(["bash", "run.sh"], env=env, stdout=log, stderr=subprocess.STDOUT, text=True)
+            if process.returncode:
+                raise RuntimeError(f"NPU/profile failed; see {summary / 'profile.log'}")
+            times = []
+            tables = list(scratch.rglob("OpBasicInfo.csv"))
+            if tables:
+                depth = min(len(table.relative_to(scratch).parts) for table in tables)
+                tables = [table for table in tables if len(table.relative_to(scratch).parts) == depth]
+            for table in tables:
+                with table.open(newline="", encoding="utf-8-sig") as source:
+                    for item in csv.DictReader(source):
+                        item = {name.strip(): value.strip() for name, value in item.items() if name is not None and value is not None}
+                        name = item.get("Op Name", item.get("OpName", ""))
+                        if "FlashAttentionScore" not in name or str(key) not in name:
+                            continue
+                        value = float(item["Task Duration(us)"])
+                        if not math.isfinite(value) or value <= 0:
+                            raise RuntimeError("invalid profiler duration")
+                        times.append(value)
+            if len(times) != REPEAT:
+                raise RuntimeError(f"expected {REPEAT} profiler records, got {len(times)}; see {summary}")
+            effective = fa.read_effective(trace)
+            if effective is None:
+                raise RuntimeError("effective Host tiling trace was not produced")
+            cost.verify_schedule(case["inputs"], hardware, priority, effective)
+            correctness = check_output(case["inputs"])
+            samples.extend(times)
+            medians.append(statistics.median(times))
+            cost.save_json(checkpoint, {"samples_us": times, "effective_tiling": effective, "correctness": correctness})
+        finally:
+            for index, table in enumerate(scratch.rglob("*.csv")):
+                shutil.copy2(table, summary / f"{index}_{table.name}")
+            shutil.rmtree(scratch)
+    duration = statistics.median(samples)
+    rng = np.random.default_rng(1729)
+    bootstrap = np.median(rng.choice(samples, size=(2000, len(samples))), axis=1)
+    low, high = (float(x) for x in np.percentile(bootstrap, [2.5, 97.5]))
+    stable = max(abs(value / duration - 1) for value in medians) <= 0.03 and (high - low) / (2 * duration) <= 0.03
+    if not stable:
+        for round_id in range(ROUNDS):
+            (directory / f"round_{round_id + 1}" / "measurement.json").unlink(missing_ok=True)
+    return {
+        "effective_tiling": effective, "duration_us": duration, "samples_us": samples,
+        "round_medians_us": medians, "sample_count": len(samples),
+        "median_ci95_low_us": low, "median_ci95_high_us": high,
+        "stable": stable, "correctness": correctness,
+    }
+
+
+def is_complete(row: dict | None) -> bool:
+    return bool(row and row.get("status") == "ok" and str(row.get("stable")).lower() == "true")
+
+
+def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path: Path, ensured: set, frozen: dict | None = None, precomputed: dict | None = None) -> None:
+    name = case["name"]
+    if is_complete(records.get(name)):
+        print(f"SKIP case={name} status=ok", flush=True)
+        return
+    row = {
+        "version": VERSION, "case": name, "split": case["split"], "family": case["family"],
+        "inputs": case["inputs"], "derived_schedule": cost.derive(case["inputs"], hardware),
+        "prediction_before_measurement": bool(frozen),
+    }
+    stage = "predict" if frozen else "discover"
+    folder = directory / "cases" / name
+    folder.mkdir(parents=True, exist_ok=True)
+    print(f"CASE split={case['split']} START: {name}", flush=True)
+    try:
+        if frozen is not None:
+            row.update(predicted_us=precomputed["predicted_us"], model_sha256=cost.sha256(frozen))
+            print(f"PREDICTION BEFORE NPU: {name} predicted_us={row['predicted_us']:.6f}", flush=True)
+        select_shape(case)
+        params = fa.shape_params()
+        stage = "discover"
+        priority, key = discover(params, folder)
+        row.update(priority=priority, tiling_key=key)
+        if priority != case["expected"]:
+            raise RuntimeError(f"official route={priority}, input-derived route={case['expected']}")
+        stage = "build"
+        identity = (key, case["inputs"]["dtype"])
+        if identity not in ensured:
+            fa.build(key)
+            ensured.add(identity)
+        stage = "measure"
+        row.update(profile_measure(case, params, key, priority, hardware, folder))
+        if frozen is not None:
+            error = abs(row["predicted_us"] / row["duration_us"] - 1)
+            row.update(ape_percent=error * 100, pass_10_percent=error <= cost.RELATIVE_ERROR_LIMIT + 1e-12 and row["stable"])
+        row.update(status="ok", stage="complete")
+        print(f"CASE OK: {name} actual_us={row['duration_us']:.6f} stable={row['stable']} error_percent={row.get('ape_percent', '')} pass_10_percent={row.get('pass_10_percent', '')}", flush=True)
+    except Exception as error:
+        row.update(status="failed", stage=stage, error=str(error))
+        print(f"CASE FAILED: {name} stage={stage} error={error}", flush=True)
+    append(csv_path, row)
+    records[name] = row
+
+
+def validation_report(plan: list[dict], records: dict, frozen: dict, directory: Path) -> dict:
+    families = {}
+    passed = True
+    for family in ("same_ab", "s1", "b", "b_drop"):
+        cases = [case for case in plan if case["family"] == family and case["split"] == "holdout"]
+        results = []
+        for case in cases:
+            row = records.get(case["name"], {})
+            success = is_complete(row) and str(row.get("pass_10_percent")).lower() == "true"
+            passed &= success
+            results.append({
+                "case": case["name"], "pass": success, "actual_us": row.get("duration_us"),
+                "predicted_us": row.get("predicted_us"), "ape_percent": row.get("ape_percent"),
+                "stable": row.get("stable"), "error": row.get("error", ""),
+            })
+        errors = [float(row["ape_percent"]) for row in results if row["ape_percent"] not in ("", None)]
+        families[family] = {
+            "required_shapes": len(cases), "passed_shapes": sum(row["pass"] for row in results),
+            "mape_percent": statistics.mean(errors) if errors else None,
+            "max_ape_percent": max(errors) if errors else None, "cases": results,
+        }
+        print(f"VALIDATION {family} passed={families[family]['passed_shapes']}/{len(cases)} max_ape_percent={families[family]['max_ape_percent']}", flush=True)
+    calibration_ok = all(is_complete(records.get(case["name"])) for case in plan if case["split"] == "calibration")
+    report = {
+        "version": VERSION, "pass": bool(passed and calibration_ok),
+        "criterion": "every required blind shape must pass; absolute relative error <= 10 percent; missing, failed or unstable measurements fail",
+        "model_sha256": cost.sha256(frozen), "calibration_complete": calibration_ok,
+        "families": families,
+        "calibration_grouped_cv": frozen.get("calibration_grouped_cv"),
+    }
+    cv = frozen.get("calibration_grouped_cv", {})
+    report["pass"] = report["pass"] and bool(cv) and all(item["pass"] for item in cv.values())
+    cost.save_json(directory / "validation_report.json", report)
+    print(f"ACCURACY_GATE={'PASS' if report['pass'] else 'FAIL'}", flush=True)
+    return report
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=4)
-    parser.add_argument("--model", type=Path, default=MODEL_PATH)
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
     os.chdir(root)
+    if hasattr(os, "sched_getaffinity"):
+        allowed = sorted(os.sched_getaffinity(0))
+        os.sched_setaffinity(0, set(allowed[:2]))
+    os.environ["FA_BUILD_JOBS"] = "1"
     fa.NPU_ID = args.id
     fa.PROFILE_WARMUP = WARMUP
     fa.PROFILE_REPEAT = REPEAT
-    output = root / "output" / VERSION / "routes.csv"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    model_path = args.model.resolve()
-    try:
-        model, model_sha256 = load_sameab_model(model_path)
-    except Exception as error:
-        model = None
-        model_sha256 = ""
-        print(f"SAMEAB_MODEL_ERROR={error}", flush=True)
-    print(f"CASES={len(CASES)} DATASET={output}", flush=True)
-    print(
-        f"SAMEAB_MODEL={model_path if model is not None else 'missing'}",
-        flush=True,
-    )
-    done = completed(output)
-    succeeded = 0
-    failed = 0
-    for index, case in enumerate(CASES, 1):
-        name = str(case["name"])
-        if name in done:
-            succeeded += 1
-            print(f"SKIP {index}/{len(CASES)} case={name} status=ok", flush=True)
-            continue
-        row = {
-            "version": VERSION,
-            "split": case["split"],
-            "family": case["family"],
-            "case": name,
-            "expected_route": case["expected"],
-            **shape_row(case),
-            **derived_fields(case),
-            "npu_id": args.id,
-            "soc_unit": os.environ.get("FA_SOC_UNIT", "ascend910b"),
-            "warmup": WARMUP,
-            "repeat": REPEAT,
+    directory = root / "output" / VERSION
+    directory.mkdir(parents=True, exist_ok=True)
+    hardware = hardware_profile(directory, args.id)
+    plan = cost.design(hardware)
+    design_check = cost.validate_design(plan, hardware)
+    protocol = {
+        "version": VERSION, "hardware": hardware, "plan": plan, "rounds": ROUNDS, "repeat": REPEAT,
+        "target": "msprof OpBasicInfo.csv Task Duration(us)", "error_limit": cost.RELATIVE_ERROR_LIMIT,
+        "launcher_warmup": WARMUP, "profiler_warmup": 10,
+        "numerical_rtol": 0.01, "numerical_atol": 1e-4, "stability_limit": 0.03,
+        "input_pattern": "uint32 hash with independent Q/K/V salts; FP16-representable values in [-1,1)",
+        "cost_source_sha256": cost.sha256({"source": Path(cost.__file__).read_text()}),
+        "launcher_sha256": cost.sha256({"source": Path("fa_launcher.cpp").read_text()}),
+    }
+    signature = cost.sha256(protocol)
+    manifest = directory / "manifest.json"
+    if manifest.is_file() and cost.sha256(json.loads(manifest.read_text())) != signature:
+        raise RuntimeError("the existing input-latency dataset uses a different measurement/model protocol")
+    if not manifest.is_file():
+        cost.save_json(manifest, protocol)
+    print(f"PLAN shapes={len(plan)} counts={dict(Counter((case['split'], case['family']) for case in plan))}", flush=True)
+    print(f"DESIGN_CHECK={design_check}", flush=True)
+    print(f"DATASET={directory}", flush=True)
+    csv_path = directory / "routes.csv"
+    records = recorded(csv_path)
+    ensured = set()
+    for case in plan:
+        if case["split"] == "calibration":
+            collect(case, hardware, directory, records, csv_path, ensured)
+    incomplete = [case["name"] for case in plan if case["split"] == "calibration" and not is_complete(records.get(case["name"]))]
+    if incomplete:
+        cost.save_json(directory / "validation_report.json", {"pass": False, "stage": "calibration_incomplete", "cases": incomplete})
+        print(f"ACCURACY_GATE=FAIL calibration_incomplete={len(incomplete)}; successful cases are reusable", flush=True)
+        raise SystemExit(1)
+    model_path = directory / "model.json"
+    if model_path.is_file():
+        frozen = json.loads(model_path.read_text())
+        if frozen["plan_sha256"] != signature:
+            raise RuntimeError("frozen model does not belong to this protocol")
+    else:
+        frozen = cost.fit(list(records.values()), hardware, signature)
+        cost.save_json(model_path, frozen)
+    predictions_path = directory / "predictions_before_measurement.json"
+    if predictions_path.is_file():
+        payload = json.loads(predictions_path.read_text())
+        if payload["model_sha256"] != cost.sha256(frozen):
+            raise RuntimeError("saved predictions belong to a different frozen model")
+    else:
+        payload = {
+            "model_sha256": cost.sha256(frozen),
+            "predictions": {case["name"]: cost.predict(case["inputs"], frozen) for case in plan if case["split"] == "holdout"},
         }
-        print(f"CASE {index}/{len(CASES)} START: {name}", flush=True)
-        stage = "shape"
-        try:
-            select_shape(case)
-            params = fa.shape_params()
-            stage = "discover"
-            attempts, priority, key = discover(params)
-            row.update(
-                {
-                    "route_attempts": json.dumps(attempts, separators=(",", ":")),
-                    "priority": priority,
-                    "route": ROUTE_NAMES.get(priority, "unknown"),
-                    "tiling_key": key,
-                }
-            )
-            if priority != case["expected"]:
-                raise RuntimeError(f"selected route {priority}, expected {case['expected']}")
-            stage = "build"
-            fa.build(key)
-            stage = "measure"
-            effective, samples = measure(params, key)
-            row.update(
-                {
-                    "effective_tiling": json.dumps(effective, sort_keys=True, separators=(",", ":")),
-                    "duration_us": statistics.median(samples),
-                    "samples_us": json.dumps(samples, separators=(",", ":")),
-                    "sample_count": len(samples),
-                    "status": "ok",
-                    "stage": "complete",
-                }
-            )
-            row.update(predict_sameab(row, model, model_sha256))
-            succeeded += 1
-            message = (
-                f"CASE {index}/{len(CASES)} OK: {name} route={priority} key={key} "
-                f"duration_us={row['duration_us']}"
-            )
-            if row.get("prediction_status") == "ok":
-                message += (
-                    f" predicted_us={float(row['predicted_us']):.6f} "
-                    f"ape={float(row['prediction_ape_percent']):.3f}%"
-                )
-            print(message, flush=True)
-        except Exception as error:
-            failed += 1
-            row.update({"status": "failed", "stage": stage, "error": str(error)})
-            print(f"CASE {index}/{len(CASES)} SKIPPED: {name} error={error}", flush=True)
-        append(output, row)
-    print(f"ROUTE_DATA={output}")
-    print(f"SUCCEEDED={succeeded} FAILED={failed}")
-    write_prediction_report(
-        output.parent / "sameab_prediction_report.json", output, model_path
-    )
-    from fit_fa_latency import build_models
-
-    build_models([output], root / "output" / "fa_latency_model_v1", model_path)
+        cost.save_json(predictions_path, payload)
+    for case in plan:
+        if case["split"] == "holdout":
+            collect(case, hardware, directory, records, csv_path, ensured, frozen, payload["predictions"][case["name"]])
+    report = validation_report(plan, records, frozen, directory)
+    print(f"MODEL={model_path}")
+    print(f"REPORT={directory / 'validation_report.json'}")
+    if not report["pass"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

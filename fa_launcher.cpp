@@ -148,20 +148,36 @@ int MakeTensor(const std::vector<int64_t> &shape, aclDataType dtype, size_t elem
     return out.tensor == nullptr ? 1 : ACL_SUCCESS;
 }
 
+float InputValue(size_t index, float base, bool varied)
+{
+    if (!varied) {
+        return base + static_cast<float>(static_cast<int>(index % 17) - 8) * 0.001F;
+    }
+    const uint32_t salt = base < 0.015F ? 0x12345678U : (base < 0.025F ? 0x87654321U : 0x31415926U);
+    uint32_t hash = static_cast<uint32_t>(index) ^ salt;
+    hash ^= hash >> 16;
+    hash *= 0x7feb352dU;
+    hash ^= hash >> 15;
+    hash *= 0x846ca68bU;
+    hash ^= hash >> 16;
+    return static_cast<float>(static_cast<int>(hash & 2047U) - 1024) / 1024.0F;
+}
+
 int Fill(Tensor &tensor, aclDataType dtype, float base)
 {
+    const bool varied = EnvI64("FA_INPUT_PATTERN", 0) == 1;
     const size_t elements = dtype == ACL_FLOAT ? tensor.bytes / sizeof(float)
                                                : tensor.bytes / sizeof(uint16_t);
     if (dtype == ACL_FLOAT) {
         std::vector<float> host(elements);
         for (size_t i = 0; i < elements; ++i) {
-            host[i] = base + static_cast<float>(static_cast<int>(i % 17) - 8) * 0.001F;
+            host[i] = InputValue(i, base, varied);
         }
         return aclrtMemcpy(tensor.device, tensor.bytes, host.data(), tensor.bytes, ACL_MEMCPY_HOST_TO_DEVICE);
     }
     std::vector<uint16_t> host(elements);
     for (size_t i = 0; i < elements; ++i) {
-        const float value = base + static_cast<float>(static_cast<int>(i % 17) - 8) * 0.001F;
+        const float value = InputValue(i, base, varied);
         host[i] = dtype == ACL_BF16 ? FloatToBFloat16(value) : FloatToHalf(value);
     }
     return aclrtMemcpy(tensor.device, tensor.bytes, host.data(), tensor.bytes, ACL_MEMCPY_HOST_TO_DEVICE);
@@ -253,6 +269,26 @@ int Dump(Tensor &tensor, aclDataType dtype)
 
 int Run(aclrtStream stream)
 {
+    const char *hardwarePath = std::getenv("FA_HARDWARE_TRACE");
+    if (hardwarePath != nullptr && *hardwarePath != '\0') {
+        using DeviceInfo = aclError (*)(uint32_t, int32_t, int64_t *);
+        auto info = reinterpret_cast<DeviceInfo>(dlsym(RTLD_DEFAULT, "aclrtGetDeviceInfo"));
+        int64_t cubeCores = 0;
+        int64_t vectorCores = 0;
+        const char *soc = aclrtGetSocName();
+        if (info == nullptr || soc == nullptr || info(0, 102, &cubeCores) != ACL_SUCCESS ||
+            info(0, 201, &vectorCores) != ACL_SUCCESS || cubeCores <= 0 || vectorCores <= 0) {
+            std::fprintf(stderr, "hardware query failed: %s\n", aclGetRecentErrMsg());
+            return 2;
+        }
+        std::ofstream hardware(hardwarePath, std::ios::trunc);
+        hardware << "{\"soc\":\"" << soc << "\",\"aic_cores\":" << cubeCores
+                 << ",\"aiv_cores\":" << vectorCores << "}\n";
+        if (!hardware.good()) {
+            std::fprintf(stderr, "hardware trace write failed: %s\n", hardwarePath);
+            return 2;
+        }
+    }
     const int64_t b = EnvI64("FA_B", 1);
     const int64_t n1 = EnvI64("FA_N1", 64);
     const int64_t n2 = EnvI64("FA_N2", 64);

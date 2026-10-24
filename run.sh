@@ -54,4 +54,9 @@ export ATTENTION_CUSTOM_OPP_ROOT="${FA_CUSTOM_OPP_ROOT}"
 if [[ "${FA_PROFILE:-1}" == "0" ]]; then
     exec "${BINARY}"
 fi
+if [[ -n "${FA_PROFILE_OUTPUT:-}" ]]; then
+    exec msprof op --kernel-name=FlashAttentionScore --launch-count=10 --warm-up=10 \
+        --launch-skip-before-match="${FA_WARMUP:-0}" \
+        --output="${FA_PROFILE_OUTPUT}" "${BINARY}"
+fi
 exec msprof op "${BINARY}"
