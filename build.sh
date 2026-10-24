@@ -165,6 +165,12 @@ CACHED_PACKAGE_FINGERPRINT=""
 if [[ -f "${CACHE_MANIFEST}" ]]; then
     CACHED_PACKAGE_FINGERPRINT=$(grep -v '^launcher=' "${CACHE_MANIFEST}" || true)
 fi
+if [[ -z "${CACHED_PACKAGE_FINGERPRINT}" && -n "${CACHED_CUSTOM_ROOT}" && \
+      -f "${BUILD_LOG}" && -f "${INSTALL_LOG}" ]] && \
+      kernel_cache_valid "${CACHED_CUSTOM_ROOT}"; then
+    CACHED_PACKAGE_FINGERPRINT="${PACKAGE_FINGERPRINT}"
+    echo "BUILD CACHE RECOVERED: ${BUILD_MODE}=${CACHE_ID}"
+fi
 
 if [[ -n "${CACHED_CUSTOM_ROOT}" && \
       -f "${CACHED_CUSTOM_ROOT}/bin/set_env.bash" && \
