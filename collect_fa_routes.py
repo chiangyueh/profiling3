@@ -7,6 +7,7 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import statistics
 import subprocess
@@ -177,11 +178,78 @@ def check_output(inputs: dict) -> dict:
     return {"method": "independent FP64 attention over all K/V positions for sampled query rows", "checked_elements": checked, "max_abs_error": max_error}
 
 
+def profiler_samples(path: Path, key: int) -> list[float]:
+    if not path.is_file():
+        raise RuntimeError(f"profiler log is missing: {path}")
+    content = path.read_text(errors="replace")
+    if "Profiling running finished. All task success." not in content or "Profiling data parse finished." not in content:
+        raise RuntimeError(f"profiler did not report successful collection and parsing: {path}")
+    expected = re.compile(rf"^FlashAttentionScore_[A-Za-z0-9]+_{key}(?:_|$)")
+    times = []
+    operator = None
+    in_basic_info = False
+    for line in content.splitlines():
+        if "Operator Basic Information:" in line:
+            in_basic_info = True
+            operator = None
+            continue
+        if not in_basic_info:
+            continue
+        name = re.fullmatch(r"\s*Op Name:\s*(\S+)\s*", line)
+        if name:
+            operator = name.group(1)
+            continue
+        duration = re.fullmatch(r"\s*Task Duration\(us\):\s*(\S+)\s*", line)
+        if duration:
+            if operator is not None and expected.match(operator):
+                value = float(duration.group(1))
+                if not math.isfinite(value) or value <= 0:
+                    raise RuntimeError(f"invalid profiler duration: {path}")
+                times.append(value)
+            in_basic_info = False
+    if len(times) != REPEAT:
+        raise RuntimeError(f"expected {REPEAT} profiler records for key {key}, got {len(times)} in {path}")
+    return times
+
+
+def recover_profile(case: dict, params, key: int, priority: int, hardware: dict, summary: Path) -> dict | None:
+    log = summary / "profile.log"
+    trace = summary / "effective.tsv"
+    if not log.is_file() or not trace.is_file():
+        return None
+    try:
+        times = profiler_samples(log, key)
+    except (RuntimeError, ValueError):
+        return None
+    effective = fa.read_effective(trace)
+    if effective is None:
+        return None
+    cost.verify_schedule(case["inputs"], hardware, priority, effective)
+    Path("output/output.bin").unlink(missing_ok=True)
+    env = fa.run_env(params, key)
+    env.update(FA_SKIP_BUILD="1", FA_PROFILE="0", FA_WARMUP="0", FA_REPEAT="1", FA_INPUT_PATTERN="1")
+    env.pop("FA_LATENCY_TRACE", None)
+    env.pop("FA_EFFECTIVE_TILING_TRACE", None)
+    with (summary / "recovery_check.log").open("w") as output:
+        process = subprocess.run(["bash", "run.sh"], env=env, stdout=output, stderr=subprocess.STDOUT, text=True)
+    if process.returncode:
+        raise RuntimeError(f"saved profiler data found, but output verification failed; see {summary / 'recovery_check.log'}")
+    correctness = check_output(case["inputs"])
+    return {
+        "samples_us": times, "effective_tiling": effective, "correctness": correctness,
+        "timing_source": "saved msprof Operator Basic Information Task Duration(us)",
+        "profiler_log_sha256": cost.sha256({"log": log.read_text(errors="replace")}),
+        "numerical_check": "fresh untimed execution of the same operator inputs",
+    }
+
+
 def profile_measure(case: dict, params, key: int, priority: int, hardware: dict, directory: Path) -> dict:
     samples = []
     medians = []
     correctness = None
     effective = None
+    unstable_marker = directory / "unstable.json"
+    allow_recovery = not unstable_marker.is_file()
     for round_id in range(ROUNDS):
         summary = directory / f"round_{round_id + 1}"
         summary.mkdir(parents=True, exist_ok=True)
@@ -193,6 +261,15 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
             effective = cached["effective_tiling"]
             correctness = cached["correctness"]
             print(f"MEASURE CACHE HIT: case={case['name']} round={round_id + 1}/{ROUNDS}", flush=True)
+            continue
+        recovered = recover_profile(case, params, key, priority, hardware, summary) if allow_recovery else None
+        if recovered is not None:
+            cost.save_json(checkpoint, recovered)
+            samples.extend(recovered["samples_us"])
+            medians.append(statistics.median(recovered["samples_us"]))
+            effective = recovered["effective_tiling"]
+            correctness = recovered["correctness"]
+            print(f"MEASURE RECOVERED: case={case['name']} round={round_id + 1}/{ROUNDS}", flush=True)
             continue
         scratch = Path(tempfile.mkdtemp(prefix="profile_", dir=directory))
         trace = summary / "effective.tsv"
@@ -206,24 +283,7 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
                 process = subprocess.run(["bash", "run.sh"], env=env, stdout=log, stderr=subprocess.STDOUT, text=True)
             if process.returncode:
                 raise RuntimeError(f"NPU/profile failed; see {summary / 'profile.log'}")
-            times = []
-            tables = list(scratch.rglob("OpBasicInfo.csv"))
-            if tables:
-                depth = min(len(table.relative_to(scratch).parts) for table in tables)
-                tables = [table for table in tables if len(table.relative_to(scratch).parts) == depth]
-            for table in tables:
-                with table.open(newline="", encoding="utf-8-sig") as source:
-                    for item in csv.DictReader(source):
-                        item = {name.strip(): value.strip() for name, value in item.items() if name is not None and value is not None}
-                        name = item.get("Op Name", item.get("OpName", ""))
-                        if "FlashAttentionScore" not in name or str(key) not in name:
-                            continue
-                        value = float(item["Task Duration(us)"])
-                        if not math.isfinite(value) or value <= 0:
-                            raise RuntimeError("invalid profiler duration")
-                        times.append(value)
-            if len(times) != REPEAT:
-                raise RuntimeError(f"expected {REPEAT} profiler records, got {len(times)}; see {summary}")
+            times = profiler_samples(summary / "profile.log", key)
             effective = fa.read_effective(trace)
             if effective is None:
                 raise RuntimeError("effective Host tiling trace was not produced")
@@ -242,8 +302,11 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
     low, high = (float(x) for x in np.percentile(bootstrap, [2.5, 97.5]))
     stable = max(abs(value / duration - 1) for value in medians) <= 0.03 and (high - low) / (2 * duration) <= 0.03
     if not stable:
+        cost.save_json(unstable_marker, {"round_medians_us": medians, "median_ci95_low_us": low, "median_ci95_high_us": high})
         for round_id in range(ROUNDS):
             (directory / f"round_{round_id + 1}" / "measurement.json").unlink(missing_ok=True)
+    else:
+        unstable_marker.unlink(missing_ok=True)
     return {
         "effective_tiling": effective, "duration_us": duration, "samples_us": samples,
         "round_medians_us": medians, "sample_count": len(samples),
