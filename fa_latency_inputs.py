@@ -19,7 +19,7 @@ ACTIVE_FEATURES = {
     "b_drop": FEATURE_NAMES,
 }
 RELATIVE_ERROR_LIMIT = 0.10
-RIDGE = 0.01
+FIT_METHOD = "nonnegative_relative_least_squares_v2"
 
 
 def ceil_div(a: int, b: int) -> int:
@@ -170,37 +170,39 @@ def fit_group(rows: list[dict], hardware: dict) -> dict:
     active = ACTIVE_FEATURES[derive(rows[0]["inputs"], hardware)["family"]]
     x = np.asarray([[derive(row["inputs"], hardware)["features"][f] for f in active] for row in rows])
     y = np.asarray([float(row["duration_us"]) for row in rows])
-    scales = np.maximum(np.max(x, axis=0), 1e-12)
-    target_scale = float(np.median(y))
-    matrix = x / scales * target_scale / y[:, None]
-    penalty = np.eye(len(active)) * math.sqrt(RIDGE)
-    penalty[0, 0] = 0
+    if not np.all(np.isfinite(y)) or np.any(y <= 0):
+        raise ValueError("calibration durations must be finite and positive")
+    relative = x / y[:, None]
+    scales = np.maximum(np.linalg.norm(relative, axis=0), np.finfo(float).tiny)
+    matrix = relative / scales
     best = None
     for flags in itertools.product((False, True), repeat=len(active)):
         selected = np.flatnonzero(flags)
         weights = np.zeros(len(active))
         if len(selected):
-            a = np.vstack((matrix[:, selected], penalty[:, selected]))
-            target = np.concatenate((np.ones(len(rows)), np.zeros(len(active))))
-            weights[selected] = np.linalg.lstsq(a, target, rcond=None)[0]
+            weights[selected] = np.linalg.lstsq(matrix[:, selected], np.ones(len(rows)), rcond=None)[0]
         if np.any(weights < -1e-10):
             continue
         weights = np.maximum(weights, 0)
-        loss = float(np.sum((matrix @ weights - 1) ** 2) + np.sum((penalty @ weights) ** 2))
+        loss = float(np.sum((matrix @ weights - 1) ** 2))
         if best is None or loss < best[0]:
-            best = (loss, weights * target_scale / scales)
+            best = (loss, weights / scales)
     return {
         "coefficients": {**dict.fromkeys(FEATURE_NAMES, 0.0), **dict(zip(active, best[1].tolist()))},
         "calibration_cases": [row["case"] for row in rows],
-        "feature_rank": int(np.linalg.matrix_rank(x / scales)),
+        "feature_rank": int(np.linalg.matrix_rank(x / np.maximum(np.max(x, axis=0), 1e-12))),
         "feature_count": len(active),
         "active_features": list(active),
         "feature_ranges": {name: [float(min(x[:, i])), float(max(x[:, i]))] for i, name in enumerate(active)},
+        "input_ranges": {name: [min(row["inputs"][name] for row in rows), max(row["inputs"][name] for row in rows)] for name in INPUT_FIELDS[:7]},
     }
 
 
 def fit(rows: list[dict], hardware: dict, plan_sha256: str) -> dict:
-    calibration = [row for row in rows if row["split"] == "calibration" and row["status"] == "ok"]
+    calibration = [
+        row for row in rows
+        if row["split"] == "calibration" and row["status"] == "ok" and str(row.get("stable")).lower() == "true"
+    ]
     groups = sorted({group_key(row["inputs"], hardware) for row in calibration})
     models = {}
     for key in groups:
@@ -210,42 +212,59 @@ def fit(rows: list[dict], hardware: dict, plan_sha256: str) -> dict:
         models[key] = fit_group(items, hardware)
     artifact = {
         "version": VERSION, "plan_sha256": plan_sha256, "hardware": hardware, "groups": models,
-        "input_fields": list(INPUT_FIELDS), "features": list(FEATURE_NAMES), "ridge": RIDGE,
+        "input_fields": list(INPUT_FIELDS), "features": list(FEATURE_NAMES), "fit_method": FIT_METHOD,
         "target": "median msprof FlashAttentionScore Task Duration(us), warm device, fixed compiled operator",
         "scope": "dense official FA; no PSE/attention mask/sparse mode; scale=1/sqrt(D); dropout keep_prob=0.9 or 1",
-        "method": "nonnegative relative-error ridge on algorithm-derived critical work, repeated KV reads, global IO and serial pipeline steps",
+        "method": "nonnegative relative-error least squares on algorithm-derived costs; no coefficient penalty or per-shape corrections",
         "identifiability": "fixed D/DV makes Cube and Softmax work correlated; coefficients represent combined costs, not independently measured primitive latency",
         "acceptance": "every blind holdout must execute correctly, match the derived schedule, have stable measurements, and have absolute relative error <= 0.10",
     }
     cv = {}
     for key in groups:
         items = [row for row in calibration if group_key(row["inputs"], hardware) == key]
-        folds = sorted({(row["inputs"]["S1"], row["inputs"]["S2"]) for row in items})
-        results = []
-        for pair in folds:
-            train = [row for row in items if (row["inputs"]["S1"], row["inputs"]["S2"]) != pair]
-            if len(train) < 3:
+        axes = {}
+        for axis, fields in (("sequence_pair", ("S1", "S2")), ("heads", ("N1",)), ("batch", ("B",))):
+            identity = lambda row: tuple(row["inputs"][field] for field in fields)
+            folds = sorted({identity(row) for row in items})
+            if len(folds) < 2:
+                axes[axis] = {"tested": False, "reason": "calibration contains only one value", "count": 0}
                 continue
-            held_model = {**artifact, "groups": {key: fit_group(train, hardware)}}
-            for row in items:
-                if (row["inputs"]["S1"], row["inputs"]["S2"]) != pair:
+            results = []
+            for fold in folds:
+                train = [row for row in items if identity(row) != fold]
+                if len(train) < 3:
                     continue
-                predicted = predict(row["inputs"], held_model)["predicted_us"]
-                error = abs(predicted / float(row["duration_us"]) - 1)
-                results.append({"case": row["case"], "predicted_us": predicted, "actual_us": float(row["duration_us"]), "ape_percent": error * 100})
+                held_group = fit_group(train, hardware)
+                held_model = {**artifact, "groups": {key: held_group}}
+                for row in items:
+                    if identity(row) != fold:
+                        continue
+                    if held_group["feature_rank"] != held_group["feature_count"]:
+                        results.append({"case": row["case"], "status": "unidentifiable_cost_terms", "feature_rank": held_group["feature_rank"], "feature_count": held_group["feature_count"]})
+                        continue
+                    predicted = predict(row["inputs"], held_model)["predicted_us"]
+                    error = abs(predicted / float(row["duration_us"]) - 1)
+                    results.append({"case": row["case"], "status": "predicted", "predicted_us": predicted, "actual_us": float(row["duration_us"]), "ape_percent": error * 100})
+            axes[axis] = {
+                "tested": True, "count": len(results),
+                "pass": len(results) == len(items) and all(row["status"] == "predicted" and row["ape_percent"] <= 100 * RELATIVE_ERROR_LIMIT + 1e-10 for row in results),
+                "max_ape_percent": max((row["ape_percent"] for row in results if row["status"] == "predicted"), default=None),
+                "cases": results,
+            }
+        tested = [value for value in axes.values() if value["tested"]]
         cv[key] = {
-            "rule": "withhold all heads and batches at each complete (S1,S2) pair",
-            "count": len(results),
-            "pass": len(results) == len(items) and all(row["ape_percent"] <= 100 * RELATIVE_ERROR_LIMIT + 1e-10 for row in results),
-            "max_ape_percent": max((row["ape_percent"] for row in results), default=None),
-            "cases": results,
+            "rule": "withhold each complete sequence pair, query-head count and batch size in separate calibration-only evaluations",
+            "count": sum(value["count"] for value in tested),
+            "pass": key in models and models[key]["feature_rank"] == models[key]["feature_count"] and axes["sequence_pair"]["tested"] and axes["heads"]["tested"] and all(value["pass"] for value in tested),
+            "max_ape_percent": max((value["max_ape_percent"] for value in tested if value["max_ape_percent"] is not None), default=None),
+            "axes": axes,
         }
     artifact["calibration_grouped_cv"] = cv
     return artifact
 
 
 def predict(inputs: dict, model: dict) -> dict:
-    if model.get("version") != VERSION:
+    if model.get("version") != VERSION or model.get("fit_method") != FIT_METHOD:
         raise ValueError("a frozen input-only FA latency model is required")
     p = normalize(inputs)
     hardware = model["hardware"]
@@ -259,10 +278,12 @@ def predict(inputs: dict, model: dict) -> dict:
     if not math.isfinite(duration) or duration <= 0:
         raise ValueError("invalid prediction")
     ranges = model["groups"][key]["feature_ranges"]
+    inputs_ranges = model["groups"][key]["input_ranges"]
     return {
         "predicted_us": duration, "group": key, "derived_schedule": derived,
         "cost_terms_us": components,
         "extrapolated_features": [f for f in ranges if not ranges[f][0] <= derived["features"][f] <= ranges[f][1]],
+        "extrapolated_inputs": [f for f in inputs_ranges if not inputs_ranges[f][0] <= p[f] <= inputs_ranges[f][1]],
     }
 
 

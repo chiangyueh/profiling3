@@ -429,8 +429,11 @@ def main() -> None:
     }
     signature = cost.sha256(protocol)
     manifest = directory / "manifest.json"
-    if manifest.is_file() and cost.sha256(json.loads(manifest.read_text())) != signature:
-        raise RuntimeError("the existing input-latency dataset uses a different measurement/model protocol")
+    measurement_protocol = {name: value for name, value in protocol.items() if name != "cost_source_sha256"}
+    if manifest.is_file():
+        saved = {name: value for name, value in json.loads(manifest.read_text()).items() if name != "cost_source_sha256"}
+        if cost.sha256(saved) != cost.sha256(measurement_protocol):
+            raise RuntimeError("the existing input-latency dataset uses a different measurement protocol")
     if not manifest.is_file():
         cost.save_json(manifest, protocol)
     print(f"PLAN shapes={len(plan)} counts={dict(Counter((case['split'], case['family']) for case in plan))}", flush=True)
@@ -438,22 +441,38 @@ def main() -> None:
     print(f"DATASET={directory}", flush=True)
     csv_path = directory / "routes.csv"
     records = recorded(csv_path)
+    model_path = directory / "model.json"
+    frozen = json.loads(model_path.read_text()) if model_path.is_file() else None
+    if frozen is not None and (frozen.get("plan_sha256") != signature or frozen.get("fit_method") != cost.FIT_METHOD):
+        raise RuntimeError("the existing frozen model uses different model code; measurements are preserved, but its blind set must not be reused to validate a replacement")
     ensured = set()
     for case in plan:
         if case["split"] == "calibration":
             collect(case, hardware, directory, records, csv_path, ensured)
     incomplete = [case["name"] for case in plan if case["split"] == "calibration" and not is_complete(records.get(case["name"]))]
+    diagnostic = cost.fit(list(records.values()), hardware, signature) if frozen is None else frozen
+    expected_groups = {cost.group_key(case["inputs"], hardware) for case in plan if case["split"] == "calibration"}
+    grouped_cv = diagnostic["calibration_grouped_cv"]
+    calibration_model_pass = set(grouped_cv) == expected_groups and all(value["pass"] for value in grouped_cv.values())
+    cost.save_json(directory / "calibration_report.json", {
+        "version": VERSION, "fit_method": cost.FIT_METHOD, "pass": calibration_model_pass and not incomplete,
+        "calibration_complete": not incomplete, "incomplete_cases": incomplete,
+        "model_source_sha256": protocol["cost_source_sha256"],
+        "evaluation": "calibration-only grouped cross-validation; not independent blind validation",
+        "calibration_grouped_cv": grouped_cv,
+    })
+    for group, value in grouped_cv.items():
+        print(f"CALIBRATION CV: group={group} pass={value['pass']} max_ape_percent={value['max_ape_percent']}", flush=True)
     if incomplete:
-        cost.save_json(directory / "validation_report.json", {"pass": False, "stage": "calibration_incomplete", "cases": incomplete})
+        cost.save_json(directory / "validation_report.json", {"pass": False, "stage": "calibration_incomplete", "cases": incomplete, "calibration_grouped_cv": grouped_cv})
         print(f"ACCURACY_GATE=FAIL calibration_incomplete={len(incomplete)}; successful cases are reusable", flush=True)
         raise SystemExit(1)
-    model_path = directory / "model.json"
-    if model_path.is_file():
-        frozen = json.loads(model_path.read_text())
-        if frozen["plan_sha256"] != signature:
-            raise RuntimeError("frozen model does not belong to this protocol")
-    else:
-        frozen = cost.fit(list(records.values()), hardware, signature)
+    if not calibration_model_pass:
+        cost.save_json(directory / "validation_report.json", {"pass": False, "stage": "calibration_model_failed", "calibration_grouped_cv": grouped_cv})
+        print("ACCURACY_GATE=FAIL calibration_model_failed; blind measurements were not started", flush=True)
+        raise SystemExit(1)
+    if frozen is None:
+        frozen = diagnostic
         cost.save_json(model_path, frozen)
     predictions_path = directory / "predictions_before_measurement.json"
     if predictions_path.is_file():
