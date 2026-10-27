@@ -28,6 +28,7 @@ VERSION = cost.VERSION
 WARMUP = 5
 REPEAT = 10
 ROUNDS = 3
+MODEL_FAMILIES = ("same_ab",)
 FIELDS = (
     "version", "case", "split", "family", "inputs", "priority", "tiling_key",
     "effective_tiling", "derived_schedule", "duration_us", "samples_us",
@@ -221,12 +222,24 @@ def text_report(directory: Path) -> None:
     hardware_path = directory / "hardware.json"
     hardware = json.loads(hardware_path.read_text()) if hardware_path.is_file() else {}
     rows = recorded(directory / "routes.csv")
+    cross_validation = {}
+    calibration_path = directory / "calibration_report.json"
+    if calibration_path.is_file():
+        calibration = json.loads(calibration_path.read_text())
+        if calibration.get("model_source_sha256") == cost.sha256({"source": Path(cost.__file__).read_text()}):
+            for group in calibration.get("calibration_grouped_cv", {}).values():
+                for axis, values in group.get("axes", {}).items():
+                    for case in values.get("cases", []):
+                        cross_validation.setdefault(case["case"], {}).update({
+                            f"cv_{axis}_ape_percent": case.get("ape_percent", ""), "calibration_cv_pass": group["pass"],
+                        })
     hardware_fields = ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes")
     fields = (
         "split", "family", *cost.INPUT_FIELDS, *hardware_fields, "priority", "tiling_key",
         "duration_us", "round1_us", "round2_us", "round3_us", "sample_count",
         "ci95_low_us", "ci95_high_us", "stable", "checked_elements", "max_abs_error",
         "status", "stage", "predicted_us", "ape_percent", "pass_10_percent",
+        "model_scope", "cv_sequence_pair_ape_percent", "cv_heads_ape_percent", "cv_batch_ape_percent", "calibration_cv_pass",
         *(name[3:].lower() for name in REPORT_TILING),
         "profile_rounds", "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_status", "pmu_notes",
         *PMU_FIELDS,
@@ -238,6 +251,7 @@ def text_report(directory: Path) -> None:
         writer.writeheader()
         for name, row in sorted(rows.items()):
             result = {field: row.get(field, "") for field in fields}
+            result.update(model_scope="|".join(MODEL_FAMILIES), **cross_validation.get(name, {}))
             result.update(row["inputs"])
             result.update({field: hardware.get(field, "") for field in hardware_fields})
             result.update(ci95_low_us=row.get("median_ci95_low_us", ""), ci95_high_us=row.get("median_ci95_high_us", ""))
@@ -595,7 +609,7 @@ def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path
 def validation_report(plan: list[dict], records: dict, frozen: dict, directory: Path) -> dict:
     families = {}
     passed = True
-    for family in ("same_ab", "s1", "b", "b_drop"):
+    for family in sorted({case["family"] for case in plan}):
         cases = [case for case in plan if case["family"] == family and case["split"] == "holdout"]
         results = []
         for case in cases:
@@ -619,6 +633,7 @@ def validation_report(plan: list[dict], records: dict, frozen: dict, directory: 
         "version": VERSION, "pass": bool(passed and calibration_ok),
         "criterion": "every required blind shape must pass; absolute relative error <= 10 percent; missing, failed or unstable measurements fail",
         "model_sha256": cost.sha256(frozen), "calibration_complete": calibration_ok,
+        "evaluated_families": sorted({case["family"] for case in plan}), "evaluated_groups": sorted(frozen["groups"]),
         "families": families,
         "calibration_grouped_cv": frozen.get("calibration_grouped_cv"),
     }
@@ -649,10 +664,10 @@ def main() -> None:
     directory = root / "output" / VERSION
     directory.mkdir(parents=True, exist_ok=True)
     hardware = hardware_profile(directory, args.id)
-    plan = cost.design(hardware)
-    design_check = cost.validate_design(plan, hardware)
+    full_plan = cost.design(hardware)
+    design_check = cost.validate_design(full_plan, hardware)
     protocol = {
-        "version": VERSION, "hardware": hardware, "plan": plan, "rounds": ROUNDS, "repeat": REPEAT,
+        "version": VERSION, "hardware": hardware, "plan": full_plan, "rounds": ROUNDS, "repeat": REPEAT,
         "target": "msprof OpBasicInfo.csv Task Duration(us)", "error_limit": cost.RELATIVE_ERROR_LIMIT,
         "launcher_warmup": WARMUP, "profiler_warmup": 10,
         "numerical_rtol": 0.01, "numerical_atol": 1e-4, "stability_limit": 0.03,
@@ -660,15 +675,24 @@ def main() -> None:
         "cost_source_sha256": cost.sha256({"source": Path(cost.__file__).read_text()}),
         "launcher_sha256": cost.sha256({"source": Path("fa_launcher.cpp").read_text()}),
     }
-    signature = cost.sha256(protocol)
+    signature = cost.sha256({"protocol": protocol, "model_families": MODEL_FAMILIES})
     manifest = directory / "manifest.json"
-    measurement_protocol = {name: value for name, value in protocol.items() if name != "cost_source_sha256"}
+    measurement_protocol = {name: value for name, value in protocol.items() if name not in ("cost_source_sha256", "plan")}
     if manifest.is_file():
-        saved = {name: value for name, value in json.loads(manifest.read_text()).items() if name != "cost_source_sha256"}
+        previous = json.loads(manifest.read_text())
+        saved = {name: value for name, value in previous.items() if name not in ("cost_source_sha256", "plan")}
         if cost.sha256(saved) != cost.sha256(measurement_protocol):
             raise RuntimeError("the existing input-latency dataset uses a different measurement protocol")
+        old_cases = {case["name"]: case for case in previous["plan"]}
+        new_cases = {case["name"]: case for case in full_plan}
+        if any(name not in new_cases or cost.sha256(case) != cost.sha256(new_cases[name]) for name, case in old_cases.items()):
+            raise RuntimeError("an existing measurement shape or split has changed")
+        if any(case["split"] != "calibration" for name, case in new_cases.items() if name not in old_cases):
+            raise RuntimeError("an existing dataset can only be extended with calibration inputs")
     if not manifest.is_file():
         cost.save_json(manifest, protocol)
+    plan = [case for case in full_plan if case["family"] in MODEL_FAMILIES]
+    print(f"MODEL_FAMILIES={','.join(MODEL_FAMILIES)}", flush=True)
     print(f"PLAN shapes={len(plan)} counts={dict(Counter((case['split'], case['family']) for case in plan))}", flush=True)
     print(f"DESIGN_CHECK={design_check}", flush=True)
     print(f"DATASET={directory}", flush=True)
@@ -683,12 +707,14 @@ def main() -> None:
         if case["split"] == "calibration":
             collect(case, hardware, directory, records, csv_path, ensured)
     incomplete = [case["name"] for case in plan if case["split"] == "calibration" and not is_complete(records.get(case["name"]))]
-    diagnostic = cost.fit(list(records.values()), hardware, signature) if frozen is None else frozen
+    selected_names = {case["name"] for case in plan}
+    diagnostic = cost.fit([row for name, row in records.items() if name in selected_names], hardware, signature) if frozen is None else frozen
     expected_groups = {cost.group_key(case["inputs"], hardware) for case in plan if case["split"] == "calibration"}
     grouped_cv = diagnostic["calibration_grouped_cv"]
     calibration_model_pass = set(grouped_cv) == expected_groups and all(value["pass"] for value in grouped_cv.values())
     cost.save_json(directory / "calibration_report.json", {
         "version": VERSION, "fit_method": cost.FIT_METHOD, "pass": calibration_model_pass and not incomplete,
+        "model_families": list(MODEL_FAMILIES),
         "calibration_complete": not incomplete, "incomplete_cases": incomplete,
         "model_source_sha256": protocol["cost_source_sha256"],
         "evaluation": "calibration-only grouped cross-validation; not independent blind validation",

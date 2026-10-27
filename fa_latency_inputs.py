@@ -11,15 +11,16 @@ import numpy as np
 
 VERSION = "fa_input_latency_v1"
 INPUT_FIELDS = ("B", "N1", "N2", "S1", "S2", "D", "DV", "dtype", "layout", "has_drop_mask")
-FEATURE_NAMES = ("fixed", "critical_work_m", "kv_read_mb", "global_io_mb", "serial_steps", "adapter_melements")
+FEATURE_NAMES = ("fixed", "critical_work_m", "kv_read_mb", "global_io_mb", "serial_steps", "adapter_melements", "cache_pressure_work_m")
 ACTIVE_FEATURES = {
     "same_ab": ("fixed", "critical_work_m", "global_io_mb"),
-    "s1": FEATURE_NAMES[:-1],
-    "b": FEATURE_NAMES[:-1],
-    "b_drop": FEATURE_NAMES,
+    "same_ab/SBH": ("fixed", "critical_work_m", "cache_pressure_work_m"),
+    "s1": FEATURE_NAMES[:5],
+    "b": FEATURE_NAMES[:5],
+    "b_drop": FEATURE_NAMES[:6],
 }
 RELATIVE_ERROR_LIMIT = 0.10
-FIT_METHOD = "nonnegative_relative_least_squares_v2"
+FIT_METHOD = "nonnegative_capacity_model_v3"
 
 
 def ceil_div(a: int, b: int) -> int:
@@ -118,11 +119,24 @@ def derive(inputs: dict, hardware: dict) -> dict:
         "global_io_mb": io / 1e6,
         "serial_steps": float(steps),
         "adapter_melements": b * n * s1 * s2 / aiv / 1e6 if adapter else 0.0,
+        "cache_pressure_work_m": 0.0,
     }
+    workspace, footprint, pressure = 0, 0, 0.0
+    if family == "same_ab" and p["layout"] == "SBH":
+        l2 = int(hardware.get("l2_bytes", 0))
+        if l2 <= 0:
+            raise ValueError("SBH prediction requires the saved hardware L2 capacity")
+        mm1_bytes = align(base * s2_base * ratio, 128) * 4
+        mm2_bytes = align(base * align(dv), 128) * 4
+        workspace = workers * (3 * mm1_bytes + 4 * mm2_bytes)
+        footprint = io + 2 * b * n * s1 * 8 * 4 + workspace
+        pressure = max(0.0, 1.0 - l2 / footprint)
+        features["cache_pressure_work_m"] = features["critical_work_m"] * pressure
     return {
         "family": family, "priority": priority, "s1_base": base, "s2_base": s2_base,
         "n_ratio": ratio, "s1_outer": outer, "total_tasks": total, "split_factor": split,
         "workers": workers, "s2_windows": windows, "features": features,
+        "active_workspace_bytes": workspace, "cache_footprint_bytes": footprint, "l2_capacity_pressure": pressure,
     }
 
 
@@ -145,6 +159,12 @@ def group_key(inputs: dict, hardware: dict) -> str:
     return f"{derive(p, hardware)['family']}/{p['dtype']}/{p['layout']}"
 
 
+def active_features(inputs: dict, hardware: dict) -> tuple:
+    p = normalize(inputs)
+    family = derive(p, hardware)["family"]
+    return ACTIVE_FEATURES.get(f"{family}/{p['layout']}", ACTIVE_FEATURES[family])
+
+
 def validate_design(plan: list[dict], hardware: dict) -> dict:
     groups = {}
     for case in plan:
@@ -157,7 +177,7 @@ def validate_design(plan: list[dict], hardware: dict) -> dict:
         pairs = lambda items: {(case["inputs"]["S1"], case["inputs"]["S2"]) for case in items}
         if len(calibration) < 8 or not holdout or pairs(calibration) & pairs(holdout):
             raise ValueError(f"invalid independent shape split for {key}")
-        active = ACTIVE_FEATURES[key.split("/")[0]]
+        active = active_features(calibration[0]["inputs"], hardware)
         matrix = np.asarray([[derive(case["inputs"], hardware)["features"][f] for f in active] for case in calibration])
         rank = int(np.linalg.matrix_rank(matrix / np.maximum(matrix.max(axis=0), 1e-12)))
         if rank != len(active):
@@ -167,7 +187,7 @@ def validate_design(plan: list[dict], hardware: dict) -> dict:
 
 
 def fit_group(rows: list[dict], hardware: dict) -> dict:
-    active = ACTIVE_FEATURES[derive(rows[0]["inputs"], hardware)["family"]]
+    active = active_features(rows[0]["inputs"], hardware)
     x = np.asarray([[derive(row["inputs"], hardware)["features"][f] for f in active] for row in rows])
     y = np.asarray([float(row["duration_us"]) for row in rows])
     if not np.all(np.isfinite(y)) or np.any(y <= 0):
@@ -216,6 +236,7 @@ def fit(rows: list[dict], hardware: dict, plan_sha256: str) -> dict:
         "target": "median msprof FlashAttentionScore Task Duration(us), warm device, fixed compiled operator",
         "scope": "dense official FA; no PSE/attention mask/sparse mode; scale=1/sqrt(D); dropout keep_prob=0.9 or 1",
         "method": "nonnegative relative-error least squares on algorithm-derived costs; no coefficient penalty or per-shape corrections",
+        "cache_model": "SBH capacity-pressure proxy from Q/K/V/output bytes, two FP32 softmax statistics and the active three-stage workspace; it is not an exact cache-hit simulator",
         "identifiability": "fixed D/DV makes Cube and Softmax work correlated; coefficients represent combined costs, not independently measured primitive latency",
         "acceptance": "every blind holdout must execute correctly, match the derived schedule, have stable measurements, and have absolute relative error <= 0.10",
     }
@@ -306,6 +327,8 @@ def design(hardware: dict) -> list[dict]:
 
     for layout, s, n in itertools.product(("BNSD", "SBH"), (2048, 4096, 8192), (8, 32, 96)):
         add("calibration", 1, n, n, s, s, 192, 128, "BF16", layout)
+    for n, s in itertools.product((16, 64), (3072, 6144)):
+        add("calibration", 1, n, n, s, s, 192, 128, "BF16", "SBH")
     for b, n, nk in ((1, 4, 1), (1, 16, 2), (2, 16, 4)):
         for s1, s2 in ((64, 256), (128, 256), (256, 256), (512, 256), (64, 512), (256, 512), (128, 1024), (512, 1024)):
             add("calibration", b, n, nk, s1, s2, 128, 128, "FP16", "BNSD")
