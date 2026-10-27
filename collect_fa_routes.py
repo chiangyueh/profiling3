@@ -59,85 +59,144 @@ def recorded(path: Path) -> dict:
     return rows
 
 
+def metric_role(label: str) -> str | None:
+    name = re.sub(r"[^a-z0-9]", "", label.lower())
+    if "l2" in name and "hit" in name and any(word in name for word in ("rate", "ratio", "percent")):
+        return "l2_hit"
+    bandwidth = any(word in name for word in ("bandwidth", "throughput", "bw"))
+    if "l2" in name and bandwidth:
+        return "l2_bw"
+    if any(word in name for word in ("cube", "mac")) and any(word in name for word in ("time", "ratio", "util", "usage")):
+        return "cube"
+    if "mte2" in name:
+        return "aiv_mte2" if any(word in name for word in ("aiv", "vector")) else "aic_mte2"
+    if any(word in name for word in ("vec", "vector")) and any(word in name for word in ("time", "ratio", "util", "usage")):
+        return "vector"
+    if bandwidth and any(word in name for word in ("memory", "hbm", "ddr", "gm")) and not any(word in name for word in ("l0", "ub")):
+        return "memory_write" if "write" in name else "memory_read"
+    return None
+
+
+def metric_values(path: Path) -> tuple[dict, list[str]]:
+    with path.open(newline="", encoding="utf-8-sig") as source:
+        rows = [[cell.strip() for cell in row] for row in csv.reader(source) if any(cell.strip() for cell in row)]
+    if not rows:
+        return {}, []
+    table = re.sub(r"_\d+$", "", re.sub(r"^\d+_", "", path.stem))
+    result = {}
+
+    def add(label: str, raw: str) -> None:
+        if metric_role(label) is None:
+            return
+        try:
+            value = float(raw.rstrip("%"))
+        except ValueError:
+            return
+        if raw.endswith("%") and "%" not in label:
+            label += " (%)"
+        if math.isfinite(value):
+            result.setdefault(label, []).append(value)
+
+    vertical = rows[0][0].lower().replace(" ", "") in ("metric", "metricname", "name")
+    if vertical:
+        header = [cell.lower() for cell in rows[0]]
+        value_index = next((i for i, cell in enumerate(header) if cell in ("value", "metric value", "metricvalue")), 1)
+        unit_index = next((i for i, cell in enumerate(header) if cell == "unit"), None)
+        for row in rows[1:]:
+            if value_index >= len(row):
+                continue
+            unit = f" ({row[unit_index]})" if unit_index is not None and unit_index < len(row) else ""
+            add(f"{table}:{row[0]}{unit}", row[value_index])
+    else:
+        for row in rows[1:]:
+            context = " ".join(value for field, value in zip(rows[0], row) if "type" in field.lower() and any(word in re.sub(r"[^a-z]", "", value.lower()) for word in ("aic", "aiv", "vector")))
+            for field, value in zip(rows[0], row):
+                add(f"{table}:{context}:{field}" if context else f"{table}:{field}", value)
+    return result, [table + ":" + field for field in rows[0]]
+
+
 def text_report(directory: Path) -> None:
     if not directory.is_dir():
         raise FileNotFoundError(f"existing dataset is missing: {directory}")
+    hardware_path = directory / "hardware.json"
+    hardware = json.loads(hardware_path.read_text()) if hardware_path.is_file() else {}
+    rows = recorded(directory / "routes.csv")
+    cases = [row for _, row in sorted(rows.items()) if row.get("split") == "calibration" and row.get("family") == "same_ab"]
+    values, frequencies, issues, headers = [], [], Counter(), set()
+    for row in cases:
+        grouped, freq = {}, []
+        for round_id in range(1, ROUNDS + 1):
+            folder = directory / "cases" / row["case"] / f"round_{round_id}"
+            log = folder / "profile.log"
+            if log.is_file():
+                text = log.read_text(errors="replace")
+                freq.extend(float(value) for value in re.findall(r"^[ \t]*Current Freq:[ \t]*(\d+(?:\.\d+)?)", text, re.MULTILINE))
+            else:
+                issues["missing_profile_log"] += 1
+            tables = list(folder.glob("*.csv"))
+            if not tables:
+                issues["missing_csv_rounds"] += 1
+            for table in tables:
+                try:
+                    extracted, fields = metric_values(table)
+                except (OSError, UnicodeError, csv.Error):
+                    issues["unreadable_csv"] += 1
+                    continue
+                headers.update(field for field in fields if any(word in field.lower() for word in ("l2", "memory", "pipe", "arithmetic")))
+                for label, readings in extracted.items():
+                    grouped.setdefault(label, []).extend(readings)
+        values.append(grouped)
+        frequencies.append(freq)
+    selected = {}
+    roles = ("cube", "vector", "aic_mte2", "aiv_mte2", "l2_hit", "l2_bw", "memory_read", "memory_write")
+    labels = {label for grouped in values for label in grouped}
+    for role in roles:
+        candidates = [label for label in labels if metric_role(label) == role]
+        if candidates:
+            def preference(label: str) -> tuple:
+                name = re.sub(r"[^a-z]", "", label.lower())
+                wrong_core = (role in ("cube", "aic_mte2") and "aiv" in name) or (role in ("vector", "aiv_mte2") and "aicore" in name and "aiv" not in name)
+                return (-sum(label in grouped for grouped in values), wrong_core, "write" in label.lower(), not any(word in label.lower() for word in ("ratio", "utilization", "rate", "usage")), label)
+            selected[role] = min(candidates, key=preference)
+    shared = {name: cases[0]["inputs"][name] for name in cost.INPUT_FIELDS if cases and all(row["inputs"][name] == cases[0]["inputs"][name] for row in cases)}
+    varying = [name for name in cost.INPUT_FIELDS if name not in shared]
+    for left, right in (("N2", "N1"), ("S2", "S1")):
+        if cases and left in varying and all(row["inputs"][left] == row["inputs"][right] for row in cases):
+            shared[left] = "=" + right
+            varying.remove(left)
+    metadata = {
+        "report": "sameab_compact_v2", "hardware": {name: hardware.get(name) for name in ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes")},
+        "shared_inputs": shared, "metrics": selected, "missing_metrics": [role for role in roles if role not in selected],
+        "issues": dict(issues), "case_count": len(cases), "rounds_per_case": ROUNDS, "missing_value": "-", "metric_significant_digits": 4,
+    }
+    if not hardware:
+        metadata["issues"]["missing_hardware_json"] = 1
+    if len(selected) != len(roles):
+        metadata["available_headers"] = sorted(headers, key=lambda field: (metric_role(field) is not None, field))[:8]
+
+    def render(ranges: bool) -> str:
+        metadata["metric_statistics"] = "median/min/max across existing CSV rows" if ranges else "median across existing CSV rows"
+        lines = [json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)]
+        lines.append(",".join([*varying, "time_us", "stable", "freq_min/max", *selected]))
+        for row, grouped, freq in zip(cases, values, frequencies):
+            cells = [str(row["inputs"][field]) for field in varying]
+            cells += [f"{float(row['duration_us']):.5g}" if row.get("duration_us") else "-", str(row.get("stable")).lower(), f"{min(freq):.4g}/{max(freq):.4g}" if freq else "-"]
+            for label in selected.values():
+                readings = grouped.get(label, [])
+                stats = [statistics.median(readings), min(readings), max(readings)] if readings and ranges else ([statistics.median(readings)] if readings else [])
+                cells.append("/".join(f"{value:.4g}" for value in stats) if stats else "-")
+            lines.append(",".join(cells))
+        return "\n".join(lines) + "\n"
+
+    content = render(True)
+    if len(content.encode("utf-8")) > 8192:
+        content = render(False)
+    if len(content.encode("utf-8")) > 8192:
+        raise RuntimeError("compact report exceeds 8 KiB; existing report was not overwritten")
     target = directory / "diagnostics.txt"
-    metrics = 0
-    missing = []
-    with target.open("w", encoding="utf-8") as output:
-        def emit(label: str, value) -> None:
-            output.write(label + "\n")
-            output.write(value if isinstance(value, str) else json.dumps(value, sort_keys=True, ensure_ascii=False))
-            output.write("\n\n")
-
-        def include(path: Path) -> None:
-            relative = str(path.relative_to(directory))
-            if not path.is_file():
-                missing.append(relative)
-                emit("MISSING", relative)
-                return
-            try:
-                content = path.read_text(encoding="utf-8-sig")
-            except (OSError, UnicodeError) as error:
-                missing.append(relative)
-                emit("READ_ERROR", {"file": relative, "error": str(error)})
-                return
-            emit("FILE_BEGIN " + relative, content)
-            output.write("FILE_END " + relative + "\n\n")
-
-        emit("FA_LATENCY_DIAGNOSTICS", {"version": VERSION, "scope": "existing calibration data only; raw profiler CSV fields and units retained"})
-        include(directory / "hardware.json")
-        manifest = directory / "manifest.json"
-        if manifest.is_file():
-            try:
-                protocol = json.loads(manifest.read_text())
-                plan = protocol.pop("plan", [])
-                protocol["planned_cases"] = len(plan)
-                emit("MEASUREMENT_PROTOCOL", protocol)
-            except (OSError, ValueError) as error:
-                missing.append("manifest.json")
-                emit("READ_ERROR", {"file": "manifest.json", "error": str(error)})
-        else:
-            include(manifest)
-        try:
-            rows = recorded(directory / "routes.csv")
-        except (OSError, ValueError, KeyError) as error:
-            rows = {}
-            missing.append("routes.csv")
-            emit("READ_ERROR", {"file": "routes.csv", "error": str(error)})
-        calibration = {name: row for name, row in rows.items() if row.get("split") == "calibration"}
-        emit("LATEST_CALIBRATION_COUNTS", dict(Counter(f"{row['family']}/{row['status']}/stable={row['stable']}" for row in calibration.values())))
-        fields = ("case", "family", "inputs", "priority", "tiling_key", "duration_us", "samples_us", "round_medians_us", "sample_count", "median_ci95_low_us", "median_ci95_high_us", "stable", "correctness", "status", "stage", "error")
-        for name, row in sorted(calibration.items()):
-            emit("CASE", {key: row.get(key, "") for key in fields})
-            if row["family"] != "same_ab":
-                continue
-            emit("EFFECTIVE_TILING " + name, json.loads(row["effective_tiling"]) if row.get("effective_tiling") else None)
-            for round_id in range(1, ROUNDS + 1):
-                folder = directory / "cases" / name / f"round_{round_id}"
-                log = folder / "profile.log"
-                if log.is_file():
-                    content = log.read_text(errors="replace")
-                    metadata = {label: dict(Counter(re.findall(rf"^[ \t]*{label}:[ \t]*(\S+)[ \t]*$", content, re.MULTILINE))) for label in ("Current Freq", "Rated Freq", "Device Id", "Op Name")}
-                    emit("PROFILER_STATUS " + str(folder.relative_to(directory)), {
-                        "collection_succeeded": "Profiling running finished. All task success." in content,
-                        "parse_succeeded": "Profiling data parse finished." in content, "metadata": metadata,
-                    })
-                else:
-                    include(log)
-                tables = sorted(folder.glob("*.csv"))
-                if not tables:
-                    missing.append(str(folder.relative_to(directory)) + "/*.csv")
-                    emit("MISSING_PROFILER_CSV", str(folder.relative_to(directory)))
-                for table in tables:
-                    include(table)
-                    metrics += 1
-        if not calibration:
-            missing.append("routes.csv: no calibration rows")
-        emit("REPORT_END", {"calibration_cases": len(calibration), "profiler_csv_files": metrics, "missing_or_unreadable": missing})
+    target.write_text(content, encoding="utf-8")
     print(f"TEXT_REPORT={target}")
-    print(f"CALIBRATION_CASES={len(calibration)} PROFILER_CSV_FILES={metrics} MISSING_OR_UNREADABLE={len(missing)} BYTES={target.stat().st_size}")
+    print(f"SAMEAB_CASES={len(cases)} METRICS={len(selected)} BYTES={target.stat().st_size} MAX_BYTES=8192")
 
 
 def select_shape(case: dict) -> None:
