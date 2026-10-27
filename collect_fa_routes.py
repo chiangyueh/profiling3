@@ -22,6 +22,7 @@ import numpy as np
 
 import main as fa
 import fa_latency_inputs as cost
+import fit_fa_latency as family_models
 
 
 VERSION = cost.VERSION
@@ -29,6 +30,7 @@ WARMUP = 5
 REPEAT = 10
 ROUNDS = 3
 MODEL_FAMILIES = ("same_ab",)
+RESEARCH_FAMILIES = ("s1", "b", "b_drop")
 FIELDS = (
     "version", "case", "split", "family", "inputs", "priority", "tiling_key",
     "effective_tiling", "derived_schedule", "duration_us", "samples_us",
@@ -247,30 +249,39 @@ def profile_counters(folder: Path, key: int) -> dict:
     return {"notes": notes, "samples": samples, "launches": len(stamps), "freq": frequencies}
 
 
-def text_report(directory: Path) -> None:
+def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
     if not directory.is_dir():
         raise FileNotFoundError(f"existing dataset is missing: {directory}")
     hardware_path = directory / "hardware.json"
     hardware = json.loads(hardware_path.read_text()) if hardware_path.is_file() else {}
-    rows = {name: row for name, row in recorded(directory / "routes.csv").items() if row.get("family") in MODEL_FAMILIES}
+    rows = {name: row for name, row in recorded(directory / "routes.csv").items() if row.get("family") in families}
+    family_errors = {}
+    summary_path = directory / "family_validation_report.json"
+    if summary_path.is_file():
+        family_errors = {name: result.get("error", "") for name, result in json.loads(summary_path.read_text()).get("families", {}).items()}
     cross_validation = {}
-    calibration_path = directory / "calibration_report.json"
-    if calibration_path.is_file():
+    calibration_paths = [directory / "calibration_report.json", *(directory / family / "model.json" for family in families if family in RESEARCH_FAMILIES)]
+    for calibration_path in calibration_paths:
+        if not calibration_path.is_file():
+            continue
         calibration = json.loads(calibration_path.read_text())
-        if calibration.get("model_source_sha256") == cost.sha256({"source": Path(cost.__file__).read_text()}):
+        matching = calibration.get("model_source_sha256") == cost.sha256({"source": Path(cost.__file__).read_text()})
+        if calibration.get("version") == family_models.INPUT_FAMILY_VERSION:
+            matching = calibration.get("source_sha256") == family_models.input_family_source(calibration["family"])
+        if matching:
             for group in calibration.get("calibration_grouped_cv", {}).values():
                 for axis, values in group.get("axes", {}).items():
                     for case in values.get("cases", []):
                         cross_validation.setdefault(case["case"], {}).update({
                             f"cv_{axis}_ape_percent": case.get("ape_percent", ""), "calibration_cv_pass": group["pass"],
                         })
-    hardware_fields = ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes")
+    hardware_fields = ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes")
     fields = (
         "split", "family", *cost.INPUT_FIELDS, *hardware_fields, "priority", "tiling_key",
         "duration_us", "round1_us", "round2_us", "round3_us", "sample_count",
         "ci95_low_us", "ci95_high_us", "stable", "checked_elements", "max_abs_error",
-        "status", "stage", "predicted_us", "ape_percent", "pass_10_percent",
-        "model_scope", "cv_sequence_pair_ape_percent", "cv_heads_ape_percent", "cv_batch_ape_percent", "calibration_cv_pass",
+        "status", "stage", "error", "family_error", "predicted_us", "ape_percent", "pass_10_percent",
+        "model_scope", "prediction_quality", "extrapolated_inputs", "cv_sequence_pair_ape_percent", "cv_heads_ape_percent", "cv_batch_ape_percent", "calibration_cv_pass",
         *(name[3:].lower() for name in REPORT_TILING),
         "profile_rounds", "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_status", "pmu_notes",
         *PMU_FIELDS,
@@ -283,7 +294,10 @@ def text_report(directory: Path) -> None:
         writer.writeheader()
         for name, row in sorted(rows.items()):
             result = {field: row.get(field, "") for field in fields}
-            result.update(model_scope="|".join(MODEL_FAMILIES), **cross_validation.get(name, {}))
+            result["family_error"] = family_errors.get(row["family"], "")
+            result.update(model_scope="|".join(families), **cross_validation.get(name, {}))
+            derived = row.get("derived_schedule") or {}
+            result.update(prediction_quality=derived.get("prediction_quality", ""), extrapolated_inputs="|".join(derived.get("prediction_extrapolated_inputs", [])))
             result.update(row["inputs"])
             result.update({field: hardware.get(field, "") for field in hardware_fields})
             result.update(ci95_low_us=row.get("median_ci95_low_us", ""), ci95_high_us=row.get("median_ci95_high_us", ""))
@@ -615,6 +629,8 @@ def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path
     try:
         if frozen is not None:
             row.update(predicted_us=precomputed["predicted_us"], model_sha256=cost.sha256(frozen))
+            if precomputed.get("prediction_quality"):
+                row["derived_schedule"].update(prediction_quality=precomputed["prediction_quality"], prediction_extrapolated_inputs=precomputed.get("extrapolated_inputs", []))
             print(f"PREDICTION BEFORE NPU: {name} predicted_us={row['predicted_us']:.6f}", flush=True)
         select_shape(case)
         params = fa.shape_params()
@@ -680,6 +696,73 @@ def validation_report(plan: list[dict], records: dict, frozen: dict, directory: 
     return report
 
 
+def collect_other_families(directory: Path, hardware: dict, full_plan: list[dict], records: dict,
+                          csv_path: Path, ensured: set, protocol_signature: str) -> dict:
+    summaries = {}
+    selected = [case for case in full_plan if case["family"] in RESEARCH_FAMILIES]
+    print(f"OTHER FA PLAN: cached_success={sum(records.get(case['name'], {}).get('status') == 'ok' for case in selected)} new_holdouts={sum(case['split'] == 'holdout' and records.get(case['name'], {}).get('status') != 'ok' for case in selected)}; sequential NPU execution", flush=True)
+    for family in RESEARCH_FAMILIES:
+        source = family_models.input_family_source(family)
+        folder = directory / family
+        folder.mkdir(parents=True, exist_ok=True)
+        plan = [case for case in full_plan if case["family"] == family]
+        calibration = [case for case in plan if case["split"] == "calibration"]
+        holdout = [case for case in plan if case["split"] == "holdout"]
+        signature = cost.sha256({"protocol": protocol_signature, "family": family, "source": source})
+        print(f"FAMILY START: {family}; calibration={len(calibration)} new_holdouts={len(holdout)}", flush=True)
+        try:
+            for case in calibration:
+                existing = records.get(case["name"], {})
+                if existing.get("status") == "ok":
+                    print(f"MEASURE CACHE HIT: {case['name']} stable={existing.get('stable')}", flush=True)
+                else:
+                    collect(case, hardware, directory, records, csv_path, ensured)
+            exposed = any(case["name"] in records for case in holdout)
+            model_path = folder / "model.json"
+            model = json.loads(model_path.read_text()) if model_path.is_file() else None
+            if model is not None and (model.get("plan_sha256") != signature or model.get("source_sha256") != source):
+                if exposed:
+                    raise RuntimeError("family model changed after holdout exposure; a new blind set is required")
+                model = None
+            if model is None:
+                model = family_models.fit_input_family(list(records.values()), hardware, family, signature)
+                cost.save_json(model_path, model)
+            predictions_path = folder / "predictions_before_measurement.json"
+            payload = json.loads(predictions_path.read_text()) if predictions_path.is_file() else None
+            if payload is not None and payload.get("model_sha256") != cost.sha256(model):
+                if exposed:
+                    raise RuntimeError("saved family predictions belong to another frozen model")
+                payload = None
+            if payload is None:
+                payload = {"model_sha256": cost.sha256(model), "predictions": {case["name"]: family_models.predict_input_family(case["inputs"], model) for case in holdout}}
+                cost.save_json(predictions_path, payload)
+            cv_pass = all(value["pass"] for value in model["calibration_grouped_cv"].values())
+            print(f"FAMILY MODEL: {family}; calibration_cv_pass={cv_pass}; prediction_quality={'calibration_cv_pass' if cv_pass else 'provisional'}", flush=True)
+            for case in holdout:
+                if records.get(case["name"], {}).get("status") == "ok":
+                    print(f"MEASURE CACHE HIT: {case['name']}", flush=True)
+                    continue
+                collect(case, hardware, directory, records, csv_path, ensured, model, payload["predictions"][case["name"]])
+            report = validation_report(plan, records, model, folder)
+            completed = [records.get(case["name"], {}) for case in holdout]
+            errors = [finite(row.get("ape_percent")) for row in completed]
+            summaries[family] = {
+                "pass": report["pass"], "calibration_cv_pass": cv_pass,
+                "requested": len(holdout), "runtime_ok": sum(row.get("status") == "ok" for row in completed),
+                "point_error_pass": sum(error is not None and error <= 10 for error in errors),
+                "max_ape_percent": report["families"][family]["max_ape_percent"],
+            }
+            print(f"FAMILY END: {family}; {summaries[family]}", flush=True)
+        except Exception as error:
+            summaries[family] = {"pass": False, "error": str(error)}
+            cost.save_json(folder / "validation_report.json", summaries[family])
+            print(f"FAMILY FAILED: {family}; {error}; continuing", flush=True)
+    result = {"families": summaries, "pass": all(value["pass"] for value in summaries.values()), "scope": "independent prospective family research; provisional predictions are not qualified models"}
+    cost.save_json(directory / "family_validation_report.json", result)
+    text_report(directory, RESEARCH_FAMILIES)
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=4)
@@ -688,7 +771,7 @@ def main() -> None:
     root = Path(__file__).resolve().parent
     os.chdir(root)
     if args.report_only:
-        text_report(root / "output" / VERSION)
+        text_report(root / "output" / VERSION, RESEARCH_FAMILIES if (root / "output" / VERSION / "family_validation_report.json").is_file() else MODEL_FAMILIES)
         return
     if hasattr(os, "sched_getaffinity"):
         allowed = sorted(os.sched_getaffinity(0))
@@ -795,8 +878,11 @@ def main() -> None:
     report = validation_report(plan, records, frozen, directory)
     print(f"MODEL={model_path}")
     print(f"REPORT={directory / 'validation_report.json'}")
-    text_report(directory)
     if not report["pass"]:
+        text_report(directory)
+        raise SystemExit(1)
+    other = collect_other_families(directory, hardware, full_plan, records, csv_path, ensured, signature)
+    if not other["pass"]:
         raise SystemExit(1)
 
 

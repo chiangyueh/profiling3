@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import inspect
+import itertools
 import json
 import math
 import statistics
@@ -11,8 +13,11 @@ from pathlib import Path
 
 import numpy as np
 
+import fa_latency_inputs as input_cost
+
 
 MODEL_VERSION = "fa_latency_model_v1"
+INPUT_FAMILY_VERSION = "fa_input_family_v1"
 SHAPE_FIELDS = ("B", "N1", "N2", "S1", "S2", "D", "DV", "dtype", "layout", "has_drop_mask")
 FAMILIES = {"same_ab": 95, "s1": 97, "b": 98, "b_drop": 98}
 FEATURES = {
@@ -249,6 +254,133 @@ def predict_latency(inputs: dict, artifact: dict) -> float:
     if artifact.get("version") != VERSION:
         raise ValueError("legacy effective-tiling models do not support input-only prediction")
     return predict(inputs, artifact)["predicted_us"]
+
+
+def input_family_source(family: str) -> str:
+    sources = [inspect.getsource(input_family_features), inspect.getsource(predict_input_family)]
+    if family == "b_drop":
+        sources.append(inspect.getsource(input_adapter_passes))
+    return input_cost.sha256({"family": family, "version": INPUT_FAMILY_VERSION, "prediction": sources, "schedule": Path(input_cost.__file__).read_text()})
+
+
+def input_adapter_passes(p: dict, hardware: dict) -> int:
+    if p["S2"] % 8 == 0:
+        return 0
+    bits = p["B"] * p["N1"] * p["S1"] * p["S2"]
+    single = input_cost.ceil_div(input_cost.ceil_div(bits, 2048), int(hardware["aiv_cores"])) * 2048
+    available = input_cost.ceil_div(int(hardware["ub_bytes"]), 6) // 2048 * 2048
+    if available <= 0:
+        raise ValueError("hardware UB is too small for the official DropMask adapter")
+    return input_cost.ceil_div(single, min(available, single))
+
+
+def input_family_features(inputs: dict, hardware: dict) -> dict:
+    p = input_cost.normalize(inputs)
+    schedule = input_cost.derive(p, hardware)
+    if schedule["family"] not in ("s1", "b", "b_drop"):
+        raise ValueError("this model is restricted to S1, B and B DropMask")
+    names = input_cost.ACTIVE_FEATURES[schedule["family"]]
+    features = {name: schedule["features"][name] for name in names if name != "adapter_melements"}
+    if schedule["family"] == "b_drop":
+        features["adapter_passes"] = float(input_adapter_passes(p, hardware))
+    return features
+
+
+def fit_input_family_group(rows: list[dict], hardware: dict) -> dict:
+    names = list(input_family_features(rows[0]["inputs"], hardware))
+    x = np.asarray([[input_family_features(row["inputs"], hardware)[name] for name in names] for row in rows])
+    y = np.asarray([float(row["duration_us"]) for row in rows])
+    if not np.all(np.isfinite(y)) or np.any(y <= 0):
+        raise ValueError("invalid calibration durations")
+    relative = x / y[:, None]
+    scales = np.maximum(np.linalg.norm(relative, axis=0), np.finfo(float).tiny)
+    matrix = relative / scales
+    best = None
+    for flags in itertools.product((False, True), repeat=len(names)):
+        selected = np.flatnonzero(flags)
+        weights = np.zeros(len(names))
+        if len(selected):
+            weights[selected] = np.linalg.lstsq(matrix[:, selected], np.ones(len(rows)), rcond=None)[0]
+        if np.any(weights < -1e-10):
+            continue
+        weights = np.maximum(weights, 0)
+        loss = float(np.sum((matrix @ weights - 1) ** 2))
+        if best is None or loss < best[0]:
+            best = loss, weights / scales
+    return {
+        "coefficients": dict(zip(names, best[1].tolist())),
+        "feature_rank": int(np.linalg.matrix_rank(x / np.maximum(x.max(axis=0), 1e-12))),
+        "feature_count": len(names),
+        "calibration_cases": [row["case"] for row in rows],
+        "input_ranges": {name: [min(row["inputs"][name] for row in rows), max(row["inputs"][name] for row in rows)] for name in input_cost.INPUT_FIELDS[:7]},
+    }
+
+
+def predict_input_family(inputs: dict, model: dict) -> dict:
+    if model.get("version") != INPUT_FAMILY_VERSION:
+        raise ValueError("an independent frozen family model is required")
+    p = input_cost.normalize(inputs)
+    if input_cost.derive(p, model["hardware"])["family"] != model["family"]:
+        raise ValueError("operator inputs select a different family")
+    group = model["groups"][model["group"]]
+    features = input_family_features(p, model["hardware"])
+    components = {name: value * features[name] for name, value in group["coefficients"].items()}
+    duration = sum(components.values())
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("invalid family prediction")
+    cv = model.get("calibration_grouped_cv", {})
+    return {
+        "predicted_us": duration, "group": model["group"], "cost_terms_us": components,
+        "prediction_quality": "calibration_cv_pass" if cv and all(value["pass"] for value in cv.values()) else "provisional",
+        "extrapolated_inputs": [name for name, limits in group["input_ranges"].items() if not limits[0] <= p[name] <= limits[1]],
+    }
+
+
+def fit_input_family(rows: list[dict], hardware: dict, family: str, signature: str) -> dict:
+    calibration = [row for row in rows if row["family"] == family and row["split"] == "calibration" and row["status"] == "ok" and str(row.get("stable")).lower() == "true"]
+    if len(calibration) < 8:
+        raise ValueError(f"{family} has fewer than 8 stable calibration shapes")
+    group = input_cost.group_key(calibration[0]["inputs"], hardware)
+    if any(input_cost.group_key(row["inputs"], hardware) != group for row in calibration):
+        raise ValueError("family calibration mixes dtype or layout")
+    fitted = fit_input_family_group(calibration, hardware)
+    model = {
+        "version": INPUT_FAMILY_VERSION, "family": family, "group": group,
+        "plan_sha256": signature, "source_sha256": input_family_source(family),
+        "hardware": hardware, "groups": {group: fitted},
+        "source_evidence": SOURCE_EVIDENCE[family],
+        "target": "median msprof FlashAttentionScore Task Duration(us); official tiling; independent family calibration",
+        "calibration_grouped_cv": {},
+    }
+    axes = {}
+    for axis, fields in (("sequence_pair", ("S1", "S2")), ("heads", ("N1",)), ("batch", ("B",))):
+        identity = lambda row: tuple(row["inputs"][name] for name in fields)
+        folds = sorted({identity(row) for row in calibration})
+        results = []
+        for fold in folds if len(folds) > 1 else ():
+            training = [row for row in calibration if identity(row) != fold]
+            if len(training) < 3:
+                continue
+            fitted_fold = fit_input_family_group(training, hardware)
+            candidate = {**model, "groups": {group: fitted_fold}}
+            for row in calibration:
+                if identity(row) != fold:
+                    continue
+                if fitted_fold["feature_rank"] < fitted_fold["feature_count"]:
+                    results.append({"case": row["case"], "status": "unidentifiable_cost_terms"})
+                    continue
+                predicted = predict_input_family(row["inputs"], candidate)["predicted_us"]
+                results.append({"case": row["case"], "status": "predicted", "predicted_us": predicted, "actual_us": float(row["duration_us"]), "ape_percent": abs(predicted / float(row["duration_us"]) - 1) * 100})
+        axes[axis] = {
+            "tested": len(folds) > 1, "count": len(results), "cases": results,
+            "pass": len(results) == len(calibration) and all(row["status"] == "predicted" and row["ape_percent"] <= 10 for row in results),
+            "max_ape_percent": max((row["ape_percent"] for row in results if row["status"] == "predicted"), default=None),
+        }
+    model["calibration_grouped_cv"][group] = {
+        "axes": axes, "pass": fitted["feature_rank"] == fitted["feature_count"] and all(value["pass"] for value in axes.values()),
+        "max_ape_percent": max((value["max_ape_percent"] for value in axes.values() if value["max_ape_percent"] is not None), default=None),
+    }
+    return model
 
 
 def prediction(row: dict, model: dict, evaluation: str) -> dict:
