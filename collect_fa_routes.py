@@ -59,6 +59,87 @@ def recorded(path: Path) -> dict:
     return rows
 
 
+def text_report(directory: Path) -> None:
+    if not directory.is_dir():
+        raise FileNotFoundError(f"existing dataset is missing: {directory}")
+    target = directory / "diagnostics.txt"
+    metrics = 0
+    missing = []
+    with target.open("w", encoding="utf-8") as output:
+        def emit(label: str, value) -> None:
+            output.write(label + "\n")
+            output.write(value if isinstance(value, str) else json.dumps(value, sort_keys=True, ensure_ascii=False))
+            output.write("\n\n")
+
+        def include(path: Path) -> None:
+            relative = str(path.relative_to(directory))
+            if not path.is_file():
+                missing.append(relative)
+                emit("MISSING", relative)
+                return
+            try:
+                content = path.read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeError) as error:
+                missing.append(relative)
+                emit("READ_ERROR", {"file": relative, "error": str(error)})
+                return
+            emit("FILE_BEGIN " + relative, content)
+            output.write("FILE_END " + relative + "\n\n")
+
+        emit("FA_LATENCY_DIAGNOSTICS", {"version": VERSION, "scope": "existing calibration data only; raw profiler CSV fields and units retained"})
+        include(directory / "hardware.json")
+        manifest = directory / "manifest.json"
+        if manifest.is_file():
+            try:
+                protocol = json.loads(manifest.read_text())
+                plan = protocol.pop("plan", [])
+                protocol["planned_cases"] = len(plan)
+                emit("MEASUREMENT_PROTOCOL", protocol)
+            except (OSError, ValueError) as error:
+                missing.append("manifest.json")
+                emit("READ_ERROR", {"file": "manifest.json", "error": str(error)})
+        else:
+            include(manifest)
+        try:
+            rows = recorded(directory / "routes.csv")
+        except (OSError, ValueError, KeyError) as error:
+            rows = {}
+            missing.append("routes.csv")
+            emit("READ_ERROR", {"file": "routes.csv", "error": str(error)})
+        calibration = {name: row for name, row in rows.items() if row.get("split") == "calibration"}
+        emit("LATEST_CALIBRATION_COUNTS", dict(Counter(f"{row['family']}/{row['status']}/stable={row['stable']}" for row in calibration.values())))
+        fields = ("case", "family", "inputs", "priority", "tiling_key", "duration_us", "samples_us", "round_medians_us", "sample_count", "median_ci95_low_us", "median_ci95_high_us", "stable", "correctness", "status", "stage", "error")
+        for name, row in sorted(calibration.items()):
+            emit("CASE", {key: row.get(key, "") for key in fields})
+            if row["family"] != "same_ab":
+                continue
+            emit("EFFECTIVE_TILING " + name, json.loads(row["effective_tiling"]) if row.get("effective_tiling") else None)
+            for round_id in range(1, ROUNDS + 1):
+                folder = directory / "cases" / name / f"round_{round_id}"
+                log = folder / "profile.log"
+                if log.is_file():
+                    content = log.read_text(errors="replace")
+                    metadata = {label: dict(Counter(re.findall(rf"^[ \t]*{label}:[ \t]*(\S+)[ \t]*$", content, re.MULTILINE))) for label in ("Current Freq", "Rated Freq", "Device Id", "Op Name")}
+                    emit("PROFILER_STATUS " + str(folder.relative_to(directory)), {
+                        "collection_succeeded": "Profiling running finished. All task success." in content,
+                        "parse_succeeded": "Profiling data parse finished." in content, "metadata": metadata,
+                    })
+                else:
+                    include(log)
+                tables = sorted(folder.glob("*.csv"))
+                if not tables:
+                    missing.append(str(folder.relative_to(directory)) + "/*.csv")
+                    emit("MISSING_PROFILER_CSV", str(folder.relative_to(directory)))
+                for table in tables:
+                    include(table)
+                    metrics += 1
+        if not calibration:
+            missing.append("routes.csv: no calibration rows")
+        emit("REPORT_END", {"calibration_cases": len(calibration), "profiler_csv_files": metrics, "missing_or_unreadable": missing})
+    print(f"TEXT_REPORT={target}")
+    print(f"CALIBRATION_CASES={len(calibration)} PROFILER_CSV_FILES={metrics} MISSING_OR_UNREADABLE={len(missing)} BYTES={target.stat().st_size}")
+
+
 def select_shape(case: dict) -> None:
     p = case["inputs"]
     fa.SHAPE = {
@@ -403,9 +484,13 @@ def validation_report(plan: list[dict], records: dict, frozen: dict, directory: 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=4)
+    parser.add_argument("--report-only", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
     os.chdir(root)
+    if args.report_only:
+        text_report(root / "output" / VERSION)
+        return
     if hasattr(os, "sched_getaffinity"):
         allowed = sorted(os.sched_getaffinity(0))
         os.sched_setaffinity(0, set(allowed[:2]))
