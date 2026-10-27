@@ -38,7 +38,12 @@ ALL_FAMILIES = ("same_ab", "s1", "b", "b_drop", "general", "varlen")
 EXTERNAL_VERSION = "fa_external_latency_v1"
 RUN_BUDGET_SECONDS = 8 * 60 * 60
 KEY_REPORT_FIELDS = ("key_ub0", "key_ub1", "key_block", "key_dtype", "key_layout", "key_bmm1_format", "key_bmm2_source",
-                     "key_l1_reuse", "key_matmul_policy", "key_s1_template", "key_s2_template", "key_d_template", "key_decode_status")
+                     "key_l1_reuse", "key_matmul_policy", "key_s1_template", "key_s2_template", "key_d_template",
+                     "key_has_drop_out", "key_has_attention_mask", "key_has_pse", "key_has_rope", "key_impl_mode",
+                     "key_sparse", "key_big_double_buffer", "key_decode_status")
+BRANCH_FIELDS = ("priority", "key_ub0", "key_ub1", "key_block", "key_bmm1_format", "key_bmm2_source",
+                 "key_l1_reuse", "key_matmul_policy", "static_matmul", "key_has_drop_out", "drop_adapter",
+                 "key_has_attention_mask", "key_has_pse", "key_has_rope", "key_impl_mode", "key_sparse", "key_big_double_buffer")
 FIELDS = (
     "version", "case", "split", "family", "inputs", "priority", "tiling_key",
     "effective_tiling", "derived_schedule", "duration_us", "samples_us",
@@ -665,7 +670,7 @@ def is_complete(row: dict | None) -> bool:
     return bool(row and row.get("status") == "ok" and str(row.get("stable")).lower() == "true")
 
 
-def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path: Path, ensured: set, frozen: dict | None = None, precomputed: dict | None = None, build_failures: dict | None = None) -> None:
+def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path: Path, ensured: set, frozen: dict | None = None, precomputed: dict | None = None, build_failures: dict | None = None, discovered_route: tuple | None = None) -> None:
     name = case["name"]
     if is_complete(records.get(name)):
         print(f"SKIP case={name} status=ok", flush=True)
@@ -690,8 +695,8 @@ def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path
         params = fa.shape_params()
         stage = "discover"
         phase_started = time.monotonic()
-        priority, key = discover(params, folder, timeout=case.get("timeout_seconds"))
-        row["derived_schedule"]["host_wall_seconds"] = time.monotonic() - phase_started
+        priority, key = discovered_route if discovered_route is not None else discover(params, folder, timeout=case.get("timeout_seconds"))
+        row["derived_schedule"]["host_wall_seconds"] = time.monotonic() - phase_started + case.get("probe_host_wall_seconds", 0)
         row.update(priority=priority, tiling_key=key)
         if priority != case["expected"]:
             raise RuntimeError(f"official route={priority}, input-derived route={case['expected']}")
@@ -723,7 +728,7 @@ def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path
         print(f"CASE FAILED: {name} stage={stage} error={error}", flush=True)
     if case["split"] == "external":
         now = time.monotonic()
-        row["derived_schedule"]["case_wall_seconds"] = now - started
+        row["derived_schedule"]["case_wall_seconds"] = now - started + case.get("probe_host_wall_seconds", 0)
         if row["status"] == "failed" and stage in ("discover", "build", "measure"):
             field = {"discover": "host", "build": "build", "measure": "profile"}[stage] + "_wall_seconds"
             row["derived_schedule"][field] = now - phase_started
@@ -838,139 +843,122 @@ def collect_other_families(directory: Path, hardware: dict, full_plan: list[dict
 
 
 def external_design(hardware: dict) -> list[dict]:
-    plan = []
-    counts = Counter()
-    seen = {cost.sha256(case["inputs"]) for case in cost.design(hardware)}
     priorities = {"same_ab": 95, "s1": 97, "b": 98, "b_drop": 98, "general": 96, "varlen": 94}
+    frames = {
+        "same_ab": ("S1", "NONE", "NONE"), "s1": ("S1", "D", "NONE"),
+        "b": ("NONE", "NONE", "B"), "b_drop": ("NONE", "NONE", "B"),
+        "general": ("S1", "S2", "NONE"), "varlen": ("S1", "S2", "NONE"),
+    }
+    plan = []
 
-    def add(family, b, n, nk, s1, s2, d, dv, dtype="FP16", layout="BNSD", drop=0, coverage=None, official_schedule_only=False):
-        inputs = cost.normalize(dict(zip(cost.INPUT_FIELDS, (b, n, nk, s1, s2, d, dv, dtype, layout, drop))))
-        identity = cost.sha256(inputs)
-        if identity in seen:
-            raise ValueError("external plan contains an already scheduled operator input")
-        seen.add(identity)
-        if family in ("general", "varlen") or official_schedule_only:
-            derived = {"family": family, "priority": priorities[family], "prediction_quality": "unmodeled_family"}
-        else:
-            derived = cost.derive(inputs, hardware)
-            if derived["family"] != family:
-                raise ValueError(f"external input selects {derived['family']} instead of {family}")
-        name = f"{family}_{layout.lower()}_b{b}_n{n}_nk{nk}_s{s1}_s{s2}_d{d}_v{dv}_drop{drop}"
-        if coverage is not None:
-            name += f"_{dtype.lower()}"
-        case = {"name": name, "split": "external", "family": family, "expected": priorities[family],
-                "inputs": inputs, "derived_schedule": derived, "timeout_seconds": 300}
-        if coverage is not None:
-            case["coverage"] = coverage
-        if official_schedule_only:
-            case["official_schedule_only"] = True
-        plan.append(case)
-        counts[family] += 1
+    def add(target, family, first, second, **required):
+        for shape in (first, second):
+            inputs = cost.normalize(dict(zip(cost.INPUT_FIELDS, shape)))
+            ub0, ub1, block = frames[family]
+            requirements = {
+                "key_ub0": ub0, "key_ub1": ub1, "key_block": block,
+                "key_bmm1_format": "ND", "key_bmm2_source": "GM", "key_l1_reuse": 0,
+                "key_matmul_policy": "NORMAL", "static_matmul": False,
+                "key_has_drop_out": inputs["has_drop_mask"],
+                "key_has_attention_mask": 0, "key_has_pse": 0, "key_has_rope": 0, "key_impl_mode": 0,
+                "key_sparse": 1 if family in ("b", "b_drop") else 2, "key_big_double_buffer": 2,
+                "drop_adapter": bool(inputs["has_drop_mask"] and
+                                     (inputs["S2"] % 8 or inputs["layout"] == "TND" and inputs["B"] > 1)),
+                **required,
+            }
+            name = f"fa_branch_{target}_{cost.sha256(inputs)[:12]}"
+            plan.append({
+                "name": name, "split": "external", "family": family, "expected": priorities[family],
+                "inputs": inputs, "coverage": target, "required_branch": requirements,
+                "derived_schedule": {"family": family, "priority": priorities[family], "prediction_quality": "unmodeled_variant"},
+                "official_schedule_only": True, "timeout_seconds": 300,
+            })
 
-    for layout in ("BNSD", "SBH"):
-        for n in (16, 24):
-            for sequence in (2304, 3584, 5376, 7168):
-                add("same_ab", 1, n, n, sequence, sequence, 192, 128, "BF16", layout)
-        for b, n, s1, s2 in ((1, 64, 2304, 2304), (1, 64, 5376, 5376), (2, 16, 1536, 3072), (1, 24, 3072, 5120)):
-            add("same_ab", b, n, n, s1, s2, 192, 128, "BF16", layout)
-    for b, n, nk in ((1, 6, 2), (1, 20, 5), (2, 12, 3), (4, 8, 2)):
-        for s1, s2 in ((96, 192), (192, 320), (288, 448), (384, 640), (768, 960), (1280, 1024)):
-            add("s1", b, n, nk, s1, s2, 128, 128)
-    small = ((3, 40, 80), (3, 80, 40), (5, 96, 80), (6, 64, 112), (7, 48, 96), (8, 112, 64))
-    for b in (3, 6, 12, 24):
-        for n, s1, s2 in small:
-            add("b", b, n, 1, s1, s2, 64, 64)
-        for n, s1, s2 in (small[0], small[2], small[3], small[5]):
-            add("b_drop", b, n, 1, s1, s2, 64, 64, drop=1)
-    for b, n, s1, s2 in ((32, 4, 127, 127), (48, 4, 127, 127), (24, 4, 95, 127), (12, 4, 95, 127),
-                          (6, 5, 79, 65), (3, 3, 95, 49), (24, 3, 111, 81), (48, 2, 127, 97)):
-        add("b_drop", b, n, 1, s1, s2, 64, 64, drop=1)
-    for b, n, nk in ((1, 4, 1), (1, 12, 3), (2, 8, 2), (4, 4, 1)):
-        for s1, s2 in ((96, 1536), (256, 2048), (640, 3072), (1280, 4096)):
-            add("general", b, n, nk, s1, s2, 128, 128)
-    for b, n, nk in ((1, 4, 1), (2, 4, 1), (2, 8, 2), (4, 4, 1)):
-        for s1, s2 in ((96, 192), (160, 320), (224, 640), (384, 896)):
-            add("varlen", b, n, nk, s1, s2, 128, 128, layout="TND")
-    targets = dict(same_ab=128, s1=128, b=128, b_drop=128, general=64, varlen=64)
-
-    def extend(family, *args, **kwargs):
-        if counts[family] >= targets[family]:
-            return
-        b, n, nk, s1, s2, d, dv = args
-        shape = (*args, kwargs.get("dtype", "FP16"), kwargs.get("layout", "BNSD"), kwargs.get("drop", 0))
-        if cost.sha256(cost.normalize(dict(zip(cost.INPUT_FIELDS, shape)))) in seen:
-            return
-        try:
-            add(family, *args, **kwargs)
-        except ValueError as error:
-            if "selects" in str(error) or "supported" in str(error) or "scheduling" in str(error):
-                return
-            raise
-
-    for b, n, s1, s2 in ((1, 8, 128, 512), (1, 8, 256, 1536), (2, 8, 640, 2304), (1, 16, 384, 3072)):
-        extend("same_ab", b, n, 1, s1, s2, 96, 96, coverage="same_ab_fp16_d96", official_schedule_only=True)
-        extend("same_ab", b, n, 1, s1, max(s2, 1536), 192, 128, coverage="same_ab_fp16_d192", official_schedule_only=True)
-    for s1, s2 in ((160, 272), (320, 336), (640, 400), (768, 528)):
-        extend("s1", 1, 8, 2, s1, s2, 128, 128, coverage="s1_nz", official_schedule_only=True)
-    for s1, s2 in ((160, 512), (320, 768), (640, 1024), (960, 512)):
-        extend("s1", 1, 8, 2, s1, s2, 64, 64, coverage="s1_bmm2_l1", official_schedule_only=True)
-        extend("s1", 2, 48, 6, s1, s2, 128, 128, coverage="s1_incremental_l1_reuse", official_schedule_only=True)
-        extend("s1", 1, 8, 2, s1, s2, 128, 128, dtype="BF16", coverage="s1_bf16", official_schedule_only=True)
-    for b, n, s1, s2 in ((2, 3, 40, 80), (4, 4, 72, 56), (8, 6, 48, 96), (16, 8, 80, 64)):
-        extend("b", b, n, 1, s1, s2, 64, 64, dtype="BF16", coverage="b_bf16", official_schedule_only=True)
-        extend("b", b, n, 1, s1, s2, 64, 64, layout="BSND", coverage="b_bsnd", official_schedule_only=True)
-    for layout in ("SBH", "BSND"):
-        for s1, s2 in ((160, 1280), (320, 1792), (512, 2304), (896, 3328)):
-            extend("general", 1, 8, 2, s1, s2, 128, 128, layout=layout, coverage=f"general_{layout.lower()}")
-    for s1, s2 in ((160, 1536), (320, 2048), (512, 3072), (896, 4096)):
-        extend("general", 1, 8, 2, s1, s2, 64, 64, coverage="general_d64")
-        extend("general", 1, 8, 2, s1, s2, 128, 128, dtype="BF16", coverage="general_bf16")
-    for s1, s2 in ((160, 1041), (320, 1153), (512, 1553), (896, 2065)):
-        extend("general", 1, 8, 2, s1, s2, 128, 128, coverage="general_nz")
-    for dtype in ("FP16", "BF16"):
-        for s1, s2 in ((160, 384), (320, 768), (768, 1536), (1280, 2048)):
-            extend("varlen", 2, 4, 1, s1, s2, 128, 128, dtype=dtype, layout="TND", coverage="tnd_uniform_packed")
-        for s1, s2 in ((2048, 2048), (2048, 3072), (3072, 2048), (3072, 3072)):
-            extend("varlen", 4, 4, 1, s1, s2, 128, 128, dtype=dtype, layout="TND", coverage="tnd_same_ab")
-    buckets = {family: defaultdict(deque) for family in targets}
-
-    def queue(family, *args, **kwargs):
-        group = (*args[:3], *args[5:], kwargs.get("dtype", "FP16"), kwargs.get("layout", "BNSD"), kwargs.get("drop", 0))
-        buckets[family][group].append((args, kwargs))
-
-    for layout in ("BNSD", "SBH"):
-        for n in (4, 12, 20, 40):
-            for nk in (n, 8 if n == 40 else 4):
-                for s1, s2 in ((1792, 2304), (2560, 3840), (3328, 4608), (5120, 6144), (6400, 3584), (7680, 5120), (4096, 2560), (2048, 6400)):
-                    queue("same_ab", 1, n, nk, s1, s2, 192, 128, dtype="BF16", layout=layout, coverage="same_ab_dense_gqa")
-    for b, n, nk in ((1, 4, 1), (1, 12, 3), (1, 24, 6), (2, 12, 3), (4, 8, 2), (2, 20, 5)):
-        for s1, s2 in ((80, 192), (2048, 1024), (352, 640), (1536, 896), (144, 320), (896, 768), (208, 448), (576, 512),
-                       (80, 1024), (2048, 192), (352, 896), (1536, 320), (144, 768), (896, 448), (208, 640), (576, 896)):
-            queue("s1", b, n, nk, s1, s2, 128, 128, coverage="s1_dense_gqa")
-    for b in (2, 5, 8, 10, 20, 32, 48):
-        for n, nk in ((1, 1), (2, 1), (2, 2), (3, 1), (4, 1), (4, 4), (6, 2), (8, 2)):
-            for s1, s2 in ((24, 24), (120, 120), (120, 40), (40, 120), (56, 88), (88, 56), (72, 104), (104, 72)):
-                queue("b", b, n, nk, s1, s2, 64, 64, coverage="b_dense_gqa")
-            for s1, s2 in ((24, 25), (120, 121), (120, 40), (40, 120), (56, 57), (88, 89), (72, 104), (104, 105)):
-                queue("b_drop", b, n, nk, s1, s2, 64, 64, drop=1, coverage="drop_mask_gqa")
-    for b, n, nk in ((1, 6, 2), (1, 16, 4), (2, 12, 3), (4, 8, 2)):
-        for s1, s2 in ((192, 1408), (384, 2176), (768, 2816), (1536, 3584), (2048, 4608), (2560, 5632), (3200, 6656), (3840, 7680)):
-            queue("general", b, n, nk, s1, s2, 128, 128, coverage="general_dense_gqa")
-        for s1, s2 in ((80, 160), (144, 288), (288, 576), (448, 896), (768, 1280), (1280, 1920), (1536, 2560), (2048, 3072)):
-            queue("varlen", b, n, nk, s1, s2, 128, 128, layout="TND", coverage="tnd_uniform_packed")
-    for family, groups in buckets.items():
-        active = deque(groups.values())
-        while active and counts[family] < targets[family]:
-            group = active.popleft()
-            args, kwargs = group.popleft()
-            extend(family, *args, **kwargs)
-            if group:
-                active.append(group)
-    counts = Counter(case["family"] for case in plan)
-    if counts != Counter(targets):
-        raise ValueError(f"incomplete external test plan: {dict(counts)}")
+    add("same_ab_normal", "same_ab",
+        (1, 8, 8, 256, 1536, 192, 128, "BF16", "SBH", 0),
+        (1, 16, 16, 512, 2048, 192, 128, "BF16", "SBH", 0))
+    add("same_ab_unsplitk", "same_ab",
+        (1, 8, 8, 256, 1536, 192, 128, "BF16", "BNSD", 0),
+        (1, 16, 16, 512, 2048, 192, 128, "BF16", "BNSD", 0), key_matmul_policy="UNSPLITK")
+    add("s1_gm", "s1",
+        (1, 8, 2, 128, 512, 128, 128, "FP16", "BNSD", 0),
+        (1, 16, 4, 256, 512, 128, 128, "FP16", "BNSD", 0))
+    add("b_dynamic", "b",
+        (1, 2, 1, 32, 64, 64, 64, "FP16", "BNSD", 0),
+        (4, 4, 1, 64, 64, 64, 64, "FP16", "BNSD", 0))
+    add("b_drop_aligned", "b_drop",
+        (1, 2, 1, 32, 64, 64, 64, "FP16", "BNSD", 1),
+        (4, 4, 1, 64, 64, 64, 64, "FP16", "BNSD", 1))
+    add("b_drop_adapter", "b_drop",
+        (1, 2, 1, 31, 65, 64, 64, "FP16", "BNSD", 1),
+        (4, 2, 1, 63, 33, 64, 64, "FP16", "BNSD", 1))
+    add("general_nd_reuse", "general",
+        (1, 8, 2, 256, 1536, 128, 128, "FP16", "BNSD", 0),
+        (1, 16, 4, 384, 2048, 128, 128, "FP16", "BNSD", 0), key_l1_reuse=1)
+    add("general_nz_reuse", "general",
+        (1, 8, 2, 320, 1153, 128, 128, "FP16", "BNSD", 0),
+        (1, 16, 4, 512, 1553, 128, 128, "FP16", "BNSD", 0), key_bmm1_format="NZ", key_l1_reuse=1)
+    add("general_nd_no_reuse", "general",
+        (1, 8, 2, 256, 1536, 256, 256, "FP16", "BNSD", 0),
+        (1, 16, 4, 384, 2048, 256, 256, "FP16", "BNSD", 0))
+    add("general_nz_no_reuse", "general",
+        (1, 8, 2, 320, 1153, 256, 256, "FP16", "BNSD", 0),
+        (1, 16, 4, 512, 1553, 256, 256, "FP16", "BNSD", 0), key_bmm1_format="NZ")
+    add("tnd_general", "varlen",
+        (2, 4, 1, 160, 320, 128, 128, "FP16", "TND", 0),
+        (2, 8, 2, 224, 640, 128, 128, "FP16", "TND", 0))
+    add("tnd_same_ab", "varlen",
+        (4, 4, 1, 2048, 2048, 128, 128, "FP16", "TND", 0),
+        (4, 8, 2, 3072, 2048, 128, 128, "FP16", "TND", 0), key_ub1="NONE")
+    add("s1_nz_gm", "s1",
+        (1, 8, 2, 160, 272, 128, 128, "FP16", "BNSD", 0),
+        (1, 16, 4, 320, 336, 128, 128, "FP16", "BNSD", 0), key_bmm1_format="NZ")
+    add("s1_nd_l1", "s1",
+        (1, 8, 2, 320, 768, 64, 64, "FP16", "BNSD", 0),
+        (1, 16, 4, 640, 1024, 64, 64, "FP16", "BNSD", 0), key_bmm2_source="L1")
+    add("s1_nz_l1", "s1",
+        (1, 8, 2, 320, 752, 64, 64, "FP16", "BNSD", 0),
+        (1, 16, 4, 640, 784, 64, 64, "FP16", "BNSD", 0), key_bmm1_format="NZ", key_bmm2_source="L1")
+    add("s1_nd_incremental_reuse", "s1",
+        (2, 48, 6, 320, 768, 128, 128, "FP16", "BNSD", 0),
+        (2, 40, 5, 640, 1024, 128, 128, "FP16", "BNSD", 0), key_l1_reuse=1)
+    add("s1_nz_incremental_reuse", "s1",
+        (2, 48, 6, 320, 528, 128, 128, "FP16", "BNSD", 0),
+        (2, 40, 5, 640, 784, 128, 128, "FP16", "BNSD", 0), key_bmm1_format="NZ", key_l1_reuse=1)
+    add("same_ab_nz", "same_ab",
+        (1, 8, 1, 256, 641, 96, 96, "FP16", "BNSD", 0),
+        (2, 8, 1, 640, 1537, 96, 96, "FP16", "BNSD", 0), key_bmm1_format="NZ")
+    add("b_static_matmul", "b",
+        (1, 1, 1, 32, 32, 80, 80, "BF16", "BSND", 0),
+        (4, 2, 1, 64, 64, 80, 80, "BF16", "BSND", 0), static_matmul=True)
+    add("s1_static_matmul", "s1",
+        (1, 8, 2, 128, 128, 80, 80, "BF16", "BSND", 0),
+        (1, 8, 2, 128, 256, 80, 80, "BF16", "BSND", 0), static_matmul=True)
+    add("same_ab_drop", "same_ab",
+        (1, 8, 2, 256, 1536, 192, 128, "BF16", "BNSD", 1),
+        (1, 16, 4, 512, 2048, 192, 128, "BF16", "BNSD", 1), key_matmul_policy="UNSPLITK")
+    add("same_ab_drop_adapter", "same_ab",
+        (1, 8, 2, 256, 1537, 192, 128, "BF16", "BNSD", 1),
+        (1, 16, 4, 512, 2057, 192, 128, "BF16", "BNSD", 1), key_bmm1_format="NZ")
+    add("s1_drop", "s1",
+        (1, 8, 2, 160, 512, 128, 128, "FP16", "BNSD", 1),
+        (1, 16, 4, 320, 768, 128, 128, "FP16", "BNSD", 1))
+    add("s1_drop_adapter", "s1",
+        (1, 8, 2, 160, 529, 128, 128, "FP16", "BNSD", 1),
+        (1, 16, 4, 320, 785, 128, 128, "FP16", "BNSD", 1), key_bmm1_format="NZ")
+    add("general_drop", "general",
+        (1, 8, 2, 256, 1536, 128, 128, "FP16", "BNSD", 1),
+        (1, 16, 4, 512, 2048, 128, 128, "FP16", "BNSD", 1), key_l1_reuse=1)
+    add("general_drop_adapter", "general",
+        (1, 8, 2, 256, 1553, 128, 128, "FP16", "BNSD", 1),
+        (1, 16, 4, 512, 2065, 128, 128, "FP16", "BNSD", 1), key_bmm1_format="NZ", key_l1_reuse=1)
+    add("tnd_drop", "varlen",
+        (1, 4, 1, 160, 320, 128, 128, "FP16", "TND", 1),
+        (1, 8, 2, 224, 640, 128, 128, "FP16", "TND", 1))
+    add("tnd_drop_adapter", "varlen",
+        (2, 4, 1, 160, 320, 128, 128, "FP16", "TND", 1),
+        (2, 8, 2, 224, 640, 128, 128, "FP16", "TND", 1))
     return plan
-
 
 @lru_cache(maxsize=4)
 def fa_key_schema(path: str) -> tuple:
@@ -1001,11 +989,76 @@ def decode_fa_key(key: int) -> dict:
             "key_layout": {0: "NONE", 1: "BSH", 2: "SBH", 3: "BNSD", 4: "TND"}[decoded["Layout"]],
             "key_bmm1_format": ("ND", "NZ")[decoded["Bmm1Format"]], "key_bmm2_source": ("GM", "L1")[decoded["Bmm2Source"]],
             "key_l1_reuse": decoded["EnableL1Reuse"], "key_matmul_policy": ("NORMAL", "UNSPLITK")[decoded["MatmulPolicyType"]],
+            "key_has_drop_out": decoded["HasDropOut"], "key_has_attention_mask": decoded["HasAttenMask"],
+            "key_has_pse": decoded["HasPse"], "key_has_rope": decoded["HasRope"], "key_impl_mode": decoded["ImplMode"],
+            "key_sparse": decoded["Sparse"], "key_big_double_buffer": decoded["BigDoubleBuffer"],
             "key_s1_template": decoded["S1TemplateType"] * 16, "key_s2_template": decoded["S2TemplateType"] * 16,
             "key_d_template": decoded["DTemplateType"] * 16, "key_decode_status": "official_v8.5.0_schema",
         }
     except (OSError, ValueError, KeyError, IndexError):
         return {"key_decode_status": "unavailable; numeric key retained"}
+
+
+def describe_branch(priority: int, key: int, inputs: dict) -> dict:
+    decoded = decode_fa_key(key)
+    if decoded.get("key_decode_status") != "official_v8.5.0_schema":
+        raise RuntimeError("the official key schema is unavailable; branch coverage cannot be verified")
+    p = cost.normalize(inputs)
+    decoded.update(priority=int(priority), static_matmul=any(decoded[name] for name in ("key_s1_template", "key_s2_template", "key_d_template")),
+                   drop_adapter=bool(p["has_drop_mask"] and (p["S2"] % 8 or p["layout"] == "TND" and p["B"] > 1)))
+    if decoded["key_has_drop_out"] != p["has_drop_mask"]:
+        raise RuntimeError("Host key DropMask flag differs from the operator inputs")
+    return {name: decoded[name] for name in BRANCH_FIELDS}
+
+
+def matches_branch(case: dict, branch: dict) -> bool:
+    return branch["priority"] == case["expected"] and all(branch.get(name) == value for name, value in case["required_branch"].items())
+
+
+def measured_branches(directory: Path, folder: Path) -> dict:
+    known = {}
+    for origin in (directory, folder):
+        for name, row in recorded(origin / "routes.csv").items():
+            correctness = row.get("correctness") or {}
+            if row.get("status") != "ok" or not row.get("tiling_key") or not isinstance(correctness, dict) or (finite(correctness.get("checked_elements")) or 0) <= 0 or (finite(row.get("duration_us")) or 0) <= 0:
+                continue
+            try:
+                branch = describe_branch(int(row["priority"]), int(row["tiling_key"]), row["inputs"])
+            except (ValueError, RuntimeError, KeyError):
+                continue
+            known.setdefault(cost.sha256(branch), {"branch": branch, "case": name, "source": str(origin), "tiling_key": int(row["tiling_key"])})
+    return known
+
+
+def probe_branch(case: dict, folder: Path) -> tuple[int, int]:
+    trace = folder / "host_route.tsv"
+    if trace.is_file():
+        try:
+            return fa.read_route(trace)
+        except (ValueError, RuntimeError):
+            pass
+    select_shape(case)
+    try:
+        return discover(fa.shape_params(), folder, timeout=case.get("timeout_seconds"))
+    except Exception:
+        if trace.is_file():
+            return fa.read_route(trace)
+        raise
+
+
+def save_coverage_record(case: dict, state: str, records: dict, csv_path: Path, route=None, reference=None, error="") -> None:
+    if records.get(case["name"], {}).get("status") in ("ok", "failed"):
+        return
+    derived = {**case["derived_schedule"], "prediction_quality": "not_measured"}
+    if reference:
+        derived.update(covered_by_case=reference["case"], covered_by_source=reference["source"])
+    row = {"version": VERSION, "case": case["name"], "split": "external", "family": case["family"],
+           "inputs": case["inputs"], "derived_schedule": derived, "prediction_before_measurement": False,
+           "status": state, "stage": "coverage", "error": error}
+    if route:
+        row.update(priority=route[0], tiling_key=route[1])
+    append(csv_path, row)
+    records[case["name"]] = row
 
 
 def external_order(plan: list[dict]) -> list[dict]:
@@ -1022,6 +1075,12 @@ def external_order(plan: list[dict]) -> list[dict]:
 
 
 def external_report(directory: Path, folder: Path, plan: list[dict], payload: dict) -> dict:
+    manifest = json.loads((folder / "manifest.json").read_text())
+    active_plan = manifest.get("active_plan", plan)
+    active_cases = {case["name"]: case for case in active_plan}
+    all_cases = {case["name"]: case for case in plan}
+    coverage_path = folder / "branch_coverage.json"
+    coverage_records = json.loads(coverage_path.read_text()) if coverage_path.is_file() else {}
     text_report(folder, ALL_FAMILIES)
     original = directory / "diagnostics.csv"
     with original.open(newline="") as source:
@@ -1031,15 +1090,19 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
         reader = csv.DictReader(source)
         fields.extend(name for name in reader.fieldnames or [] if name not in fields)
         additional = list(reader)
-    for name in ("prediction_model_kind", "prediction_status", "prediction_error", "coverage"):
+    for name in ("prediction_model_kind", "prediction_status", "prediction_error", "coverage", "coverage_status", "covered_by_case"):
         if name not in fields:
             fields.append(name)
     for row in additional:
         saved = payload["predictions"][row["case"]]
         row.update(prediction_model_kind=saved["kind"], prediction_status=saved["status"])
-        case = next(case for case in plan if case["name"] == row["case"])
+        case = active_cases.get(row["case"], all_cases[row["case"]])
         row["coverage"] = case.get("coverage", case["family"])
-        if saved["status"] == "predicted" and not external_prediction_matches(row, saved):
+        coverage = coverage_records.get(row["case"], {})
+        row.update(coverage_status=coverage.get("state", ""), covered_by_case=coverage.get("reference", {}).get("case", ""))
+        if row.get("prediction_quality") in ("branch_unmodeled", "not_measured"):
+            row["prediction_status"] = "unmodeled_variant" if row["prediction_quality"] == "branch_unmodeled" else "not_measured"
+        elif saved["status"] == "predicted" and not external_prediction_matches(row, saved):
             row.update(prediction_status="provenance_mismatch", prediction_error="record does not match the prediction frozen before NPU execution")
             row.update(predicted_us="", ape_percent="", pass_10_percent="")
         elif saved.get("error"):
@@ -1073,12 +1136,14 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
     latest = recorded(folder / "routes.csv")
     families = {}
     for family in ALL_FAMILIES:
-        cases = [case for case in plan if case["family"] == family]
+        cases = [case for case in active_plan if case["family"] == family]
         observed = [latest.get(case["name"], {}) for case in cases]
         errors = [float(row["ape_percent"]) for case, row in zip(cases, observed) if row.get("status") == "ok" and row.get("ape_percent") not in (None, "")
                   and external_prediction_matches(row, payload["predictions"][case["name"]])]
         families[family] = {"requested": len(cases), "runtime_ok": sum(row.get("status") == "ok" for row in observed),
                             "failed": sum(row.get("status") == "failed" for row in observed),
+                            "skipped_covered": sum(coverage_records.get(case["name"], {}).get("state") == "covered" for case in cases),
+                            "not_hit": sum(coverage_records.get(case["name"], {}).get("state") == "not_hit" for case in cases),
                             "pending": sum(not row for row in observed),
                             "measured_tiling_keys": sorted({int(row["tiling_key"]) for row in observed if row.get("status") == "ok" and row.get("tiling_key")}),
                             "predicted_before_measurement": sum(payload["predictions"][case["name"]]["status"] == "predicted" for case in cases),
@@ -1088,12 +1153,20 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
     for row in additional:
         if row["status"] == "ok":
             variants[(row["family"], row["dtype"], row["layout"], row["tiling_key"], row.get("key_bmm1_format", ""), row.get("key_bmm2_source", ""), row.get("key_l1_reuse", ""))] += 1
+    known = measured_branches(directory, folder)
+    targets = {}
+    for case in active_plan:
+        target = case.get("coverage", case["family"])
+        reference = next((item for item in known.values() if matches_branch(case, item["branch"])), None)
+        targets[target] = {"covered": reference is not None, "reference": reference, "required_branch": case["required_branch"], "priority": case["expected"]}
     result = {"version": EXTERNAL_VERSION, "families": families, "frozen_predictions_sha256": cost.sha256(payload),
-              "requested_coverage": dict(Counter(case.get("coverage", case["family"]) for case in plan)),
+              "requested_coverage": dict(Counter(case.get("coverage", case["family"]) for case in active_plan)),
+              "branch_targets": targets, "coverage_complete": all(value["covered"] for value in targets.values()),
               "measured_variants": [{"family": key[0], "dtype": key[1], "layout": key[2], "tiling_key": key[3], "bmm1_format": key[4], "bmm2_source": key[5], "l1_reuse": key[6], "cases": count} for key, count in sorted(variants.items())],
-              "measurements_complete": all(value["runtime_ok"] + value["failed"] == value["requested"] for value in families.values())}
+              "measurements_complete": all(case["name"] in coverage_records for case in active_plan)}
     cost.save_json(folder / "summary.json", result)
     print(f"EXTERNAL SUMMARY: {families}", flush=True)
+    print(f"FA BRANCH COVERAGE: {sum(value['covered'] for value in targets.values())}/{len(targets)}; dtype/layout alone do not count as new branches", flush=True)
     print(f"CSV_REPORT={original}; original measurements plus external cases; no raw-log bundle", flush=True)
     return result
 
@@ -1114,17 +1187,27 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
     folder = directory / "external"
     folder.mkdir(parents=True, exist_ok=True)
     cost.save_json(folder / "hardware.json", hardware)
-    plan = external_design(hardware)
-    protocol = {"version": EXTERNAL_VERSION, "protocol_sha256": signature, "plan": plan,
-                "predictor_sha256": cost.sha256({"source": Path(family_models.__file__).read_text()})}
     manifest = folder / "manifest.json"
     previous = json.loads(manifest.read_text()) if manifest.is_file() else None
+    registry = list(previous["plan"]) if previous else []
+    by_input = {cost.sha256(case["inputs"]): case for case in registry}
+    active_plan = []
+    for candidate in external_design(hardware):
+        original = by_input.get(cost.sha256(candidate["inputs"]))
+        if original is None:
+            original = candidate
+            registry.append(original)
+            by_input[cost.sha256(original["inputs"])] = original
+        active_plan.append({**original, "coverage": candidate["coverage"],
+                            "family": candidate["family"], "expected": candidate["expected"],
+                            "required_branch": candidate["required_branch"], "official_schedule_only": True,
+                            "derived_schedule": dict(candidate["derived_schedule"])})
+    protocol = {"version": EXTERNAL_VERSION, "protocol_sha256": signature, "plan": registry, "active_plan": active_plan,
+                "predictor_sha256": cost.sha256({"source": Path(family_models.__file__).read_text()})}
     if previous is not None:
-        if cost.sha256({key: value for key, value in previous.items() if key != "plan"}) != cost.sha256({key: value for key, value in protocol.items() if key != "plan"}):
+        excluded = ("plan", "active_plan")
+        if cost.sha256({key: value for key, value in previous.items() if key not in excluded}) != cost.sha256({key: value for key, value in protocol.items() if key not in excluded}):
             raise RuntimeError("the external measurement protocol or predictor changed; existing measurements are preserved")
-        current = {case["name"]: case for case in plan}
-        if any(case["name"] not in current or cost.sha256(case) != cost.sha256(current[case["name"]]) for case in previous["plan"]):
-            raise RuntimeError("an existing external shape or its measurement settings changed")
     records = recorded(folder / "routes.csv")
     snapshot = folder / "predictions_before_measurement.json"
     if snapshot.is_file():
@@ -1135,61 +1218,96 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
         if payload["protocol_sha256"] not in accepted:
             raise RuntimeError("saved external predictions belong to another measurement plan")
         if any(name not in payload["predictions"] for name in records):
-            raise RuntimeError("an exposed external shape has no saved premeasurement prediction record")
+            raise RuntimeError("an exposed external shape has no saved prediction record")
     else:
         if records:
-            raise RuntimeError("external measurements exist but their frozen prediction snapshot is missing; data were retained")
-        sameab = json.loads((directory / "model.json").read_text())
-        pipeline = json.loads((directory / "pipeline_models.json").read_text())["families"]
-        payload = {"models": {"same_ab": sameab, **pipeline}, "predictions": {}}
+            raise RuntimeError("external measurements exist but their frozen snapshot is missing; data were retained")
+        models = {}
+        if (directory / "model.json").is_file():
+            models["same_ab"] = json.loads((directory / "model.json").read_text())
+        if (directory / "pipeline_models.json").is_file():
+            models.update(json.loads((directory / "pipeline_models.json").read_text())["families"])
+        payload = {"models": models, "predictions": {}}
     models = payload["models"]
-    for case in plan:
-        if case["name"] in payload["predictions"]:
-            continue
-        family = case["family"]
-        kind = "same_ab" if family == "same_ab" else "pipeline" if family in models else "unmodeled"
-        item = {"kind": kind, "status": "unmodeled_variant" if case.get("official_schedule_only") else "unmodeled_family"}
-        if family in models and not case.get("official_schedule_only"):
-            try:
-                result = cost.predict(case["inputs"], models[family]) if kind == "same_ab" else family_models.predict_pipeline(case["inputs"], models[family])
-                result["prediction_quality"] = "frozen_before_measurement"
-                item.update(status="predicted", result=result, model_sha256=cost.sha256(models[family]))
-            except (ValueError, RuntimeError) as error:
-                item.update(status="uncalibrated_cost", error=str(error))
-        payload["predictions"][case["name"]] = item
+    for case in registry:
+        if case["name"] not in payload["predictions"]:
+            family = case["family"]
+            payload["predictions"][case["name"]] = {
+                "kind": "same_ab" if family == "same_ab" else "pipeline" if family in models else "unmodeled",
+                "status": "unmodeled_variant",
+            }
     payload["protocol_sha256"] = cost.sha256(protocol)
     cost.save_json(snapshot, payload)
     cost.save_json(manifest, protocol)
-    cached = sum(records.get(case["name"], {}).get("status") == "ok" for case in plan)
-    print(f"EXTERNAL PLAN: total={len(plan)} cached_success={cached} remaining={len(plan) - cached} families={dict(Counter(case['family'] for case in plan))}", flush=True)
-    print("EXTERNAL: sequential cases; one build per encountered key/dtype; 3 rounds x 10 timings; no new measurements enter frozen models", flush=True)
-    print(f"RUN BUDGET: 8 hours including preparation; remaining_seconds={max(0, deadline - time.monotonic()):.0f}; finish the current case/build before stopping", flush=True)
+    coverage_path = folder / "branch_coverage.json"
+    coverage = json.loads(coverage_path.read_text()) if coverage_path.is_file() else {}
+    known = measured_branches(directory, folder)
+    initially_known = set(known)
+    targets = {case["coverage"]: case for case in active_plan}
+    already_covered = sum(any(matches_branch(case, item["branch"]) for item in known.values()) for case in targets.values())
+    print(f"FA BRANCH PLAN: targets={len(targets)} already_covered={already_covered} uncovered={len(targets) - already_covered}; no per-family shape quotas", flush=True)
+    print("A candidate is profiled only after Host key verification and only for an unmeasured execution path; dtype/layout alone do not create a new path", flush=True)
+    print(f"RUN BUDGET: remaining_seconds={max(0, deadline - time.monotonic()):.0f}; no repeated measurements to fill the time budget", flush=True)
     failures = {}
     budget_reached = False
     try:
-        for index, case in enumerate(external_order(plan), 1):
-            name = case["name"]
-            if records.get(name, {}).get("status") == "ok":
-                print(f"EXTERNAL {index}/{len(plan)} CACHE HIT: {name}", flush=True)
+        for index, case in enumerate(external_order(active_plan), 1):
+            name, target = case["name"], case["coverage"]
+            reference = next((item for item in known.values() if matches_branch(case, item["branch"])), None)
+            if reference is not None:
+                coverage[name] = {"state": "covered", "target": target, "reference": reference}
+                save_coverage_record(case, "covered", records, folder / "routes.csv", reference=reference)
+                print(f"BRANCH {index}/{len(active_plan)} COVERED: {target}; reuse {reference['case']}", flush=True)
                 continue
             if time.monotonic() >= deadline:
                 budget_reached = True
-                print("RUN BUDGET REACHED: no new cases will start; successful measurements are reusable on the next run", flush=True)
+                print("RUN BUDGET REACHED: unmeasured branches remain pending", flush=True)
                 break
-            saved = payload["predictions"][name]
-            case["derived_schedule"]["prediction_quality"] = saved["status"]
-            print(f"EXTERNAL {index}/{len(plan)} START: {name}; prediction={saved['status']}", flush=True)
-            model = payload["models"].get(case["family"]) if saved["status"] == "predicted" else None
-            collect(case, hardware, folder, records, folder / "routes.csv", ensured, model, saved.get("result"), failures)
-            if index % 16 == 0:
-                external_report(directory, folder, plan, payload)
+            location = folder / "cases" / name
+            location.mkdir(parents=True, exist_ok=True)
+            print(f"BRANCH {index}/{len(active_plan)} PROBE: {target}; shape={case['inputs']}", flush=True)
+            probe_started = time.monotonic()
+            try:
+                route = probe_branch(case, location)
+                observed = describe_branch(route[0], route[1], case["inputs"])
+                if not matches_branch(case, observed):
+                    message = f"requested branch was not selected: expected_priority={case['expected']} actual={observed}"
+                    coverage[name] = {"state": "not_hit", "target": target, "observed": observed, "error": message}
+                    save_coverage_record(case, "not_hit", records, folder / "routes.csv", route=route, error=message)
+                    print(f"BRANCH NOT HIT: {target}; trying the next representative", flush=True)
+                    continue
+                identity = cost.sha256(observed)
+                if identity in known:
+                    reference = known[identity]
+                    coverage[name] = {"state": "covered", "target": target, "reference": reference}
+                    save_coverage_record(case, "covered", records, folder / "routes.csv", route=route, reference=reference)
+                    continue
+                case["probe_host_wall_seconds"] = time.monotonic() - probe_started
+                case["derived_schedule"]["prediction_quality"] = "branch_unmodeled"
+                select_shape(case)
+                collect(case, hardware, folder, records, folder / "routes.csv", ensured,
+                        build_failures=failures, discovered_route=route)
+                row = records.get(name, {})
+                if row.get("status") == "ok":
+                    known = measured_branches(directory, folder)
+                    coverage[name] = {"state": "measured", "target": target, "observed": observed}
+                else:
+                    coverage[name] = {"state": "failed", "target": target, "observed": observed, "error": row.get("error", "")}
+            except Exception as error:
+                coverage[name] = {"state": "failed", "target": target, "error": str(error)}
+                save_coverage_record(case, "failed", records, folder / "routes.csv", error=str(error))
+                print(f"BRANCH FAILED: {target}; {error}; continuing", flush=True)
+            finally:
+                cost.save_json(coverage_path, coverage)
+                if index % 8 == 0:
+                    external_report(directory, folder, registry, payload)
     finally:
-        result = external_report(directory, folder, plan, payload)
+        cost.save_json(coverage_path, coverage)
+        result = external_report(directory, folder, registry, payload)
         result.update(stopped_for_time_budget=budget_reached, run_budget_seconds=RUN_BUDGET_SECONDS,
-                      elapsed_seconds=time.monotonic() - run_started)
+                      elapsed_seconds=time.monotonic() - run_started, newly_measured_branches=len(set(known) - initially_known))
         cost.save_json(folder / "summary.json", result)
     return result
-
 
 def main() -> None:
     run_started = time.monotonic()
@@ -1203,8 +1321,9 @@ def main() -> None:
         directory = root / "output" / VERSION
         external = directory / "external"
         families = ALL_FAMILIES if (external / "manifest.json").is_file() else RESEARCH_FAMILIES if (directory / "family_validation_report.json").is_file() else MODEL_FAMILIES
-        text_report(directory, families)
-        if families != MODEL_FAMILIES:
+        if not (external / "manifest.json").is_file() or not (directory / "diagnostics.csv").is_file():
+            text_report(directory, families)
+        if families != MODEL_FAMILIES and not (external / "manifest.json").is_file():
             family_models.pipeline_report(directory / "diagnostics.csv")
         if (external / "predictions_before_measurement.json").is_file():
             payload = json.loads((external / "predictions_before_measurement.json").read_text())
@@ -1248,84 +1367,12 @@ def main() -> None:
             raise RuntimeError("an existing dataset can only be extended with calibration inputs")
     if not manifest.is_file():
         cost.save_json(manifest, protocol)
-    plan = [case for case in full_plan if case["family"] in MODEL_FAMILIES]
-    print(f"MODEL_FAMILIES={','.join(MODEL_FAMILIES)}", flush=True)
-    print(f"PLAN shapes={len(plan)} counts={dict(Counter((case['split'], case['family']) for case in plan))}", flush=True)
-    print(f"DESIGN_CHECK={design_check}", flush=True)
-    print(f"DATASET={directory}", flush=True)
-    csv_path = directory / "routes.csv"
-    records = recorded(csv_path)
-    model_path = directory / "model.json"
-    frozen = json.loads(model_path.read_text()) if model_path.is_file() else None
-    blind_exposed = any(row.get("split") == "holdout" for row in records.values())
-    if frozen is not None and (frozen.get("plan_sha256") != signature or frozen.get("fit_method") != cost.FIT_METHOD):
-        if blind_exposed:
-            raise RuntimeError("the existing frozen model uses different model code; measurements are preserved, but its blind set must not be reused to validate a replacement")
-        frozen = None
-    calibration = [case for case in plan if case["split"] == "calibration"]
-    holdout = [case for case in plan if case["split"] == "holdout"]
-    print(f"MEASUREMENT PLAN: calibration_cached={sum(is_complete(records.get(case['name'])) for case in calibration)}/{len(calibration)} blind_remaining={sum(not is_complete(records.get(case['name'])) for case in holdout)}", flush=True)
-    ensured = set()
-    for case in plan:
-        if case["split"] == "calibration":
-            collect(case, hardware, directory, records, csv_path, ensured)
-    incomplete = [case["name"] for case in plan if case["split"] == "calibration" and not is_complete(records.get(case["name"]))]
-    selected_names = {case["name"] for case in plan}
-    diagnostic = cost.fit([row for name, row in records.items() if name in selected_names], hardware, signature) if frozen is None else frozen
-    expected_groups = {cost.group_key(case["inputs"], hardware) for case in plan if case["split"] == "calibration"}
-    grouped_cv = diagnostic["calibration_grouped_cv"]
-    calibration_model_pass = set(grouped_cv) == expected_groups and all(value["pass"] for value in grouped_cv.values())
-    cost.save_json(directory / "calibration_report.json", {
-        "version": VERSION, "fit_method": cost.FIT_METHOD, "pass": calibration_model_pass and not incomplete,
-        "model_families": list(MODEL_FAMILIES),
-        "calibration_complete": not incomplete, "incomplete_cases": incomplete,
-        "model_source_sha256": protocol["cost_source_sha256"],
-        "evaluation": "calibration-only grouped cross-validation; not independent blind validation",
-        "calibration_grouped_cv": grouped_cv,
-    })
-    for group, value in grouped_cv.items():
-        print(f"CALIBRATION CV: group={group} pass={value['pass']} max_ape_percent={value['max_ape_percent']}", flush=True)
-    if incomplete:
-        cost.save_json(directory / "validation_report.json", {"pass": False, "stage": "calibration_incomplete", "cases": incomplete, "calibration_grouped_cv": grouped_cv})
-        print(f"ACCURACY_GATE=FAIL calibration_incomplete={len(incomplete)}; successful cases are reusable", flush=True)
-        text_report(directory)
+    print("MODE: FA execution paths not covered by successful measurements", flush=True)
+    if not (directory / "diagnostics.csv").is_file():
+        text_report(directory, ALL_FAMILIES)
+    result = collect_external(directory, hardware, signature, set(), run_started + RUN_BUDGET_SECONDS)
+    if not result["coverage_complete"] and not result["stopped_for_time_budget"]:
         raise SystemExit(1)
-    if not calibration_model_pass:
-        cost.save_json(directory / "validation_report.json", {"pass": False, "stage": "calibration_model_failed", "calibration_grouped_cv": grouped_cv})
-        print("ACCURACY_GATE=FAIL calibration_model_failed; blind measurements were not started", flush=True)
-        text_report(directory)
-        raise SystemExit(1)
-    if frozen is None:
-        frozen = diagnostic
-        cost.save_json(model_path, frozen)
-    predictions_path = directory / "predictions_before_measurement.json"
-    payload = json.loads(predictions_path.read_text()) if predictions_path.is_file() else None
-    if payload is not None and payload["model_sha256"] != cost.sha256(frozen):
-        if blind_exposed:
-            raise RuntimeError("saved predictions belong to a different frozen model")
-        payload = None
-    if payload is None:
-        payload = {
-            "model_sha256": cost.sha256(frozen),
-            "predictions": {case["name"]: cost.predict(case["inputs"], frozen) for case in plan if case["split"] == "holdout"},
-        }
-        cost.save_json(predictions_path, payload)
-    for case in plan:
-        if case["split"] == "holdout":
-            collect(case, hardware, directory, records, csv_path, ensured, frozen, payload["predictions"][case["name"]])
-    report = validation_report(plan, records, frozen, directory)
-    print(f"MODEL={model_path}")
-    print(f"REPORT={directory / 'validation_report.json'}")
-    if not report["pass"]:
-        text_report(directory)
-        raise SystemExit(1)
-    collect_other_families(directory, hardware, full_plan, records, csv_path, ensured, signature)
-    text_report(directory, ALL_FAMILIES)
-    family_models.pipeline_report(directory / "diagnostics.csv")
-    external = collect_external(directory, hardware, signature, ensured, run_started + RUN_BUDGET_SECONDS)
-    if (not external["measurements_complete"] and not external["stopped_for_time_budget"]) or any(value["failed"] for value in external["families"].values()):
-        raise SystemExit(1)
-
 
 if __name__ == "__main__":
     main()
