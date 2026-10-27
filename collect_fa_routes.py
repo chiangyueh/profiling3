@@ -59,60 +59,160 @@ def recorded(path: Path) -> dict:
     return rows
 
 
-def metric_role(label: str) -> str | None:
-    name = re.sub(r"[^a-z0-9]", "", label.lower())
-    if "l2" in name and "hit" in name and any(word in name for word in ("rate", "ratio", "percent")):
-        return "l2_hit"
-    bandwidth = any(word in name for word in ("bandwidth", "throughput", "bw"))
-    if "l2" in name and bandwidth:
-        return "l2_bw"
-    if any(word in name for word in ("cube", "mac")) and any(word in name for word in ("time", "ratio", "util", "usage")):
-        return "cube"
-    if "mte2" in name:
-        return "aiv_mte2" if any(word in name for word in ("aiv", "vector")) else "aic_mte2"
-    if any(word in name for word in ("vec", "vector")) and any(word in name for word in ("time", "ratio", "util", "usage")):
-        return "vector"
-    if bandwidth and any(word in name for word in ("memory", "hbm", "ddr", "gm")) and not any(word in name for word in ("l0", "ub")):
-        return "memory_write" if "write" in name else "memory_read"
-    return None
+PMU_RULES = {
+    "aic_time_max_us": ("ArithmeticUtilization", "aic_time(us)", "max"),
+    "aiv_time_max_us": ("ArithmeticUtilization", "aiv_time(us)", "max"),
+    "aic_cube_ratio": ("ArithmeticUtilization", "aic_cube_ratio", "aic"),
+    "aiv_vec_ratio": ("ArithmeticUtilization", "aiv_vec_ratio", "aiv"),
+    "aic_mte1_ratio": ("PipeUtilization", "aic_mte1_ratio", "aic"),
+    "aic_mte2_ratio": ("PipeUtilization", "aic_mte2_ratio", "aic"),
+    "aic_mte3_ratio": ("PipeUtilization", "aic_mte3_ratio", "aic"),
+    "aiv_mte2_ratio": ("PipeUtilization", "aiv_mte2_ratio", "aiv"),
+    "aiv_mte3_ratio": ("PipeUtilization", "aiv_mte3_ratio", "aiv"),
+    "aic_cube_wait_ratio": ("ResourceConflictRatio", "aic_cube_wait_ratio", "aic"),
+    "aiv_vec_wait_ratio": ("ResourceConflictRatio", "aiv_vec_wait_ratio", "aiv"),
+    "aic_mte2_wait_ratio": ("ResourceConflictRatio", "aic_mte2_wait_ratio", "aic"),
+    "aiv_mte2_wait_ratio": ("ResourceConflictRatio", "aiv_mte2_wait_ratio", "aiv"),
+    "aiv_vec_conflict_ratio": ("ResourceConflictRatio", "aiv_vec_total_cflt_ratio", "aiv"),
+    "mainmem_read_kb": ("Memory", "read_main_memory_datas(KB)", "sum"),
+    "mainmem_write_kb": ("Memory", "write_main_memory_datas(KB)", "sum"),
+    "gm_to_l1_kb": ("Memory", "GM_to_L1_datas(KB)", "sum"),
+    "l0c_to_gm_kb": ("Memory", "L0C_to_GM_datas(KB)", "sum"),
+    "gm_to_ub_kb": ("Memory", "GM_to_UB_datas(KB)", "sum"),
+    "ub_to_gm_kb": ("Memory", "UB_to_GM_datas(KB)", "sum"),
+    "aic_l1_read_gbs": ("Memory", "aic_l1_read_bw(GB/s)", "aic"),
+    "aic_l1_write_gbs": ("Memory", "aic_l1_write_bw(GB/s)", "aic"),
+    "aiv_ub_read_gbs": ("MemoryUB", "aiv_ub_read_bw_vector(GB/s)", "aiv"),
+    "aiv_ub_write_gbs": ("MemoryUB", "aiv_ub_write_bw_vector(GB/s)", "aiv"),
+}
+PMU_L2 = tuple(f"{engine}_l2_{direction}_hit_pct" for engine in ("aic", "aiv") for direction in ("read", "write"))
+PMU_FIELDS = (*PMU_RULES, *PMU_L2)
+REPORT_TILING = (
+    "FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO", "FA_CORE_NUM", "FA_TOTAL_TASKS", "FA_SPLIT_FACTOR",
+    "FA_BMM1_BASE_M", "FA_BMM1_BASE_N", "FA_BMM1_BASE_K", "FA_BMM2_BASE_M", "FA_BMM2_BASE_N", "FA_BMM2_BASE_K",
+    "FA_BMM1_DEPTH_A1", "FA_BMM1_DEPTH_B1", "FA_BMM2_DEPTH_A1", "FA_BMM2_DEPTH_B1",
+)
 
 
-def metric_values(path: Path) -> tuple[dict, list[str]]:
+def profile_table(path: Path) -> list[dict]:
     with path.open(newline="", encoding="utf-8-sig") as source:
         rows = [[cell.strip() for cell in row] for row in csv.reader(source) if any(cell.strip() for cell in row)]
-    if not rows:
-        return {}, []
-    table = re.sub(r"_\d+$", "", re.sub(r"^\d+_", "", path.stem))
-    result = {}
+    if len(rows) < 2 or any(len(row) != len(rows[0]) for row in rows[1:]):
+        raise ValueError("invalid profiler CSV dimensions")
+    return [dict(zip(rows[0], row)) for row in rows[1:]]
 
-    def add(label: str, raw: str) -> None:
-        if metric_role(label) is None:
-            return
+
+def finite(raw) -> float | None:
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def profile_counters(folder: Path, key: int) -> dict:
+    log = folder / "profile.log"
+    if not log.is_file():
+        return {"notes": {"missing_log"}, "samples": {}, "launches": 0, "freq": []}
+    text = log.read_text(errors="replace")
+    pids = set(re.findall(r"^[ \t]*Pid:[ \t]*(\d+)", text, re.MULTILINE))
+    notes = set()
+    if "Profiling running finished. All task success." not in text or "Profiling data parse finished." not in text:
+        notes.add("unsuccessful_profile")
+    if len(pids) != 1:
+        return {"notes": {"ambiguous_profile_pid"}, "samples": {}, "launches": 0, "freq": []}
+    dates = [re.sub(r"\D", "", value) for value in re.findall(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", text)]
+    if not dates:
+        return {"notes": {"missing_profile_clock"}, "samples": {}, "launches": 0, "freq": []}
+    lower, upper = min(dates) + "000", max(dates) + "999"
+    pattern = re.compile(r"(?:\d+_)?([A-Za-z0-9]+)_(\d{17})\.csv$")
+    expected = re.compile(rf"^FlashAttentionScore_[A-Za-z0-9]+_{key}(?:_|$)")
+    files, basic, frequencies, boundaries = [], {}, [], set()
+    for path in sorted(folder.glob("*.csv")):
+        match = pattern.fullmatch(path.name)
+        if not match or not lower <= match[2] <= upper:
+            continue
+        kind, stamp = match.groups()
+        if kind != "OpBasicInfo":
+            files.append((kind, stamp, path))
+            continue
         try:
-            value = float(raw.rstrip("%"))
-        except ValueError:
-            return
-        if raw.endswith("%") and "%" not in label:
-            label += " (%)"
-        if math.isfinite(value):
-            result.setdefault(label, []).append(value)
-
-    vertical = rows[0][0].lower().replace(" ", "") in ("metric", "metricname", "name")
-    if vertical:
-        header = [cell.lower() for cell in rows[0]]
-        value_index = next((i for i, cell in enumerate(header) if cell in ("value", "metric value", "metricvalue")), 1)
-        unit_index = next((i for i, cell in enumerate(header) if cell == "unit"), None)
-        for row in rows[1:]:
-            if value_index >= len(row):
+            records = profile_table(path)
+        except (OSError, UnicodeError, ValueError, csv.Error):
+            notes.add("invalid_basic_csv")
+            continue
+        boundaries.add(stamp)
+        if any(row.get("Pid") and row["Pid"] not in pids for row in records):
+            notes.add("overlapping_profile_sessions")
+        records = [row for row in records if row.get("Pid") in pids and expected.match(row.get("Op Name", "")) and (finite(row.get("Task Duration(us)")) or 0) > 0]
+        if len(records) == 1:
+            basic[stamp] = records[0]
+            frequency = finite(records[0].get("Current Freq"))
+            if frequency is not None:
+                frequencies.append(frequency)
+    stamps = sorted(basic)
+    if len(stamps) != REPEAT:
+        notes.add("incomplete_launches")
+    if "overlapping_profile_sessions" in notes:
+        return {"notes": notes, "samples": {}, "launches": len(stamps), "freq": frequencies}
+    required = {rule[0] for rule in PMU_RULES.values()} | {"L2Cache"}
+    tables = {}
+    for kind, stamp, path in files:
+        if kind not in required:
+            continue
+        preceding = [start for start in boundaries if start <= stamp]
+        if not preceding or max(preceding) not in basic:
+            continue
+        identity = (max(preceding), kind)
+        try:
+            records = profile_table(path)
+            records = [row for row in records if row.get("block_id", "").isdigit() and row.get("sub_block_id", "").startswith(("cube", "vector"))]
+            if not records:
+                raise ValueError("no core rows")
+            if identity in tables:
+                if tables[identity] != records:
+                    notes.add("duplicate_metric_table")
+                    tables[identity] = None
                 continue
-            unit = f" ({row[unit_index]})" if unit_index is not None and unit_index < len(row) else ""
-            add(f"{table}:{row[0]}{unit}", row[value_index])
-    else:
-        for row in rows[1:]:
-            context = " ".join(value for field, value in zip(rows[0], row) if "type" in field.lower() and any(word in re.sub(r"[^a-z]", "", value.lower()) for word in ("aic", "aiv", "vector")))
-            for field, value in zip(rows[0], row):
-                add(f"{table}:{context}:{field}" if context else f"{table}:{field}", value)
-    return result, [table + ":" + field for field in rows[0]]
+            tables[identity] = records
+        except (OSError, UnicodeError, ValueError, csv.Error):
+            notes.add("invalid_" + kind)
+            tables[identity] = None
+    samples = {}
+    for stamp in stamps:
+        if any(not tables.get((stamp, kind)) for kind in required):
+            notes.add("missing_metric_tables")
+        for name, (kind, column, reduction) in PMU_RULES.items():
+            records = tables.get((stamp, kind)) or []
+            values = [(row, finite(row.get(column))) for row in records]
+            values = [(row, value) for row, value in values if value is not None]
+            if not values:
+                notes.add("missing_metric_fields")
+                continue
+            if reduction == "sum":
+                result = sum(value for _, value in values)
+            elif reduction == "max":
+                result = max(value for _, value in values)
+            else:
+                weighted = [(value, finite(row.get(reduction + "_time(us)"))) for row, value in values]
+                weighted = [(value, weight) for value, weight in weighted if weight is not None and weight > 0]
+                if not weighted:
+                    notes.add("missing_metric_weights")
+                    continue
+                result = sum(value * weight for value, weight in weighted) / sum(weight for _, weight in weighted)
+            samples.setdefault(name, []).append(result)
+        records = tables.get((stamp, "L2Cache")) or []
+        for engine in ("aic", "aiv"):
+            for direction in ("read", "write"):
+                prefixes = [f"{engine}_r0_read", f"{engine}_r1_read"] if direction == "read" else [f"{engine}_write"]
+                pairs = [(finite(row.get(prefix + "_cache_hit")), finite(row.get(prefix + "_cache_miss_allocate"))) for row in records for prefix in prefixes]
+                pairs = [(hit, miss) for hit, miss in pairs if hit is not None and miss is not None]
+                total = sum(hit + miss for hit, miss in pairs)
+                if total > 0:
+                    samples.setdefault(f"{engine}_l2_{direction}_hit_pct", []).append(100 * sum(hit for hit, _ in pairs) / total)
+                else:
+                    notes.add("missing_l2_requests")
+    return {"notes": notes, "samples": samples, "launches": len(stamps), "freq": frequencies}
 
 
 def text_report(directory: Path) -> None:
@@ -121,82 +221,71 @@ def text_report(directory: Path) -> None:
     hardware_path = directory / "hardware.json"
     hardware = json.loads(hardware_path.read_text()) if hardware_path.is_file() else {}
     rows = recorded(directory / "routes.csv")
-    cases = [row for _, row in sorted(rows.items()) if row.get("split") == "calibration" and row.get("family") == "same_ab"]
-    values, frequencies, issues, headers = [], [], Counter(), set()
-    for row in cases:
-        grouped, freq = {}, []
-        for round_id in range(1, ROUNDS + 1):
-            folder = directory / "cases" / row["case"] / f"round_{round_id}"
-            log = folder / "profile.log"
-            if log.is_file():
-                text = log.read_text(errors="replace")
-                freq.extend(float(value) for value in re.findall(r"^[ \t]*Current Freq:[ \t]*(\d+(?:\.\d+)?)", text, re.MULTILINE))
+    hardware_fields = ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes")
+    fields = (
+        "split", "family", *cost.INPUT_FIELDS, *hardware_fields, "priority", "tiling_key",
+        "duration_us", "round1_us", "round2_us", "round3_us", "sample_count",
+        "ci95_low_us", "ci95_high_us", "stable", "checked_elements", "max_abs_error",
+        "status", "stage", "predicted_us", "ape_percent", "pass_10_percent",
+        *(name[3:].lower() for name in REPORT_TILING),
+        "profile_rounds", "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_status", "pmu_notes",
+        *PMU_FIELDS,
+    )
+    target = directory / "diagnostics.csv"
+    temporary = target.with_suffix(".tmp")
+    with temporary.open("w", newline="", encoding="utf-8") as output:
+        writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        for name, row in sorted(rows.items()):
+            result = {field: row.get(field, "") for field in fields}
+            result.update(row["inputs"])
+            result.update({field: hardware.get(field, "") for field in hardware_fields})
+            result.update(ci95_low_us=row.get("median_ci95_low_us", ""), ci95_high_us=row.get("median_ci95_high_us", ""))
+            for index, value in enumerate(row.get("round_medians_us") or [], 1):
+                result[f"round{index}_us"] = value
+            correctness = row.get("correctness") or {}
+            result.update(checked_elements=correctness.get("checked_elements", ""), max_abs_error=correctness.get("max_abs_error", ""))
+            effective = row.get("effective_tiling") or {}
+            if isinstance(effective, str):
+                effective = json.loads(effective)
+            result.update({field[3:].lower(): effective.get(field, "") for field in REPORT_TILING})
+            grouped, frequencies, notes = {}, [], set()
+            launches, rounds = 0, 0
+            if row.get("tiling_key"):
+                for round_id in range(1, ROUNDS + 1):
+                    counters = profile_counters(directory / "cases" / name / f"round_{round_id}", int(row["tiling_key"]))
+                    notes.update(counters["notes"])
+                    launches += counters["launches"]
+                    rounds += int(counters["launches"] == REPEAT)
+                    frequencies.extend(counters["freq"])
+                    for metric, values in counters["samples"].items():
+                        grouped.setdefault(metric, []).extend(values)
             else:
-                issues["missing_profile_log"] += 1
-            tables = list(folder.glob("*.csv"))
-            if not tables:
-                issues["missing_csv_rounds"] += 1
-            for table in tables:
-                try:
-                    extracted, fields = metric_values(table)
-                except (OSError, UnicodeError, csv.Error):
-                    issues["unreadable_csv"] += 1
-                    continue
-                headers.update(field for field in fields if any(word in field.lower() for word in ("l2", "memory", "pipe", "arithmetic")))
-                for label, readings in extracted.items():
-                    grouped.setdefault(label, []).extend(readings)
-        values.append(grouped)
-        frequencies.append(freq)
-    selected = {}
-    roles = ("cube", "vector", "aic_mte2", "aiv_mte2", "l2_hit", "l2_bw", "memory_read", "memory_write")
-    labels = {label for grouped in values for label in grouped}
-    for role in roles:
-        candidates = [label for label in labels if metric_role(label) == role]
-        if candidates:
-            def preference(label: str) -> tuple:
-                name = re.sub(r"[^a-z]", "", label.lower())
-                wrong_core = (role in ("cube", "aic_mte2") and "aiv" in name) or (role in ("vector", "aiv_mte2") and "aicore" in name and "aiv" not in name)
-                return (-sum(label in grouped for grouped in values), wrong_core, "write" in label.lower(), not any(word in label.lower() for word in ("ratio", "utilization", "rate", "usage")), label)
-            selected[role] = min(candidates, key=preference)
-    shared = {name: cases[0]["inputs"][name] for name in cost.INPUT_FIELDS if cases and all(row["inputs"][name] == cases[0]["inputs"][name] for row in cases)}
-    varying = [name for name in cost.INPUT_FIELDS if name not in shared]
-    for left, right in (("N2", "N1"), ("S2", "S1")):
-        if cases and left in varying and all(row["inputs"][left] == row["inputs"][right] for row in cases):
-            shared[left] = "=" + right
-            varying.remove(left)
-    metadata = {
-        "report": "sameab_compact_v2", "hardware": {name: hardware.get(name) for name in ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes")},
-        "shared_inputs": shared, "metrics": selected, "missing_metrics": [role for role in roles if role not in selected],
-        "issues": dict(issues), "case_count": len(cases), "rounds_per_case": ROUNDS, "missing_value": "-", "metric_significant_digits": 4,
-    }
-    if not hardware:
-        metadata["issues"]["missing_hardware_json"] = 1
-    if len(selected) != len(roles):
-        metadata["available_headers"] = sorted(headers, key=lambda field: (metric_role(field) is not None, field))[:8]
-
-    def render(ranges: bool) -> str:
-        metadata["metric_statistics"] = "median/min/max across existing CSV rows" if ranges else "median across existing CSV rows"
-        lines = [json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)]
-        lines.append(",".join([*varying, "time_us", "stable", "freq_min/max", *selected]))
-        for row, grouped, freq in zip(cases, values, frequencies):
-            cells = [str(row["inputs"][field]) for field in varying]
-            cells += [f"{float(row['duration_us']):.5g}" if row.get("duration_us") else "-", str(row.get("stable")).lower(), f"{min(freq):.4g}/{max(freq):.4g}" if freq else "-"]
-            for label in selected.values():
-                readings = grouped.get(label, [])
-                stats = [statistics.median(readings), min(readings), max(readings)] if readings and ranges else ([statistics.median(readings)] if readings else [])
-                cells.append("/".join(f"{value:.4g}" for value in stats) if stats else "-")
-            lines.append(",".join(cells))
-        return "\n".join(lines) + "\n"
-
-    content = render(True)
-    if len(content.encode("utf-8")) > 8192:
-        content = render(False)
-    if len(content.encode("utf-8")) > 8192:
-        raise RuntimeError("compact report exceeds 8 KiB; existing report was not overwritten")
-    target = directory / "diagnostics.txt"
-    target.write_text(content, encoding="utf-8")
-    print(f"TEXT_REPORT={target}")
-    print(f"SAMEAB_CASES={len(cases)} METRICS={len(selected)} BYTES={target.stat().st_size} MAX_BYTES=8192")
+                notes.add("no_tiling_key")
+            if not hardware:
+                notes.add("missing_hardware")
+            result.update(
+                profile_rounds=rounds, profile_launches=launches, pmu_status="partial" if notes else "ok",
+                pmu_notes=";".join(sorted(notes)),
+                freq_min_mhz=min(frequencies) if frequencies else "", freq_max_mhz=max(frequencies) if frequencies else "",
+            )
+            result.update({metric: statistics.median(values) for metric, values in grouped.items()})
+            for field, value in result.items():
+                parsed = finite(value) if isinstance(value, str) and value else None
+                if parsed is not None and field not in ("tiling_key", *cost.INPUT_FIELDS[:7]):
+                    result[field] = f"{parsed:.6g}"
+                elif isinstance(value, float):
+                    result[field] = f"{value:.6g}"
+            writer.writerow({field: result.get(field, "") for field in fields})
+    temporary.replace(target)
+    legacy = directory / "diagnostics.txt"
+    if legacy.is_file():
+        with legacy.open(encoding="utf-8", errors="replace") as source:
+            prefix = source.read(80)
+        if prefix.startswith(("FA_LATENCY_DIAGNOSTICS", '{"report":"sameab_compact_v2"')):
+            legacy.unlink()
+    print(f"CSV_REPORT={target}")
+    print(f"SHAPES={len(rows)} BYTES={target.stat().st_size}")
 
 
 def select_shape(case: dict) -> None:
@@ -610,10 +699,12 @@ def main() -> None:
     if incomplete:
         cost.save_json(directory / "validation_report.json", {"pass": False, "stage": "calibration_incomplete", "cases": incomplete, "calibration_grouped_cv": grouped_cv})
         print(f"ACCURACY_GATE=FAIL calibration_incomplete={len(incomplete)}; successful cases are reusable", flush=True)
+        text_report(directory)
         raise SystemExit(1)
     if not calibration_model_pass:
         cost.save_json(directory / "validation_report.json", {"pass": False, "stage": "calibration_model_failed", "calibration_grouped_cv": grouped_cv})
         print("ACCURACY_GATE=FAIL calibration_model_failed; blind measurements were not started", flush=True)
+        text_report(directory)
         raise SystemExit(1)
     if frozen is None:
         frozen = diagnostic
@@ -635,6 +726,7 @@ def main() -> None:
     report = validation_report(plan, records, frozen, directory)
     print(f"MODEL={model_path}")
     print(f"REPORT={directory / 'validation_report.json'}")
+    text_report(directory)
     if not report["pass"]:
         raise SystemExit(1)
 
