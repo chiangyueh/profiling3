@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import tempfile
@@ -31,6 +32,8 @@ REPEAT = 10
 ROUNDS = 3
 MODEL_FAMILIES = ("same_ab",)
 RESEARCH_FAMILIES = ("s1", "b", "b_drop")
+ALL_FAMILIES = ("same_ab", "s1", "b", "b_drop", "general", "varlen")
+EXTERNAL_VERSION = "fa_external_latency_v1"
 FIELDS = (
     "version", "case", "split", "family", "inputs", "priority", "tiling_key",
     "effective_tiling", "derived_schedule", "duration_us", "samples_us",
@@ -281,6 +284,7 @@ def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
         "duration_us", "round1_us", "round2_us", "round3_us", "sample_count",
         "ci95_low_us", "ci95_high_us", "stable", "checked_elements", "max_abs_error",
         "status", "stage", "error", "family_error", "predicted_us", "ape_percent", "pass_10_percent",
+        "case", "model_sha256", "prediction_before_measurement",
         "model_scope", "prediction_quality", "extrapolated_inputs", "cv_sequence_pair_ape_percent", "cv_heads_ape_percent", "cv_batch_ape_percent", "calibration_cv_pass",
         *(name[3:].lower() for name in REPORT_TILING),
         "profile_rounds", "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_status", "pmu_notes",
@@ -360,7 +364,7 @@ def select_shape(case: dict) -> None:
     }
 
 
-def discover(params, directory: Path, hardware_trace: Path | None = None) -> tuple[int, int]:
+def discover(params, directory: Path, hardware_trace: Path | None = None, timeout: int | None = None) -> tuple[int, int]:
     fa.build_host()
     trace = directory / "host_route.tsv"
     trace.unlink(missing_ok=True)
@@ -368,7 +372,7 @@ def discover(params, directory: Path, hardware_trace: Path | None = None) -> tup
     env.update(FA_ROUTE_TRACE=str(trace), FA_DISCOVER_ONLY="1", FA_PROFILE="0", FA_SKIP_BUILD="1")
     if hardware_trace is not None:
         env["FA_HARDWARE_TRACE"] = str(hardware_trace)
-    process = subprocess.run(["bash", "run.sh"], env=env, capture_output=True, text=True)
+    process = subprocess.run(["bash", "run.sh"], env=env, capture_output=True, text=True, timeout=timeout)
     (directory / "host.log").write_text(process.stdout + process.stderr)
     if process.returncode:
         raise RuntimeError(f"Host discovery failed; see {directory / 'host.log'}")
@@ -433,6 +437,8 @@ def tensor_indices(p: dict, b: int, h: int, rows: np.ndarray, heads: int, sequen
     columns = np.arange(width, dtype=np.int64)
     if p["layout"] == "BNSD":
         return ((b * heads + h) * sequence + rows[:, None]) * width + columns
+    if p["layout"] in ("BSND", "TND"):
+        return (((b * sequence + rows[:, None]) * heads + h) * width) + columns
     return ((rows[:, None] * p["B"] + b) * heads + h) * width + columns
 
 
@@ -505,6 +511,43 @@ def profiler_samples(path: Path, key: int) -> list[float]:
     return times
 
 
+def verify_case_schedule(case: dict, hardware: dict, priority: int, effective: dict) -> None:
+    if case["family"] not in ("general", "varlen"):
+        cost.verify_schedule(case["inputs"], hardware, priority, effective)
+        return
+    if priority != case["expected"] or effective.get("FA_BMM_PRESET") != 0:
+        raise RuntimeError("official Host selected a different route or a modified Matmul preset")
+    required = ("FA_CORE_NUM", "FA_TOTAL_TASKS", "FA_SPLIT_FACTOR", "FA_S1_BASE", "FA_S2_BASE")
+    if any(int(effective.get(name, 0)) <= 0 for name in required):
+        raise RuntimeError("official Host tiling trace is incomplete")
+
+
+def run_case_process(env: dict, log, timeout: int | None = None):
+    if timeout is None:
+        return subprocess.run(["bash", "run.sh"], env=env, stdout=log, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen(["bash", "run.sh"], env=env, stdout=log, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    try:
+        code = process.wait(timeout=timeout)
+    except BaseException as error:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        if isinstance(error, subprocess.TimeoutExpired):
+            raise RuntimeError(f"NPU/profile timeout after {timeout}s; see {log.name}; continuing with the next case") from error
+        raise
+    return subprocess.CompletedProcess(["bash", "run.sh"], code)
+
+
 def recover_profile(case: dict, params, key: int, priority: int, hardware: dict, summary: Path) -> dict | None:
     log = summary / "profile.log"
     trace = summary / "effective.tsv"
@@ -517,14 +560,14 @@ def recover_profile(case: dict, params, key: int, priority: int, hardware: dict,
     effective = fa.read_effective(trace)
     if effective is None:
         return None
-    cost.verify_schedule(case["inputs"], hardware, priority, effective)
+    verify_case_schedule(case, hardware, priority, effective)
     Path("output/output.bin").unlink(missing_ok=True)
     env = fa.run_env(params, key)
     env.update(FA_SKIP_BUILD="1", FA_PROFILE="0", FA_WARMUP="0", FA_REPEAT="1", FA_INPUT_PATTERN="1")
     env.pop("FA_LATENCY_TRACE", None)
     env.pop("FA_EFFECTIVE_TILING_TRACE", None)
     with (summary / "recovery_check.log").open("w") as output:
-        process = subprocess.run(["bash", "run.sh"], env=env, stdout=output, stderr=subprocess.STDOUT, text=True)
+        process = run_case_process(env, output, case.get("timeout_seconds"))
     if process.returncode:
         raise RuntimeError(f"saved profiler data found, but output verification failed; see {summary / 'recovery_check.log'}")
     correctness = check_output(case["inputs"])
@@ -573,14 +616,14 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
         print(f"MEASURE case={case['name']} round={round_id + 1}/{ROUNDS} log={summary / 'profile.log'}", flush=True)
         try:
             with (summary / "profile.log").open("w") as log:
-                process = subprocess.run(["bash", "run.sh"], env=env, stdout=log, stderr=subprocess.STDOUT, text=True)
+                process = run_case_process(env, log, case.get("timeout_seconds"))
             if process.returncode:
                 raise RuntimeError(f"NPU/profile failed; see {summary / 'profile.log'}")
             times = profiler_samples(summary / "profile.log", key)
             effective = fa.read_effective(trace)
             if effective is None:
                 raise RuntimeError("effective Host tiling trace was not produced")
-            cost.verify_schedule(case["inputs"], hardware, priority, effective)
+            verify_case_schedule(case, hardware, priority, effective)
             correctness = check_output(case["inputs"])
             samples.extend(times)
             medians.append(statistics.median(times))
@@ -612,14 +655,14 @@ def is_complete(row: dict | None) -> bool:
     return bool(row and row.get("status") == "ok" and str(row.get("stable")).lower() == "true")
 
 
-def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path: Path, ensured: set, frozen: dict | None = None, precomputed: dict | None = None) -> None:
+def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path: Path, ensured: set, frozen: dict | None = None, precomputed: dict | None = None, build_failures: dict | None = None) -> None:
     name = case["name"]
     if is_complete(records.get(name)):
         print(f"SKIP case={name} status=ok", flush=True)
         return
     row = {
         "version": VERSION, "case": name, "split": case["split"], "family": case["family"],
-        "inputs": case["inputs"], "derived_schedule": cost.derive(case["inputs"], hardware),
+        "inputs": case["inputs"], "derived_schedule": case.get("derived_schedule") or cost.derive(case["inputs"], hardware),
         "prediction_before_measurement": bool(frozen),
     }
     stage = "predict" if frozen else "discover"
@@ -635,20 +678,27 @@ def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path
         select_shape(case)
         params = fa.shape_params()
         stage = "discover"
-        priority, key = discover(params, folder)
+        priority, key = discover(params, folder, timeout=case.get("timeout_seconds"))
         row.update(priority=priority, tiling_key=key)
         if priority != case["expected"]:
             raise RuntimeError(f"official route={priority}, input-derived route={case['expected']}")
         stage = "build"
         identity = (key, case["inputs"]["dtype"])
         if identity not in ensured:
-            fa.build(key)
+            if build_failures is not None and identity in build_failures:
+                raise RuntimeError(f"this run already failed to build {identity}: {build_failures[identity]}")
+            try:
+                fa.build(key)
+            except Exception as error:
+                if build_failures is not None:
+                    build_failures[identity] = str(error)
+                raise
             ensured.add(identity)
         stage = "measure"
         row.update(profile_measure(case, params, key, priority, hardware, folder))
         if frozen is not None:
             error = abs(row["predicted_us"] / row["duration_us"] - 1)
-            row.update(ape_percent=error * 100, pass_10_percent=error <= cost.RELATIVE_ERROR_LIMIT + 1e-12 and row["stable"])
+            row.update(ape_percent=error * 100, pass_10_percent=error <= cost.RELATIVE_ERROR_LIMIT + 1e-12 and (row["stable"] or case["split"] == "external"))
         row.update(status="ok", stage="complete")
         print(f"CASE OK: {name} actual_us={row['duration_us']:.6f} stable={row['stable']} error_percent={row.get('ape_percent', '')} pass_10_percent={row.get('pass_10_percent', '')}", flush=True)
     except Exception as error:
@@ -764,6 +814,191 @@ def collect_other_families(directory: Path, hardware: dict, full_plan: list[dict
     return result
 
 
+def external_design(hardware: dict) -> list[dict]:
+    plan = []
+    seen = {cost.sha256(case["inputs"]) for case in cost.design(hardware)}
+    priorities = {"same_ab": 95, "s1": 97, "b": 98, "b_drop": 98, "general": 96, "varlen": 94}
+
+    def add(family, b, n, nk, s1, s2, d, dv, dtype="FP16", layout="BNSD", drop=0):
+        inputs = cost.normalize(dict(zip(cost.INPUT_FIELDS, (b, n, nk, s1, s2, d, dv, dtype, layout, drop))))
+        identity = cost.sha256(inputs)
+        if identity in seen:
+            raise ValueError("external plan contains an already scheduled operator input")
+        seen.add(identity)
+        if family in ("general", "varlen"):
+            derived = {"family": family, "priority": priorities[family], "prediction_quality": "unmodeled_family"}
+        else:
+            derived = cost.derive(inputs, hardware)
+            if derived["family"] != family:
+                raise ValueError(f"external input selects {derived['family']} instead of {family}")
+        name = f"{family}_{layout.lower()}_b{b}_n{n}_nk{nk}_s{s1}_s{s2}_d{d}_v{dv}_drop{drop}"
+        plan.append({"name": name, "split": "external", "family": family, "expected": priorities[family],
+                     "inputs": inputs, "derived_schedule": derived, "timeout_seconds": 300})
+
+    for layout in ("BNSD", "SBH"):
+        for n in (16, 24):
+            for sequence in (2304, 3584, 5376, 7168):
+                add("same_ab", 1, n, n, sequence, sequence, 192, 128, "BF16", layout)
+        for b, n, s1, s2 in ((1, 64, 2304, 2304), (1, 64, 5376, 5376), (2, 16, 1536, 3072), (1, 24, 3072, 5120)):
+            add("same_ab", b, n, n, s1, s2, 192, 128, "BF16", layout)
+    for b, n, nk in ((1, 6, 2), (1, 20, 5), (2, 12, 3), (4, 8, 2)):
+        for s1, s2 in ((96, 192), (192, 320), (288, 448), (384, 640), (768, 960), (1280, 1024)):
+            add("s1", b, n, nk, s1, s2, 128, 128)
+    small = ((3, 40, 80), (3, 80, 40), (5, 96, 80), (6, 64, 112), (7, 48, 96), (8, 112, 64))
+    for b in (3, 6, 12, 24):
+        for n, s1, s2 in small:
+            add("b", b, n, 1, s1, s2, 64, 64)
+        for n, s1, s2 in (small[0], small[2], small[3], small[5]):
+            add("b_drop", b, n, 1, s1, s2, 64, 64, drop=1)
+    for b, n, s1, s2 in ((32, 4, 127, 127), (48, 4, 127, 127), (24, 4, 95, 127), (12, 4, 95, 127),
+                          (6, 5, 79, 65), (3, 3, 95, 49), (24, 3, 111, 81), (48, 2, 127, 97)):
+        add("b_drop", b, n, 1, s1, s2, 64, 64, drop=1)
+    for b, n, nk in ((1, 4, 1), (1, 12, 3), (2, 8, 2), (4, 4, 1)):
+        for s1, s2 in ((96, 1536), (256, 2048), (640, 3072), (1280, 4096)):
+            add("general", b, n, nk, s1, s2, 128, 128)
+    for b, n, nk in ((1, 4, 1), (2, 4, 1), (2, 8, 2), (4, 4, 1)):
+        for s1, s2 in ((96, 192), (160, 320), (224, 640), (384, 896)):
+            add("varlen", b, n, nk, s1, s2, 128, 128, layout="TND")
+    counts = Counter(case["family"] for case in plan)
+    if counts != Counter(dict(same_ab=24, s1=24, b=24, b_drop=24, general=16, varlen=16)):
+        raise ValueError(f"incomplete external test plan: {dict(counts)}")
+    return plan
+
+
+def external_report(directory: Path, folder: Path, plan: list[dict], payload: dict) -> dict:
+    text_report(folder, ALL_FAMILIES)
+    original = directory / "diagnostics.csv"
+    with original.open(newline="") as source:
+        reader = csv.DictReader(source)
+        fields, rows = list(reader.fieldnames or []), [row for row in reader if row.get("split") != "external"]
+    with (folder / "diagnostics.csv").open(newline="") as source:
+        reader = csv.DictReader(source)
+        fields.extend(name for name in reader.fieldnames or [] if name not in fields)
+        additional = list(reader)
+    for name in ("prediction_model_kind", "prediction_status", "prediction_error"):
+        if name not in fields:
+            fields.append(name)
+    for row in additional:
+        saved = payload["predictions"][row["case"]]
+        row.update(prediction_model_kind=saved["kind"], prediction_status=saved["status"])
+        if saved["status"] == "predicted" and not external_prediction_matches(row, saved):
+            row.update(prediction_status="provenance_mismatch", prediction_error="record does not match the prediction frozen before NPU execution")
+            row.update(predicted_us="", ape_percent="", pass_10_percent="")
+        elif saved.get("error"):
+            row["prediction_error"] = saved["error"]
+        if saved["kind"] == "pipeline" and row["prediction_status"] == "predicted":
+            prediction = saved["result"]
+            row.update(pipeline_version=family_models.PIPELINE_VERSION, pipeline_predicted_us=row.get("predicted_us", ""),
+                       pipeline_ape_percent=row.get("ape_percent", ""), pipeline_qualification="prospective_external",
+                       pipeline_pass_10_percent=finite(row.get("ape_percent")) <= 10 if finite(row.get("ape_percent")) is not None else "",
+                       pipeline_raw_elapsed_us=prediction["pipeline_us"], pipeline_critical_pair=prediction["critical_pair"],
+                       pipeline_extrapolated_inputs="|".join(prediction["extrapolated_inputs"]), pipeline_adapter_extrapolated=prediction["adapter_extrapolated"])
+            for name in ("active_vector_workers", "active_cube_pairs", "critical_cube_rows", "scheduled_tasks", "mma_instructions"):
+                row[f"pipeline_{name}"] = prediction[name]
+            for name, term in (("initialization", "initialization_us"), ("service", "pipeline_us"), ("cube_pair_setup", "active_cube_pairs"), ("adapter", "adapter_passes")):
+                row[f"pipeline_{name}_us"] = prediction["cost_terms_us"][term]
+            for name, value in prediction["stage_service_us"].items():
+                row[f"pipeline_{name}_service_us"] = value
+        if row.get("ape_percent"):
+            row["pass_10_percent"] = float(row["ape_percent"]) <= 10
+    rows.extend(additional)
+    for row in additional:
+        fields.extend(name for name in row if name not in fields)
+    temporary = original.with_suffix(".external.tmp")
+    with temporary.open("w", newline="") as output:
+        writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({name: format(value, ".6g") if isinstance(value, float) else value for name, value in row.items()})
+    temporary.replace(original)
+    (folder / "diagnostics.csv").unlink()
+    latest = recorded(folder / "routes.csv")
+    families = {}
+    for family in ALL_FAMILIES:
+        cases = [case for case in plan if case["family"] == family]
+        observed = [latest.get(case["name"], {}) for case in cases]
+        errors = [float(row["ape_percent"]) for case, row in zip(cases, observed) if row.get("status") == "ok" and row.get("ape_percent") not in (None, "")
+                  and external_prediction_matches(row, payload["predictions"][case["name"]])]
+        families[family] = {"requested": len(cases), "runtime_ok": sum(row.get("status") == "ok" for row in observed),
+                            "failed": sum(row.get("status") == "failed" for row in observed),
+                            "predicted_before_measurement": sum(payload["predictions"][case["name"]]["status"] == "predicted" for case in cases),
+                            "error_evaluated": len(errors), "point_error_pass": sum(value <= 10 for value in errors),
+                            "mape_percent": statistics.mean(errors) if errors else None, "max_ape_percent": max(errors, default=None)}
+    result = {"version": EXTERNAL_VERSION, "families": families, "frozen_predictions_sha256": cost.sha256(payload),
+              "measurements_complete": all(value["runtime_ok"] + value["failed"] == value["requested"] for value in families.values())}
+    cost.save_json(folder / "summary.json", result)
+    print(f"EXTERNAL SUMMARY: {families}", flush=True)
+    print(f"CSV_REPORT={original}; original measurements plus external cases; no raw-log bundle", flush=True)
+    return result
+
+
+def external_prediction_matches(row: dict, saved: dict) -> bool:
+    value = finite(row.get("predicted_us"))
+    return bool(saved["status"] == "predicted" and value is not None
+                and str(row.get("prediction_before_measurement")).lower() == "true"
+                and row.get("model_sha256") == saved["model_sha256"]
+                and math.isclose(value, saved["result"]["predicted_us"], rel_tol=1e-5, abs_tol=1e-8))
+
+
+def collect_external(directory: Path, hardware: dict, signature: str, ensured: set) -> dict:
+    folder = directory / "external"
+    folder.mkdir(parents=True, exist_ok=True)
+    cost.save_json(folder / "hardware.json", hardware)
+    plan = external_design(hardware)
+    protocol = {"version": EXTERNAL_VERSION, "protocol_sha256": signature, "plan": plan,
+                "predictor_sha256": cost.sha256({"source": Path(family_models.__file__).read_text()})}
+    manifest = folder / "manifest.json"
+    if manifest.is_file() and cost.sha256(json.loads(manifest.read_text())) != cost.sha256(protocol):
+        raise RuntimeError("the external plan or frozen predictor changed; existing measurements are preserved")
+    if not manifest.is_file():
+        cost.save_json(manifest, protocol)
+    snapshot = folder / "predictions_before_measurement.json"
+    if snapshot.is_file():
+        payload = json.loads(snapshot.read_text())
+        if payload["protocol_sha256"] != cost.sha256(protocol):
+            raise RuntimeError("saved external predictions belong to another measurement plan")
+    else:
+        sameab = json.loads((directory / "model.json").read_text())
+        pipeline = json.loads((directory / "pipeline_models.json").read_text())["families"]
+        models = {"same_ab": sameab, **pipeline}
+        predictions = {}
+        for case in plan:
+            family = case["family"]
+            kind = "same_ab" if family == "same_ab" else "pipeline" if family in pipeline else "unmodeled"
+            item = {"kind": kind, "status": "unmodeled_family"}
+            if family in models:
+                try:
+                    result = cost.predict(case["inputs"], sameab) if kind == "same_ab" else family_models.predict_pipeline(case["inputs"], models[family])
+                    result["prediction_quality"] = "frozen_before_measurement"
+                    item.update(status="predicted", result=result, model_sha256=cost.sha256(models[family]))
+                except (ValueError, RuntimeError) as error:
+                    item.update(status="uncalibrated_cost", error=str(error))
+            predictions[case["name"]] = item
+        payload = {"protocol_sha256": cost.sha256(protocol), "models": models, "predictions": predictions}
+        cost.save_json(snapshot, payload)
+    records = recorded(folder / "routes.csv")
+    cached = sum(records.get(case["name"], {}).get("status") == "ok" for case in plan)
+    print(f"EXTERNAL PLAN: total={len(plan)} cached_success={cached} remaining={len(plan) - cached} families={dict(Counter(case['family'] for case in plan))}", flush=True)
+    print("EXTERNAL: sequential cases; one build per encountered key/dtype; 3 rounds x 10 timings; no new measurements enter frozen models", flush=True)
+    failures = {}
+    try:
+        for index, case in enumerate(plan, 1):
+            name = case["name"]
+            if records.get(name, {}).get("status") == "ok":
+                print(f"EXTERNAL {index}/{len(plan)} CACHE HIT: {name}", flush=True)
+                continue
+            saved = payload["predictions"][name]
+            case["derived_schedule"]["prediction_quality"] = saved["status"]
+            print(f"EXTERNAL {index}/{len(plan)} START: {name}; prediction={saved['status']}", flush=True)
+            model = payload["models"].get(case["family"]) if saved["status"] == "predicted" else None
+            collect(case, hardware, folder, records, folder / "routes.csv", ensured, model, saved.get("result"), failures)
+            if index % 16 == 0:
+                external_report(directory, folder, plan, payload)
+    finally:
+        result = external_report(directory, folder, plan, payload)
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=4)
@@ -773,10 +1008,15 @@ def main() -> None:
     os.chdir(root)
     if args.report_only:
         directory = root / "output" / VERSION
-        families = RESEARCH_FAMILIES if (directory / "family_validation_report.json").is_file() else MODEL_FAMILIES
+        external = directory / "external"
+        families = ALL_FAMILIES if (external / "manifest.json").is_file() else RESEARCH_FAMILIES if (directory / "family_validation_report.json").is_file() else MODEL_FAMILIES
         text_report(directory, families)
-        if families == RESEARCH_FAMILIES:
+        if families != MODEL_FAMILIES:
             family_models.pipeline_report(directory / "diagnostics.csv")
+        if (external / "predictions_before_measurement.json").is_file():
+            payload = json.loads((external / "predictions_before_measurement.json").read_text())
+            plan = json.loads((external / "manifest.json").read_text())["plan"]
+            external_report(directory, external, plan, payload)
         return
     if hasattr(os, "sched_getaffinity"):
         allowed = sorted(os.sched_getaffinity(0))
@@ -886,8 +1126,11 @@ def main() -> None:
     if not report["pass"]:
         text_report(directory)
         raise SystemExit(1)
-    other = collect_other_families(directory, hardware, full_plan, records, csv_path, ensured, signature)
-    if not other["pass"]:
+    collect_other_families(directory, hardware, full_plan, records, csv_path, ensured, signature)
+    text_report(directory, ALL_FAMILIES)
+    family_models.pipeline_report(directory / "diagnostics.csv")
+    external = collect_external(directory, hardware, signature, ensured)
+    if not external["measurements_complete"] or any(value["failed"] for value in external["families"].values()):
         raise SystemExit(1)
 
 
