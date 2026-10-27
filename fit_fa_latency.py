@@ -251,6 +251,8 @@ def predict_us(row: dict, model: dict) -> float:
 def predict_latency(inputs: dict, artifact: dict) -> float:
     from fa_latency_inputs import VERSION, predict
 
+    if artifact.get("version") == INPUT_FAMILY_VERSION:
+        return predict_input_family(inputs, artifact)["predicted_us"]
     if artifact.get("version") != VERSION:
         raise ValueError("legacy effective-tiling models do not support input-only prediction")
     return predict(inputs, artifact)["predicted_us"]
