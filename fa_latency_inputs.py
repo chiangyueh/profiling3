@@ -4,6 +4,7 @@ import hashlib
 import itertools
 import json
 import math
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -11,16 +12,21 @@ import numpy as np
 
 VERSION = "fa_input_latency_v1"
 INPUT_FIELDS = ("B", "N1", "N2", "S1", "S2", "D", "DV", "dtype", "layout", "has_drop_mask")
-FEATURE_NAMES = ("fixed", "critical_work_m", "kv_read_mb", "global_io_mb", "serial_steps", "adapter_melements", "cache_pressure_work_m")
+FEATURE_NAMES = ("fixed", "critical_work_m", "kv_read_mb", "global_io_mb", "serial_steps", "adapter_melements", "cache_reload_mb")
 ACTIVE_FEATURES = {
     "same_ab": ("fixed", "critical_work_m", "global_io_mb"),
-    "same_ab/SBH": ("fixed", "critical_work_m", "cache_pressure_work_m"),
+    "same_ab/SBH": ("fixed", "critical_work_m", "cache_reload_mb"),
     "s1": FEATURE_NAMES[:5],
     "b": FEATURE_NAMES[:5],
     "b_drop": FEATURE_NAMES[:6],
 }
 RELATIVE_ERROR_LIMIT = 0.10
-FIT_METHOD = "nonnegative_capacity_model_v3"
+FIT_METHOD = "nonnegative_address_minimax_v4"
+ADDRESS_MODEL = {
+    "line_bytes": 512, "groups": 24,
+    "source": "recovered Toolkit behavioral simulator address mapping",
+    "qualification": "effective address-cost feature; not verified physical silicon cache geometry",
+}
 
 
 def ceil_div(a: int, b: int) -> int:
@@ -29,6 +35,63 @@ def ceil_div(a: int, b: int) -> int:
 
 def align(a: int, b: int = 16) -> int:
     return ceil_div(a, b) * b
+
+
+@lru_cache(maxsize=256)
+def sbh_address_cost(b: int, n: int, nk: int, s1: int, s2: int, d: int, dv: int,
+                     base: int, s2_base: int, ratio: int, aic: int, l2: int) -> dict:
+    line, groups = ADDRESS_MODEL["line_bytes"], ADDRESS_MODEL["groups"]
+    if b * n * d * 2 % line or b * nk * d * 2 % line or b * nk * dv * 2 % line:
+        raise ValueError("SBH address model requires cache-line-aligned sequence strides")
+    outer = ceil_div(s1, base)
+    total = b * n * outer
+    split = ceil_div(total, min(total, aic))
+    mm1 = align(base * s2_base * ratio, 128) * 4
+    mm2 = align(base * align(dv), 128) * 4
+    workspace_per_core = 3 * mm1 + 4 * mm2
+
+    @lru_cache(maxsize=256)
+    def row_lines(heads: tuple, width: int, stride: int, rows: int, first_row: int = 0) -> np.ndarray:
+        intervals = []
+        for lo, hi in sorted((head * width // line, (head * width + width - 1) // line) for head in heads):
+            if intervals and lo <= intervals[-1][1] + 1:
+                intervals[-1] = (intervals[-1][0], max(hi, intervals[-1][1]))
+            else:
+                intervals.append((lo, hi))
+        counts = np.zeros(groups)
+        stride_lines = stride // line
+        period = groups // math.gcd(stride_lines, groups)
+        for step in range(min(rows, period)):
+            repeats = ceil_div(rows - step, period)
+            shift = (first_row + step) * stride_lines
+            for lo, hi in intervals:
+                for position in range(lo, hi + 1):
+                    counts[(position + shift) % groups] += repeats
+        return counts
+
+    pressures = []
+    for step in range(split):
+        tasks = [core * split + step for core in range(aic) if core * split + step < total]
+        heads = {task // outer for task in tasks}
+        kv_heads = tuple(sorted({head // n * nk + head % n // (n // nk) for head in heads}))
+        kv = row_lines(kv_heads, d * 2, b * nk * d * 2, s2) + row_lines(kv_heads, dv * 2, b * nk * dv * 2, s2)
+        queries = {}
+        for task in tasks:
+            queries.setdefault(task % outer * base, []).append(task // outer)
+        query_lines = np.zeros(groups)
+        for first, query_heads in queries.items():
+            query_lines += row_lines(tuple(sorted(query_heads)), d * 2, b * n * d * 2, min(base, s1 - first), first)
+        workspace_lines = ceil_div(len(tasks) * workspace_per_core, line)
+        workspace = np.full(groups, workspace_lines // groups, dtype=float)
+        workspace[:workspace_lines % groups] += 1
+        excess = np.maximum(0.0, kv + query_lines + workspace - l2 / line / groups)
+        pressures.append(float(excess.sum() / kv.sum()))
+    pressure = sum(pressures) / len(pressures)
+    return {
+        "reload_fraction": pressure,
+        "critical_reload_mb": split * s2 * (d + dv) * 2 / 1e6 * pressure,
+        "active_workspace_bytes": min(aic, ceil_div(total, split)) * workspace_per_core,
+    }
 
 
 def normalize(inputs: dict) -> dict:
@@ -119,24 +182,20 @@ def derive(inputs: dict, hardware: dict) -> dict:
         "global_io_mb": io / 1e6,
         "serial_steps": float(steps),
         "adapter_melements": b * n * s1 * s2 / aiv / 1e6 if adapter else 0.0,
-        "cache_pressure_work_m": 0.0,
+        "cache_reload_mb": 0.0,
     }
-    workspace, footprint, pressure = 0, 0, 0.0
+    address = None
     if family == "same_ab" and p["layout"] == "SBH":
         l2 = int(hardware.get("l2_bytes", 0))
         if l2 <= 0:
             raise ValueError("SBH prediction requires the saved hardware L2 capacity")
-        mm1_bytes = align(base * s2_base * ratio, 128) * 4
-        mm2_bytes = align(base * align(dv), 128) * 4
-        workspace = workers * (3 * mm1_bytes + 4 * mm2_bytes)
-        footprint = io + 2 * b * n * s1 * 8 * 4 + workspace
-        pressure = max(0.0, 1.0 - l2 / footprint)
-        features["cache_pressure_work_m"] = features["critical_work_m"] * pressure
+        address = dict(sbh_address_cost(b, n, nk, s1, s2, d, dv, base, s2_base, ratio, aic, l2))
+        features["cache_reload_mb"] = address["critical_reload_mb"]
     return {
         "family": family, "priority": priority, "s1_base": base, "s2_base": s2_base,
         "n_ratio": ratio, "s1_outer": outer, "total_tasks": total, "split_factor": split,
         "workers": workers, "s2_windows": windows, "features": features,
-        "active_workspace_bytes": workspace, "cache_footprint_bytes": footprint, "l2_capacity_pressure": pressure,
+        "address_cost": address,
     }
 
 
@@ -186,6 +245,34 @@ def validate_design(plan: list[dict], hardware: dict) -> dict:
     return report
 
 
+def minimax_weights(matrix: np.ndarray) -> np.ndarray:
+    count, width = matrix.shape
+    constraints = np.vstack((
+        np.column_stack((matrix, -np.ones(count))),
+        np.column_stack((-matrix, -np.ones(count))),
+        -np.eye(width + 1),
+    ))
+    bounds = np.concatenate((np.ones(count), -np.ones(count), np.zeros(width + 1)))
+    best_error, best = math.inf, []
+    for active in itertools.combinations(range(len(bounds)), width + 1):
+        indices = list(active)
+        try:
+            solution = np.linalg.solve(constraints[indices], bounds[indices])
+        except np.linalg.LinAlgError:
+            continue
+        if not np.all(np.isfinite(solution)) or np.any(constraints @ solution - bounds > 1e-8):
+            continue
+        weights = np.maximum(solution[:-1], 0.0)
+        error = float(np.max(np.abs(matrix @ weights - 1)))
+        if error < best_error - 1e-9:
+            best_error, best = error, [weights]
+        elif abs(error - best_error) <= 1e-9 and not any(np.allclose(weights, item, rtol=1e-8, atol=1e-9) for item in best):
+            best.append(weights)
+    if not best:
+        raise ValueError("no feasible nonnegative worst-error cost fit")
+    return np.mean(best, axis=0)
+
+
 def fit_group(rows: list[dict], hardware: dict) -> dict:
     active = active_features(rows[0]["inputs"], hardware)
     x = np.asarray([[derive(row["inputs"], hardware)["features"][f] for f in active] for row in rows])
@@ -195,8 +282,14 @@ def fit_group(rows: list[dict], hardware: dict) -> dict:
     relative = x / y[:, None]
     scales = np.maximum(np.linalg.norm(relative, axis=0), np.finfo(float).tiny)
     matrix = relative / scales
+    if group_key(rows[0]["inputs"], hardware) == "same_ab/BF16/SBH":
+        coefficients = minimax_weights(matrix) / scales
+        objective = "minimize maximum absolute relative calibration error; average optimal vertices when nonunique"
+    else:
+        coefficients = None
+        objective = "minimize sum of squared relative calibration errors"
     best = None
-    for flags in itertools.product((False, True), repeat=len(active)):
+    for flags in itertools.product((False, True), repeat=len(active)) if coefficients is None else ():
         selected = np.flatnonzero(flags)
         weights = np.zeros(len(active))
         if len(selected):
@@ -207,8 +300,11 @@ def fit_group(rows: list[dict], hardware: dict) -> dict:
         loss = float(np.sum((matrix @ weights - 1) ** 2))
         if best is None or loss < best[0]:
             best = (loss, weights / scales)
+    if coefficients is None:
+        coefficients = best[1]
     return {
-        "coefficients": {**dict.fromkeys(FEATURE_NAMES, 0.0), **dict(zip(active, best[1].tolist()))},
+        "coefficients": {**dict.fromkeys(FEATURE_NAMES, 0.0), **dict(zip(active, coefficients.tolist()))},
+        "objective": objective,
         "calibration_cases": [row["case"] for row in rows],
         "feature_rank": int(np.linalg.matrix_rank(x / np.maximum(np.max(x, axis=0), 1e-12))),
         "feature_count": len(active),
@@ -233,10 +329,11 @@ def fit(rows: list[dict], hardware: dict, plan_sha256: str) -> dict:
     artifact = {
         "version": VERSION, "plan_sha256": plan_sha256, "hardware": hardware, "groups": models,
         "input_fields": list(INPUT_FIELDS), "features": list(FEATURE_NAMES), "fit_method": FIT_METHOD,
-        "target": "median msprof FlashAttentionScore Task Duration(us), warm device, fixed compiled operator",
+        "target": "median msprof FlashAttentionScore Task Duration(us), profiler kernel replay, frequency warmup, fixed compiled operator",
         "scope": "dense official FA; no PSE/attention mask/sparse mode; scale=1/sqrt(D); dropout keep_prob=0.9 or 1",
-        "method": "nonnegative relative-error least squares on algorithm-derived costs; no coefficient penalty or per-shape corrections",
-        "cache_model": "SBH capacity-pressure proxy from Q/K/V/output bytes, two FP32 softmax statistics and the active three-stage workspace; it is not an exact cache-hit simulator",
+        "method": "nonnegative source-work costs; SBH uses worst-relative-error fitting, other groups use relative-error least squares; no per-shape corrections",
+        "cache_model": "SBH active-head and query-block address distribution with three-stage workspace; finite-cache reload cost",
+        "address_model": dict(ADDRESS_MODEL),
         "identifiability": "fixed D/DV makes Cube and Softmax work correlated; coefficients represent combined costs, not independently measured primitive latency",
         "acceptance": "every blind holdout must execute correctly, match the derived schedule, have stable measurements, and have absolute relative error <= 0.10",
     }
@@ -287,6 +384,8 @@ def fit(rows: list[dict], hardware: dict, plan_sha256: str) -> dict:
 def predict(inputs: dict, model: dict) -> dict:
     if model.get("version") != VERSION or model.get("fit_method") != FIT_METHOD:
         raise ValueError("a frozen input-only FA latency model is required")
+    if model.get("address_model") != ADDRESS_MODEL:
+        raise ValueError("the frozen model uses a different address-cost mapping")
     p = normalize(inputs)
     hardware = model["hardware"]
     derived = derive(p, hardware)
@@ -327,8 +426,6 @@ def design(hardware: dict) -> list[dict]:
 
     for layout, s, n in itertools.product(("BNSD", "SBH"), (2048, 4096, 8192), (8, 32, 96)):
         add("calibration", 1, n, n, s, s, 192, 128, "BF16", layout)
-    for n, s in itertools.product((16, 64), (3072, 6144)):
-        add("calibration", 1, n, n, s, s, 192, 128, "BF16", "SBH")
     for b, n, nk in ((1, 4, 1), (1, 16, 2), (2, 16, 4)):
         for s1, s2 in ((64, 256), (128, 256), (256, 256), (512, 256), (64, 512), (256, 512), (128, 1024), (512, 1024)):
             add("calibration", b, n, nk, s1, s2, 128, 128, "FP16", "BNSD")

@@ -252,7 +252,7 @@ def text_report(directory: Path) -> None:
         raise FileNotFoundError(f"existing dataset is missing: {directory}")
     hardware_path = directory / "hardware.json"
     hardware = json.loads(hardware_path.read_text()) if hardware_path.is_file() else {}
-    rows = recorded(directory / "routes.csv")
+    rows = {name: row for name, row in recorded(directory / "routes.csv").items() if row.get("family") in MODEL_FAMILIES}
     cross_validation = {}
     calibration_path = directory / "calibration_report.json"
     if calibration_path.is_file():
@@ -736,8 +736,14 @@ def main() -> None:
     records = recorded(csv_path)
     model_path = directory / "model.json"
     frozen = json.loads(model_path.read_text()) if model_path.is_file() else None
+    blind_exposed = any(row.get("split") == "holdout" for row in records.values())
     if frozen is not None and (frozen.get("plan_sha256") != signature or frozen.get("fit_method") != cost.FIT_METHOD):
-        raise RuntimeError("the existing frozen model uses different model code; measurements are preserved, but its blind set must not be reused to validate a replacement")
+        if blind_exposed:
+            raise RuntimeError("the existing frozen model uses different model code; measurements are preserved, but its blind set must not be reused to validate a replacement")
+        frozen = None
+    calibration = [case for case in plan if case["split"] == "calibration"]
+    holdout = [case for case in plan if case["split"] == "holdout"]
+    print(f"MEASUREMENT PLAN: calibration_cached={sum(is_complete(records.get(case['name'])) for case in calibration)}/{len(calibration)} blind_remaining={sum(not is_complete(records.get(case['name'])) for case in holdout)}", flush=True)
     ensured = set()
     for case in plan:
         if case["split"] == "calibration":
@@ -772,11 +778,12 @@ def main() -> None:
         frozen = diagnostic
         cost.save_json(model_path, frozen)
     predictions_path = directory / "predictions_before_measurement.json"
-    if predictions_path.is_file():
-        payload = json.loads(predictions_path.read_text())
-        if payload["model_sha256"] != cost.sha256(frozen):
+    payload = json.loads(predictions_path.read_text()) if predictions_path.is_file() else None
+    if payload is not None and payload["model_sha256"] != cost.sha256(frozen):
+        if blind_exposed:
             raise RuntimeError("saved predictions belong to a different frozen model")
-    else:
+        payload = None
+    if payload is None:
         payload = {
             "model_sha256": cost.sha256(frozen),
             "predictions": {case["name"]: cost.predict(case["inputs"], frozen) for case in plan if case["split"] == "holdout"},
