@@ -86,8 +86,29 @@ PMU_RULES = {
     "aiv_ub_read_gbs": ("MemoryUB", "aiv_ub_read_bw_vector(GB/s)", "aiv"),
     "aiv_ub_write_gbs": ("MemoryUB", "aiv_ub_write_bw_vector(GB/s)", "aiv"),
 }
+for _engine, _pipes in (
+    ("aic", ("cube", "mte1", "mte2", "mte3", "fixpipe", "scalar")),
+    ("aiv", ("vec", "mte2", "mte3", "scalar")),
+):
+    for _pipe in _pipes:
+        for _reduction in ("sum", "max"):
+            PMU_RULES[f"{_engine}_{_pipe}_active_{_reduction}_us"] = (
+                "PipeUtilization", f"{_engine}_{_pipe}_time(us)", _reduction,
+            )
+    PMU_RULES[f"{_engine}_time_sum_us"] = ("ArithmeticUtilization", f"{_engine}_time(us)", "sum")
+    for _pipe in (("mte1", "mte2", "mte3") if _engine == "aic" else ("mte2", "mte3")):
+        PMU_RULES[f"{_engine}_{_pipe}_instructions"] = ("Memory", f"{_engine}_{_pipe}_instructions", "sum")
+    for _direction in ("read", "write"):
+        PMU_RULES[f"{_engine}_mainmem_{_direction}_kb"] = (
+            "Memory", f"{_direction}_main_memory_datas(KB)", f"sum:{_engine}",
+        )
+PMU_RULES["aic_cube_instructions"] = ("ArithmeticUtilization", "aic_cube_total_instr_number", "sum")
 PMU_L2 = tuple(f"{engine}_l2_{direction}_hit_pct" for engine in ("aic", "aiv") for direction in ("read", "write"))
-PMU_FIELDS = (*PMU_RULES, *PMU_L2)
+PMU_L2_COUNTS = tuple(
+    f"{engine}_l2_{direction}_{outcome}_requests"
+    for engine in ("aic", "aiv") for direction in ("read", "write") for outcome in ("hit", "miss")
+)
+PMU_FIELDS = (*PMU_RULES, *PMU_L2, *PMU_L2_COUNTS)
 REPORT_TILING = (
     "FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO", "FA_CORE_NUM", "FA_TOTAL_TASKS", "FA_SPLIT_FACTOR",
     "FA_BMM1_BASE_M", "FA_BMM1_BASE_N", "FA_BMM1_BASE_K", "FA_BMM2_BASE_M", "FA_BMM2_BASE_N", "FA_BMM2_BASE_K",
@@ -194,6 +215,14 @@ def profile_counters(folder: Path, key: int) -> dict:
                 result = sum(value for _, value in values)
             elif reduction == "max":
                 result = max(value for _, value in values)
+            elif reduction.startswith("sum:"):
+                engine = reduction.split(":", 1)[1]
+                core = "cube" if engine == "aic" else "vector"
+                selected = [value for row, value in values if row.get("sub_block_id", "").startswith(core) and finite(row.get(engine + "_time(us)")) is not None]
+                if not selected:
+                    notes.add("missing_metric_fields")
+                    continue
+                result = sum(selected)
             else:
                 weighted = [(value, finite(row.get(reduction + "_time(us)"))) for row, value in values]
                 weighted = [(value, weight) for value, weight in weighted if weight is not None and weight > 0]
@@ -211,6 +240,8 @@ def profile_counters(folder: Path, key: int) -> dict:
                 total = sum(hit + miss for hit, miss in pairs)
                 if total > 0:
                     samples.setdefault(f"{engine}_l2_{direction}_hit_pct", []).append(100 * sum(hit for hit, _ in pairs) / total)
+                    samples.setdefault(f"{engine}_l2_{direction}_hit_requests", []).append(sum(hit for hit, _ in pairs))
+                    samples.setdefault(f"{engine}_l2_{direction}_miss_requests", []).append(sum(miss for _, miss in pairs))
                 else:
                     notes.add("missing_l2_requests")
     return {"notes": notes, "samples": samples, "launches": len(stamps), "freq": frequencies}
@@ -246,6 +277,7 @@ def text_report(directory: Path) -> None:
     )
     target = directory / "diagnostics.csv"
     temporary = target.with_suffix(".tmp")
+    complete = 0
     with temporary.open("w", newline="", encoding="utf-8") as output:
         writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
@@ -283,10 +315,13 @@ def text_report(directory: Path) -> None:
                 pmu_notes=";".join(sorted(notes)),
                 freq_min_mhz=min(frequencies) if frequencies else "", freq_max_mhz=max(frequencies) if frequencies else "",
             )
+            complete += int(not notes)
             result.update({metric: statistics.median(values) for metric, values in grouped.items()})
             for field, value in result.items():
                 parsed = finite(value) if isinstance(value, str) and value else None
-                if parsed is not None and field not in ("tiling_key", *cost.INPUT_FIELDS[:7]):
+                if field.endswith(("_requests", "_instructions")) and finite(value) is not None:
+                    result[field] = f"{float(value):.15g}"
+                elif parsed is not None and field not in ("tiling_key", *cost.INPUT_FIELDS[:7]):
                     result[field] = f"{parsed:.6g}"
                 elif isinstance(value, float):
                     result[field] = f"{value:.6g}"
@@ -300,6 +335,7 @@ def text_report(directory: Path) -> None:
             legacy.unlink()
     print(f"CSV_REPORT={target}")
     print(f"SHAPES={len(rows)} BYTES={target.stat().st_size}")
+    print(f"PMU_COMPLETE={complete}/{len(rows)}; missing data is marked in pmu_notes")
 
 
 def select_shape(case: dict) -> None:
