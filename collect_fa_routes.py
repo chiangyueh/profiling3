@@ -760,6 +760,7 @@ def collect_other_families(directory: Path, hardware: dict, full_plan: list[dict
     result = {"families": summaries, "pass": all(value["pass"] for value in summaries.values()), "scope": "independent prospective family research; provisional predictions are not qualified models"}
     cost.save_json(directory / "family_validation_report.json", result)
     text_report(directory, RESEARCH_FAMILIES)
+    family_models.pipeline_report(directory / "diagnostics.csv")
     return result
 
 
@@ -771,7 +772,11 @@ def main() -> None:
     root = Path(__file__).resolve().parent
     os.chdir(root)
     if args.report_only:
-        text_report(root / "output" / VERSION, RESEARCH_FAMILIES if (root / "output" / VERSION / "family_validation_report.json").is_file() else MODEL_FAMILIES)
+        directory = root / "output" / VERSION
+        families = RESEARCH_FAMILIES if (directory / "family_validation_report.json").is_file() else MODEL_FAMILIES
+        text_report(directory, families)
+        if families == RESEARCH_FAMILIES:
+            family_models.pipeline_report(directory / "diagnostics.csv")
         return
     if hasattr(os, "sched_getaffinity"):
         allowed = sorted(os.sched_getaffinity(0))

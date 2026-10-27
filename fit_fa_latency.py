@@ -3,12 +3,13 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import heapq
 import inspect
 import itertools
 import json
 import math
 import statistics
-from collections import Counter
+from collections import Counter, deque
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,17 @@ import fa_latency_inputs as input_cost
 
 MODEL_VERSION = "fa_latency_model_v1"
 INPUT_FAMILY_VERSION = "fa_input_family_v1"
+PIPELINE_VERSION = "fa_input_pipeline_v1"
+PIPELINE_PIPES = {
+    "cube": ("aic_cube_active_sum_us", ("flops_m", "mma_instructions"), (0, 2)),
+    "mte1": ("aic_mte1_active_sum_us", ("l0_kb", "calls"), (0, 2)),
+    "mte2": ("aic_mte2_active_sum_us", ("read_kb", "calls"), (0, 2)),
+    "fixpipe": ("aic_fixpipe_active_sum_us", ("write_kb", "calls"), (0, 2)),
+    "vector": ("aiv_vec_active_sum_us", ("elements_k", "reduction_rows_k", "generic_rows_k", "calls"), (1, 3)),
+    "vmte2": ("aiv_mte2_active_sum_us", ("read_kb", "calls"), (1, 3)),
+    "vmte3": ("aiv_mte3_active_sum_us", ("write_kb", "calls"), (1, 3)),
+}
+PIPELINE_TERMS = ("initialization_us", "pipeline_us", "active_cube_pairs", "adapter_passes")
 SHAPE_FIELDS = ("B", "N1", "N2", "S1", "S2", "D", "DV", "dtype", "layout", "has_drop_mask")
 FAMILIES = {"same_ab": 95, "s1": 97, "b": 98, "b_drop": 98}
 FEATURES = {
@@ -251,6 +263,8 @@ def predict_us(row: dict, model: dict) -> float:
 def predict_latency(inputs: dict, artifact: dict) -> float:
     from fa_latency_inputs import VERSION, predict
 
+    if artifact.get("version") == PIPELINE_VERSION:
+        return predict_pipeline(inputs, artifact)["predicted_us"]
     if artifact.get("version") == INPUT_FAMILY_VERSION:
         return predict_input_family(inputs, artifact)["predicted_us"]
     if artifact.get("version") != VERSION:
@@ -383,6 +397,367 @@ def fit_input_family(rows: list[dict], hardware: dict, family: str, signature: s
         "max_ape_percent": max((value["max_ape_percent"] for value in axes.values() if value["max_ape_percent"] is not None), default=None),
     }
     return model
+
+
+def pipeline_nnls(matrix: list, values: list) -> dict:
+    x, y = np.asarray(matrix, dtype=float), np.asarray(values, dtype=float)
+    if x.ndim != 2 or not len(y) or not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)) or np.any(y <= 0):
+        raise ValueError("pipeline calibration contains missing or invalid counters")
+    relative = x / y[:, None]
+    scales = np.maximum(np.linalg.norm(relative, axis=0), np.finfo(float).tiny)
+    a = relative / scales
+    weights, passive = np.zeros(x.shape[1]), np.zeros(x.shape[1], dtype=bool)
+    for iteration in range(20 * x.shape[1] + 100):
+        gradient = a.T @ (np.ones(len(y)) - a @ weights)
+        gradient[passive] = -np.inf
+        if np.max(gradient) <= 1e-10:
+            break
+        passive[int(np.argmax(gradient))] = True
+        for inner in range(20 * x.shape[1] + 100):
+            candidate = np.zeros(x.shape[1])
+            candidate[passive] = np.linalg.lstsq(a[:, passive], np.ones(len(y)), rcond=None)[0]
+            if np.all(candidate[passive] > 0):
+                weights = candidate
+                break
+            removed = passive & (candidate <= 0)
+            denominator = weights[removed] - candidate[removed]
+            alpha = min((weights[removed][denominator > 0] / denominator[denominator > 0]).tolist(), default=0.0)
+            weights += alpha * (candidate - weights)
+            passive[passive & (weights <= 1e-12)] = False
+        else:
+            raise RuntimeError("pipeline nonnegative calibration did not converge")
+    else:
+        raise RuntimeError("pipeline nonnegative calibration did not converge")
+    active = np.any(x != 0, axis=0)
+    return {
+        "weights": (np.maximum(weights, 0) / scales).tolist(),
+        "rank": int(np.linalg.matrix_rank(a[:, active])) if np.any(active) else 0,
+        "terms": int(np.count_nonzero(active)),
+        "observed": active.tolist(),
+    }
+
+
+def pipeline_job(p: dict, rows: int, heads: int, kv_heads: int, s1_base: int, family: str) -> list[dict]:
+    s2, d, dv = input_cost.align(p["S2"]), p["D"], p["DV"]
+    aligned_rows = input_cost.align(rows)
+    vector_s2 = input_cost.align(p["S2"], 64) if family == "s1" else s2
+    vec1_base = min(s1_base, 1024 // vector_s2 * 8) if family == "s1" else s1_base
+    vec2_base = min(input_cost.align(p["S1"]), 8192 // input_cost.align(dv) // 16 * 16)
+    if min(vec1_base, vec2_base) <= 0:
+        raise ValueError("unsupported official Vector block geometry")
+    generic_rows = sum(min(vec1_base, rows - start) for start in range(0, rows, vec1_base)
+                       if family != "s1" and (min(vec1_base, rows - start) % 8 or p["S2"] % 64))
+    score_kb = 4 * heads * rows * s2 / 1024
+    return [
+        {"flops_m": 2 * heads * aligned_rows * s2 * d / 1e6, "query_rows": heads * rows,
+         "mma_instructions": float(heads * input_cost.ceil_div(aligned_rows, 128) * input_cost.ceil_div(s2, 128) * input_cost.ceil_div(d, 128)),
+         "read_kb": 2 * (heads * rows * d + kv_heads * p["S2"] * d) / 1024,
+         "l0_kb": 2 * heads * (aligned_rows * d * input_cost.ceil_div(s2, 128) + s2 * d * input_cost.ceil_div(aligned_rows, 128)) / 1024,
+         "write_kb": score_kb, "calls": 1.0},
+        {"elements_k": heads * rows * vector_s2 / 1000, "reduction_rows_k": heads * rows / 1000,
+         "generic_rows_k": heads * generic_rows / 1000,
+         "read_kb": score_kb, "write_kb": heads * rows * (2 * s2 + 64) / 1024,
+         "calls": float(heads * input_cost.ceil_div(rows, vec1_base))},
+        {"flops_m": 2 * heads * aligned_rows * s2 * dv / 1e6,
+         "mma_instructions": float(heads * input_cost.ceil_div(aligned_rows, 128) * input_cost.ceil_div(dv, 128) * input_cost.ceil_div(s2, 128)),
+         "read_kb": 2 * (heads * rows * s2 + kv_heads * p["S2"] * dv) / 1024,
+         "l0_kb": 2 * heads * (aligned_rows * s2 * input_cost.ceil_div(dv, 128) + s2 * dv * input_cost.ceil_div(aligned_rows, 128)) / 1024,
+         "write_kb": 4 * heads * rows * dv / 1024, "calls": 1.0},
+        {"elements_k": heads * rows * dv / 1000, "reduction_rows_k": 0.0, "generic_rows_k": 0.0,
+         "read_kb": heads * rows * (4 * dv + 32) / 1024,
+         "write_kb": 2 * heads * rows * dv / 1024,
+         "calls": float(heads * input_cost.ceil_div(rows, vec2_base))},
+    ]
+
+
+def pipeline_design(inputs: dict, hardware: dict) -> dict:
+    p = input_cost.normalize(inputs)
+    schedule = input_cost.derive(p, hardware)
+    family = schedule["family"]
+    if family not in ("s1", "b", "b_drop") or int(hardware["aiv_cores"]) != 2 * int(hardware["aic_cores"]):
+        raise ValueError("pipeline model requires the supported dense S1/B kernels and two Vector cores per Cube")
+    workers = []
+    for start in range(0, schedule["total_tasks"], schedule["split_factor"]):
+        tasks = []
+        for task in range(start, min(start + schedule["split_factor"], schedule["total_tasks"])):
+            rows = min(schedule["s1_base"], p["S1"] - task % schedule["s1_outer"] * schedule["s1_base"]) if family == "s1" else p["S1"]
+            tasks.append(pipeline_job(p, rows, 1 if family == "s1" else p["N1"], 1 if family == "s1" else p["N2"], schedule["s1_base"], family))
+        workers.append(tasks)
+    return {"inputs": p, "schedule": schedule, "workers": workers,
+            "active_cube_pairs": input_cost.ceil_div(len(workers), 2),
+            "critical_cube_rows": max(sum(job[0]["query_rows"] for tasks in workers[first:first + 2] for job in tasks) for first in range(0, len(workers), 2)),
+            "mma_instructions": sum(job[stage]["mma_instructions"] for tasks in workers for job in tasks for stage in (0, 2)),
+            "adapter_passes": input_adapter_passes(p, hardware) if family == "b_drop" else 0}
+
+
+def pipeline_service(job: dict, pipe: str, model: dict) -> float:
+    return sum(value * job.get(name, 0.0) for name, value in model["pipes"][pipe]["coefficients"].items())
+
+
+def pipeline_schedule(design: dict, model: dict) -> dict:
+    pair_results = []
+    for first in range(0, len(design["workers"]), 2):
+        workers = design["workers"][first:first + 2]
+        programs = []
+        for tasks in workers:
+            program = []
+            for step in range(len(tasks) + 2):
+                if 0 <= step - 1 < len(tasks):
+                    program.append(("wait", step - 1, 0))
+                if step < len(tasks):
+                    program.append(("launch", step, 0))
+                if 0 <= step - 1 < len(tasks):
+                    program.append(("vector", step - 1, 1))
+                if 0 <= step - 2 < len(tasks):
+                    program.append(("wait", step - 2, 2))
+                if 0 <= step - 1 < len(tasks):
+                    program.append(("launch", step - 1, 2))
+                if 0 <= step - 2 < len(tasks):
+                    program.append(("vector", step - 2, 3))
+            programs.append(program)
+        positions, blocked, finished = [0] * len(workers), {}, {}
+        completion, queue, events = {}, deque(), []
+        stage_totals = dict.fromkeys(("bmm1", "vec1", "bmm2", "vec2"), 0.0)
+        serial, cube_busy = 0, False
+
+        def event(time, kind, worker, task=-1, stage=-1):
+            nonlocal serial
+            serial += 1
+            heapq.heappush(events, (time, serial, kind, worker, task, stage))
+
+        def start_cube(time):
+            nonlocal cube_busy
+            if cube_busy or not queue:
+                return
+            worker, task, stage = queue.popleft()
+            job = workers[worker][task][stage]
+            duration = max(pipeline_service(job, pipe, model) for pipe in ("cube", "mte1", "mte2")) + pipeline_service(job, "fixpipe", model)
+            stage_totals[("bmm1", "vec1", "bmm2", "vec2")[stage]] += duration
+            cube_busy = True
+            event(time + duration, "cube", worker, task, stage)
+
+        def advance(worker, time):
+            while positions[worker] < len(programs[worker]):
+                kind, task, stage = programs[worker][positions[worker]]
+                if kind == "wait" and (worker, task, stage) not in completion:
+                    blocked[worker] = (worker, task, stage)
+                    return
+                positions[worker] += 1
+                if kind == "launch":
+                    queue.append((worker, task, stage))
+                    start_cube(time)
+                elif kind == "vector":
+                    job = workers[worker][task][stage]
+                    duration = max(pipeline_service(job, "vector", model), pipeline_service(job, "vmte2", model) + pipeline_service(job, "vmte3", model))
+                    stage_totals[("bmm1", "vec1", "bmm2", "vec2")[stage]] += duration
+                    event(time + duration, "vector", worker)
+                    return
+            finished[worker] = time
+
+        for worker in range(len(workers)):
+            advance(worker, 0.0)
+        while events:
+            time, _, kind, worker, task, stage = heapq.heappop(events)
+            if kind == "cube":
+                completion[worker, task, stage] = time
+                cube_busy = False
+                start_cube(time)
+                if blocked.get(worker) == (worker, task, stage):
+                    blocked.pop(worker)
+                    advance(worker, time)
+            else:
+                advance(worker, time)
+        if len(finished) != len(workers) or queue or blocked:
+            raise RuntimeError("pipeline dependency schedule did not drain")
+        pair_results.append({"pipeline_us": max(finished.values()), "critical_pair": first // 2,
+                             "stage_service_us": stage_totals})
+    return max(pair_results, key=lambda result: result["pipeline_us"])
+
+
+def fit_pipeline_group(rows: list[dict], hardware: dict, family: str) -> dict:
+    if len(rows) < 3 or any(input_cost.derive(row["inputs"], hardware)["family"] != family for row in rows):
+        raise ValueError("pipeline fitting needs at least three measurements from one supported family")
+    design = [pipeline_design(row["inputs"], hardware) for row in rows]
+    model = {"version": PIPELINE_VERSION, "family": family, "hardware": hardware, "pipes": {}}
+    for pipe, (target, names, stages) in PIPELINE_PIPES.items():
+        selected = [index for index, item in enumerate(design) if not item["adapter_passes"]]
+        if len(selected) < 3:
+            raise ValueError("pipeline calibration needs aligned-mask examples with measured pipe counters")
+        matrix = [[sum(job[stage].get(name, 0.0) for tasks in design[index]["workers"] for job in tasks for stage in stages) for name in names] for index in selected]
+        fitted = pipeline_nnls(matrix, [float(rows[index][target]) for index in selected])
+        model["pipes"][pipe] = {"coefficients": dict(zip(names, fitted.pop("weights"))), **fitted}
+    matrix = [[1.0, pipeline_schedule(item, model)["pipeline_us"], item["active_cube_pairs"], item["adapter_passes"]] for item in design]
+    fitted = pipeline_nnls(matrix, [float(row["duration_us"]) for row in rows])
+    model.update(coefficients=dict(zip(PIPELINE_TERMS, fitted.pop("weights"))), fit=fitted,
+                 calibration_cases=[row["case"] for row in rows],
+                 input_ranges={name: [min(row["inputs"][name] for row in rows), max(row["inputs"][name] for row in rows)] for name in input_cost.INPUT_FIELDS[:7]},
+                 adapter_pass_range=[min(item["adapter_passes"] for item in design), max(item["adapter_passes"] for item in design)],
+                 target="median msprof OpBasicInfo Task Duration(us); official dense FP16 BNSD tiling",
+                 rules={"mapping": "two adjacent Vector clients share one Cube; contiguous Host task partitions with actual S1 tails",
+                        "dependencies": "BMM1 -> Vec1 -> BMM2 -> Vec2; asynchronous Matmul FIFO, ping-pong waits and two drain iterations",
+                        "bmm_service": "max(Cube, MTE1, MTE2) + Fixpipe, calibrated from aggregate per-pipe active times",
+                        "vector_service": "max(Vector, MTE2 + MTE3); S1 64-column alignment; B Softmax generic/basic-block branch",
+                        "latency": "initialization + fitted intra-call overlap scale * scheduled elapsed + active-pair setup + adapter passes",
+                        "stage_totals": "aggregate service in the critical Cube pair, before overlap scaling; do not add to the final elapsed time",
+                        "adapter": "first-pass synchronization and unpacking are jointly identified; extra-pass behavior is not independently calibrated",
+                        "memory": "GQA K/V counts, FP16 operands and probabilities, FP32 BMM intermediates and statistics; L0 tile model uses 128-sized tiles",
+                        "limits": "no same_ab, backward, TND, sparse, L1 reuse or arbitrary candidate tiling coverage"},
+                 source_evidence={**SOURCE_EVIDENCE[family],
+                                  "softmax": SOURCE_ROOT + "op_kernel/arch32/flash_attention_score_common.h:143",
+                                  "intermediate_dtype": SOURCE_ROOT + f"op_kernel/flash_attention_score.cpp:{557 if family == 's1' else 642}",
+                                  "adapter": SOURCE_ROOT + "op_kernel/arch32/flash_attention_score_drop_mask_adapter.h:90"},
+                 qualification="development_model_requires_fresh_blind_validation")
+    return model
+
+
+def predict_pipeline(inputs: dict, model: dict) -> dict:
+    if model.get("version") != PIPELINE_VERSION:
+        raise ValueError("a calibrated pipeline model is required")
+    if "families" in model:
+        families = model["families"]
+        if not families:
+            raise ValueError("the artifact contains no calibrated pipeline family")
+        family = input_cost.derive(inputs, next(iter(families.values()))["hardware"])["family"]
+        if family not in families:
+            raise ValueError(f"the artifact has no calibrated {family} pipeline model")
+        model = families[family]
+    design = pipeline_design(inputs, model["hardware"])
+    if design["schedule"]["family"] != model["family"]:
+        raise ValueError("operator inputs select another family")
+    if design["adapter_passes"] > model["adapter_pass_range"][1]:
+        raise ValueError("additional DropMask passes have not been independently calibrated")
+    schedule = pipeline_schedule(design, model)
+    raw = dict(zip(PIPELINE_TERMS, (1.0, schedule["pipeline_us"], design["active_cube_pairs"], design["adapter_passes"])))
+    components = {name: value * raw[name] for name, value in model["coefficients"].items()}
+    if any(raw[name] and not observed for name, observed in zip(PIPELINE_TERMS, model["fit"]["observed"])):
+        raise ValueError("prediction needs a cost term absent from this calibration fold")
+    duration = sum(components.values())
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("invalid pipeline prediction")
+    return {"predicted_us": duration, "cost_terms_us": components, **schedule,
+            "qualification": model["qualification"],
+            "active_vector_workers": len(design["workers"]), "active_cube_pairs": design["active_cube_pairs"],
+            "critical_cube_rows": design["critical_cube_rows"], "scheduled_tasks": design["schedule"]["total_tasks"],
+            "mma_instructions": design["mma_instructions"],
+            "extrapolated_inputs": [name for name, bounds in model["input_ranges"].items() if not bounds[0] <= design["inputs"][name] <= bounds[1]],
+            "adapter_extrapolated": not model["adapter_pass_range"][0] <= design["adapter_passes"] <= model["adapter_pass_range"][1]}
+
+
+def pipeline_counters_complete(row: dict) -> bool:
+    try:
+        return row.get("pmu_status") == "ok" and all(math.isfinite(float(row[target])) and float(row[target]) > 0 for target, _, _ in PIPELINE_PIPES.values())
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def pipeline_report(path: Path) -> dict:
+    with path.open(newline="") as source:
+        reader = csv.DictReader(source)
+        fields, flat = list(reader.fieldnames or []), list(reader)
+    if not flat:
+        raise ValueError("pipeline evaluation needs the existing diagnostic measurements")
+    hardware_names = ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes")
+    hardware = {name: flat[0][name] if name == "soc" else int(flat[0][name]) for name in hardware_names}
+    hardware["calibrated_frequency_mhz"] = sorted({float(row[name]) for row in flat if row["split"] == "calibration" for name in ("freq_min_mhz", "freq_max_mhz") if row.get(name)})
+    rows = []
+    for index, row in enumerate(flat):
+        if any(str(row[name]) != str(hardware[name]) for name in hardware_names):
+            raise ValueError("pipeline calibration mixes hardware profiles")
+        inputs = input_cost.normalize({name: row[name] for name in input_cost.INPUT_FIELDS})
+        rows.append({**row, "inputs": inputs, "case": input_cost.sha256(inputs), "index": index})
+    report = {"version": PIPELINE_VERSION, "training_rule": "stable original calibration measurements and PMU only; no holdout timing used for fitting",
+              "evaluation_rule": "development replay of already exposed shapes plus grouped calibration cross-validation; not a new blind validation",
+              "fresh_blind_pass": False, "families": {}}
+    models, predictions = {}, {}
+    for family in ("s1", "b", "b_drop"):
+        candidates = [row for row in rows if row["family"] == family and row["split"] == "calibration" and row["status"] == "ok" and str(row["stable"]).lower() == "true"]
+        calibration = [row for row in candidates if pipeline_counters_complete(row)]
+        if len(calibration) < 8:
+            report["families"][family] = {"error": "fewer than eight stable original calibration cases"}
+            continue
+        try:
+            model = fit_pipeline_group(calibration, hardware, family)
+            models[family] = model
+            axes = {}
+            for axis, keys in (("sequence_pair", ("S1", "S2")), ("heads", ("N1",)), ("batch", ("B",))):
+                outcomes = []
+                identity = lambda row: tuple(row["inputs"][key] for key in keys)
+                for fold in sorted({identity(row) for row in calibration}):
+                    training = [row for row in calibration if identity(row) != fold]
+                    testing = [row for row in calibration if identity(row) == fold]
+                    try:
+                        fitted = fit_pipeline_group(training, hardware, family)
+                        if fitted["fit"]["rank"] != fitted["fit"]["terms"]:
+                            raise ValueError("held-out input group leaves unidentifiable latency terms")
+                        for row in testing:
+                            prediction = predict_pipeline(row["inputs"], fitted)
+                            error = abs(prediction["predicted_us"] / float(row["duration_us"]) - 1) * 100
+                            outcomes.append({"case": row["case"], "ape_percent": error})
+                    except (ValueError, RuntimeError, KeyError) as error:
+                        outcomes.extend({"case": row["case"], "error": str(error)} for row in testing)
+                errors = [row["ape_percent"] for row in outcomes if "ape_percent" in row]
+                axes[axis] = {"pass": len(errors) == len(calibration) and max(errors, default=math.inf) <= 10,
+                              "max_ape_percent": max(errors, default=None), "cases": outcomes}
+            replay, failed_predictions = [], {}
+            for row in rows:
+                if row["family"] != family or row["status"] != "ok":
+                    continue
+                try:
+                    result = predict_pipeline(row["inputs"], model)
+                except (ValueError, RuntimeError) as error:
+                    failed_predictions[str(row["index"])] = str(error)
+                    continue
+                result["ape_percent"] = abs(result["predicted_us"] / float(row["duration_us"]) - 1) * 100
+                predictions[row["index"]] = result
+                if row["split"] == "holdout":
+                    replay.append(result["ape_percent"])
+            report["families"][family] = {"calibration_cases": len(calibration), "calibration_missing_counters": len(candidates) - len(calibration), "calibration_grouped_cv": axes,
+                "calibration_cv_pass": all(item["pass"] for item in axes.values()),
+                "unidentifiable_pipe_terms": [pipe for pipe, fit in model["pipes"].items() if fit["rank"] != fit["terms"]],
+                "prediction_errors": failed_predictions,
+                "replay_count": len(replay), "replay_point_error_pass": sum(value <= 10 for value in replay),
+                "replay_mape_percent": statistics.mean(replay) if replay else None, "replay_max_ape_percent": max(replay, default=None)}
+            print(f"PIPELINE {family}: existing_holdout_replay={sum(value <= 10 for value in replay)}/{len(replay)} max_ape_percent={max(replay, default=None)}; fresh_blind_pass=False", flush=True)
+        except (ValueError, RuntimeError, KeyError) as error:
+            report["families"][family] = {"error": str(error)}
+            print(f"PIPELINE {family}: unavailable={error}; existing measurements retained", flush=True)
+    output = path.parent
+    input_cost.save_json(output / "pipeline_models.json", {"version": PIPELINE_VERSION, "families": models})
+    input_cost.save_json(output / "pipeline_report.json", report)
+    extra = ("pipeline_version", "pipeline_predicted_us", "pipeline_ape_percent", "pipeline_pass_10_percent", "pipeline_qualification", "pipeline_cv_pass",
+             "pipeline_initialization_us", "pipeline_service_us", "pipeline_cube_pair_setup_us", "pipeline_adapter_us",
+             "pipeline_bmm1_service_us", "pipeline_vec1_service_us", "pipeline_bmm2_service_us", "pipeline_vec2_service_us", "pipeline_raw_elapsed_us",
+             "pipeline_active_vector_workers", "pipeline_active_cube_pairs", "pipeline_critical_cube_rows", "pipeline_scheduled_tasks", "pipeline_mma_instructions",
+             "pipeline_extrapolated_inputs", "pipeline_adapter_extrapolated", "pipeline_critical_pair", "pipeline_error")
+    fields.extend(name for name in extra if name not in fields)
+    temporary = path.with_suffix(".pipeline.tmp")
+    with temporary.open("w", newline="") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        for index, row in enumerate(flat):
+            row.update({name: "" for name in extra})
+            row["pipeline_version"] = PIPELINE_VERSION
+            family = report["families"].get(row["family"], {})
+            if index in predictions:
+                result = predictions[index]
+                row.update(pipeline_predicted_us=result["predicted_us"], pipeline_ape_percent=result["ape_percent"], pipeline_pass_10_percent=result["ape_percent"] <= 10,
+                           pipeline_qualification=result["qualification"], pipeline_cv_pass=family["calibration_cv_pass"], pipeline_critical_pair=result["critical_pair"],
+                           pipeline_raw_elapsed_us=result["pipeline_us"], pipeline_extrapolated_inputs="|".join(result["extrapolated_inputs"]),
+                           pipeline_adapter_extrapolated=result["adapter_extrapolated"])
+                for name in ("active_vector_workers", "active_cube_pairs", "critical_cube_rows", "scheduled_tasks", "mma_instructions"):
+                    row[f"pipeline_{name}"] = result[name]
+                for name, term in (("initialization", "initialization_us"), ("service", "pipeline_us"), ("cube_pair_setup", "active_cube_pairs"), ("adapter", "adapter_passes")):
+                    row[f"pipeline_{name}_us"] = result["cost_terms_us"][term]
+                for name, value in result["stage_service_us"].items():
+                    row[f"pipeline_{name}_service_us"] = value
+            else:
+                row["pipeline_error"] = family.get("prediction_errors", {}).get(str(index), family.get("error", row.get("error", "")))
+            for name in extra:
+                if isinstance(row.get(name), float):
+                    row[name] = format(row[name], ".6g")
+            writer.writerow(row)
+    temporary.replace(path)
+    return report
 
 
 def prediction(row: dict, model: dict, evaluation: str) -> dict:
