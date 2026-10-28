@@ -36,7 +36,7 @@ MODEL_FAMILIES = ("same_ab",)
 RESEARCH_FAMILIES = ("s1", "b", "b_drop")
 ALL_FAMILIES = ("same_ab", "s1", "b", "b_drop", "general", "varlen")
 EXTERNAL_VERSION = "fa_external_latency_v1"
-RUN_BUDGET_SECONDS = 8 * 60 * 60
+RUN_BUDGET_SECONDS = None
 KEY_REPORT_FIELDS = ("key_ub0", "key_ub1", "key_block", "key_dtype", "key_layout", "key_bmm1_format", "key_bmm2_source",
                      "key_l1_reuse", "key_matmul_policy", "key_s1_template", "key_s2_template", "key_d_template",
                      "key_has_drop_out", "key_has_attention_mask", "key_has_pse", "key_has_rope", "key_impl_mode",
@@ -1129,6 +1129,9 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
             fields.append(name)
     for row in additional:
         saved = payload["predictions"][row["case"]]
+        route_saved = payload.get("route_predictions", {}).get(row["case"])
+        if route_saved and row.get("model_sha256") == route_saved.get("model_sha256"):
+            saved = route_saved
         row.update(prediction_model_kind=saved["kind"], prediction_status=saved["status"])
         case = active_cases.get(row["case"], all_cases[row["case"]])
         row["coverage"] = case.get("coverage", case["family"])
@@ -1172,15 +1175,16 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
     for family in ALL_FAMILIES:
         cases = [case for case in active_plan if case["family"] == family]
         observed = [latest.get(case["name"], {}) for case in cases]
+        saved_predictions = [payload.get("route_predictions", {}).get(case["name"], payload["predictions"][case["name"]]) for case in cases]
         errors = [float(row["ape_percent"]) for case, row in zip(cases, observed) if row.get("status") == "ok" and row.get("ape_percent") not in (None, "")
-                  and external_prediction_matches(row, payload["predictions"][case["name"]])]
+                  and external_prediction_matches(row, payload.get("route_predictions", {}).get(case["name"], payload["predictions"][case["name"]]))]
         families[family] = {"requested": len(cases), "runtime_ok": sum(row.get("status") == "ok" for row in observed),
                             "failed": sum(row.get("status") == "failed" for row in observed),
                             "skipped_covered": sum(coverage_records.get(case["name"], {}).get("state") == "covered" for case in cases),
                             "not_hit": sum(coverage_records.get(case["name"], {}).get("state") == "not_hit" for case in cases),
                             "pending": sum(not row for row in observed),
                             "measured_tiling_keys": sorted({int(row["tiling_key"]) for row in observed if row.get("status") == "ok" and row.get("tiling_key")}),
-                            "predicted_before_measurement": sum(payload["predictions"][case["name"]]["status"] == "predicted" for case in cases),
+                            "predicted_before_measurement": sum(saved["status"] == "predicted" for saved in saved_predictions),
                             "error_evaluated": len(errors), "point_error_pass": sum(value <= 10 for value in errors),
                             "mape_percent": statistics.mean(errors) if errors else None, "max_ape_percent": max(errors, default=None)}
     variants = Counter()
@@ -1205,6 +1209,8 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
               "measured_variants": [{"family": key[0], "dtype": key[1], "layout": key[2], "tiling_key": key[3], "bmm1_format": key[4], "bmm2_source": key[5], "l1_reuse": key[6], "cases": count} for key, count in sorted(variants.items())],
               "measurements_complete": all(case["name"] in coverage_records for case in active_plan)}
     cost.save_json(folder / "summary.json", result)
+    if payload.get("route_model"):
+        result["route_model"] = family_models.route_report(original, payload["route_model"])
     print(f"EXTERNAL SUMMARY: {families}", flush=True)
     print(f"FA BRANCH COVERAGE: {sum(value['covered'] for value in targets.values())}/{len(targets)}; dtype/layout alone do not count as new branches", flush=True)
     print(f"CSV_REPORT={original}; original measurements plus external cases; no raw-log bundle", flush=True)
@@ -1222,8 +1228,6 @@ def external_prediction_matches(row: dict, saved: dict) -> bool:
 def collect_external(directory: Path, hardware: dict, signature: str, ensured: set, deadline: float | None = None) -> dict:
     run_started = time.monotonic()
     profile_counters.cache_clear()
-    if deadline is None:
-        deadline = run_started + RUN_BUDGET_SECONDS
     folder = directory / "external"
     folder.mkdir(parents=True, exist_ok=True)
     cost.save_json(folder / "hardware.json", hardware)
@@ -1249,7 +1253,7 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
                             "derived_schedule": dict(candidate["derived_schedule"])})
     protocol = {"version": EXTERNAL_VERSION, "protocol_sha256": signature, "plan": registry, "active_plan": active_plan,
                 "sampling_targets": sorted(sampling_targets),
-                "predictor_sha256": cost.sha256({"source": Path(family_models.__file__).read_text()})}
+                "predictor_sha256": previous["predictor_sha256"] if previous else cost.sha256({"source": Path(family_models.__file__).read_text()})}
     if previous is not None:
         excluded = ("plan", "active_plan", "sampling_targets")
         if cost.sha256({key: value for key, value in previous.items() if key not in excluded}) != cost.sha256({key: value for key, value in protocol.items() if key not in excluded}):
@@ -1275,6 +1279,16 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
             models.update(json.loads((directory / "pipeline_models.json").read_text())["families"])
         payload = {"models": models, "predictions": {}}
     models = payload["models"]
+    if "route_model" not in payload:
+        if not family_models.ROUTE_MODEL_PATH.is_file():
+            raise RuntimeError(f"the frozen route model is missing: {family_models.ROUTE_MODEL_PATH}")
+        payload["route_model"] = json.loads(family_models.ROUTE_MODEL_PATH.read_text())
+    route_model = payload["route_model"]
+    if route_model.get("model_source_sha256") != family_models.route_source():
+        raise RuntimeError("the frozen route predictor differs; measurements and native build caches were retained")
+    if any(str(route_model["hardware"][name]) != str(hardware[name]) for name in ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes")):
+        raise RuntimeError("the frozen route model belongs to different hardware; no NPU measurements were started")
+    payload.setdefault("route_predictions", {})
     for case in registry:
         if case["name"] not in payload["predictions"]:
             family = case["family"]
@@ -1295,10 +1309,12 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
     cached = sum(records.get(case["name"], {}).get("status") == "ok" for case in sampling_cases)
     print(f"NEW-BRANCH SHAPES: targets={len(sampling_targets)} candidates={len(sampling_cases)} successful_cache={cached}; sampling distinct batch/head/sequence inputs", flush=True)
     print("New paths stay in the collection plan after their first success; previously covered paths are skipped; every shape requires Host key verification", flush=True)
-    print(f"RUN BUDGET: remaining_seconds={max(0, deadline - time.monotonic()):.0f}; no repeated measurements to fill the time budget", flush=True)
+    print("RUN BUDGET: unlimited; successful measurements are reused" if deadline is None else f"RUN BUDGET: remaining_seconds={max(0, deadline - time.monotonic()):.0f}", flush=True)
     failures = {}
     budget_reached = False
     next_report = time.monotonic() + 15 * 60
+    if any(row.get("status") == "ok" for row in records.values()):
+        external_report(directory, folder, registry, payload)
     try:
         for index, case in enumerate(external_order(active_plan), 1):
             name, target = case["name"], case["coverage"]
@@ -1318,7 +1334,7 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
                         continue
                 except (KeyError, ValueError, RuntimeError):
                     pass
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 budget_reached = True
                 print("RUN BUDGET REACHED: unmeasured branches remain pending", flush=True)
                 break
@@ -1327,6 +1343,19 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
             print(f"BRANCH {index}/{len(active_plan)} PROBE: {target}; shape={case['inputs']}", flush=True)
             probe_started = time.monotonic()
             try:
+                if name not in payload["route_predictions"]:
+                    try:
+                        prediction = family_models.predict_route(case["inputs"], route_model)
+                        if name in records or cost.sha256(case["inputs"]) in set(route_model.get("exposed_shapes", [])):
+                            prediction["prediction_quality"] = "retry_previously_exposed_shape"
+                        payload["route_predictions"][name] = {"kind": "route", "status": "predicted", "result": prediction,
+                                                              "model_sha256": cost.sha256(route_model)}
+                        print(f"PREDICTION BEFORE HOST/NPU: {name} predicted_us={prediction['predicted_us']:.6f}", flush=True)
+                    except (ValueError, RuntimeError) as error:
+                        payload["route_predictions"][name] = {"kind": "route", "status": "unavailable", "error": str(error)}
+                        print(f"PREDICTION UNAVAILABLE: {name}; {error}", flush=True)
+                    cost.save_json(snapshot, payload)
+                saved_prediction = payload["route_predictions"][name]
                 route = probe_branch(case, location)
                 observed = describe_branch(route[0], route[1], case["inputs"])
                 if not matches_branch(case, observed):
@@ -1345,6 +1374,8 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
                 case["derived_schedule"]["prediction_quality"] = "branch_unmodeled"
                 select_shape(case)
                 collect(case, hardware, folder, records, folder / "routes.csv", ensured,
+                        frozen=route_model if saved_prediction["status"] == "predicted" else None,
+                        precomputed=saved_prediction.get("result"),
                         build_failures=failures, discovered_route=route)
                 row = records.get(name, {})
                 if row.get("status") == "ok":
@@ -1387,6 +1418,8 @@ def main() -> None:
             family_models.pipeline_report(directory / "diagnostics.csv")
         if (external / "predictions_before_measurement.json").is_file():
             payload = json.loads((external / "predictions_before_measurement.json").read_text())
+            if "route_model" not in payload and family_models.ROUTE_MODEL_PATH.is_file():
+                payload["route_model"] = json.loads(family_models.ROUTE_MODEL_PATH.read_text())
             plan = json.loads((external / "manifest.json").read_text())["plan"]
             external_report(directory, external, plan, payload)
         return
@@ -1430,7 +1463,11 @@ def main() -> None:
     print("MODE: FA execution paths not covered by successful measurements", flush=True)
     if not (directory / "diagnostics.csv").is_file():
         text_report(directory, ALL_FAMILIES)
-    result = collect_external(directory, hardware, signature, set(), run_started + RUN_BUDGET_SECONDS)
+    result = collect_external(directory, hardware, signature, set())
+    model_report = result.get("route_model", {})
+    if model_report.get("prospective", {}).get("count") and not model_report.get("fresh_blind_pass"):
+        print("PREDICTION ACCURACY FAIL: the full collection finished; prospective latency predictions did not all meet 10%", flush=True)
+        raise SystemExit(1)
     if not result["coverage_complete"] and not result["stopped_for_time_budget"]:
         raise SystemExit(1)
 

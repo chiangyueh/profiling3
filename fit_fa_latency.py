@@ -496,8 +496,9 @@ def pipeline_service(job: dict, pipe: str, model: dict) -> float:
 
 def pipeline_schedule(design: dict, model: dict) -> dict:
     pair_results = []
-    for first in range(0, len(design["workers"]), 2):
-        workers = design["workers"][first:first + 2]
+    pair_width = design.get("pair_width", 2)
+    for first in range(0, len(design["workers"]), pair_width):
+        workers = design["workers"][first:first + pair_width]
         programs = []
         for tasks in workers:
             program = []
@@ -569,7 +570,7 @@ def pipeline_schedule(design: dict, model: dict) -> dict:
                 advance(worker, time)
         if len(finished) != len(workers) or queue or blocked:
             raise RuntimeError("pipeline dependency schedule did not drain")
-        pair_results.append({"pipeline_us": max(finished.values()), "critical_pair": first // 2,
+        pair_results.append({"pipeline_us": max(finished.values()), "critical_pair": first // pair_width,
                              "stage_service_us": stage_totals})
     return max(pair_results, key=lambda result: result["pipeline_us"])
 
@@ -648,6 +649,359 @@ def pipeline_counters_complete(row: dict) -> bool:
         return row.get("pmu_status") == "ok" and all(math.isfinite(float(row[target])) and float(row[target]) > 0 for target, _, _ in PIPELINE_PIPES.values())
     except (KeyError, TypeError, ValueError):
         return False
+
+
+ROUTE_MODEL_VERSION = "fa_route_pipeline_v1"
+ROUTE_MODEL_PATH = Path(__file__).resolve().with_name("fa_route_model.json")
+
+
+def route_schedule(inputs: dict, hardware: dict) -> dict:
+    p = input_cost.normalize(inputs)
+    b, n, nk, s1, s2, d, dv = (p[k] for k in SHAPE_FIELDS[:7])
+    if p["dtype"] not in ("FP16", "BF16") or p["layout"] not in ("BNSD", "SBH", "BSND", "TND"):
+        raise ValueError("the calibrated route model supports FP16/BF16 dense attention only")
+    if p["layout"] == "BSND" and p["dtype"] == "BF16":
+        raise ValueError("BSND BF16 static Matmul has no numerically validated calibration")
+    aic, aiv = int(hardware["aic_cores"]), int(hardware["aiv_cores"])
+    if aiv != 2 * aic:
+        raise ValueError("the route model requires two Vector cores per Cube")
+    align, ceil = input_cost.align, input_cost.ceil_div
+    as1, as2, ad = align(s1), align(s2), align(d)
+    same = False
+    reuse, l1, nz = False, False, False
+    if p["layout"] == "TND":
+        family, priority = "varlen", 94
+        same = n != 1 and ((b >= 4 and b * s1 >= 8192 and b * s2 >= 8192 and min(s1, s2) >= 512) or min(s1, s2) > 5120)
+        best = 128
+        if b * s1 > 10000 and s2 < 1024:
+            best = 256 if b >= 5 or s2 >= 512 else 512
+        base = min(256 if same else best, as1)
+        ratio = min(4 if same and ad == 128 and int(hardware["l2_bytes"]) <= 96 * 1024 ** 2 and b * s1 >= 48000 else 8, ceil(s2, min(128, as2)))
+    elif ((d % 16 or d == 96) and s2 >= 512) or (s2 > 1024 and 128 < d < 196) or (d == 64 and s2 % 64 and 2048 < s2 < 18432):
+        family, priority, same = "same_ab", 95, True
+        best = 256
+        if (d % 16 or d == 96) and s1 > 2048 and p["layout"] != "BSND" and int(hardware["l2_bytes"]) > 96 * 1024 ** 2:
+            best = 384 if ceil(as1, 384) < ceil(as1, 256) else 256
+        base = min(best, as1)
+        ratio = min(8, ceil(s2, min(128, as2)))
+        nz = bool(s2 % 64)
+    elif s2 > 1024:
+        family, priority = "general", 96
+        base = min(128 if b * n * (n // nk) * ceil(s1, min(64, as1)) > aiv else 64, as1)
+        ratio = 5 if 1025 <= s2 <= 1040 else 6 if d == 64 and p["layout"] == "BNSD" and 2049 <= s2 <= 2304 else 8
+        ratio = min(ratio, ceil(s2, min(128, as2)))
+        reuse = d <= 128 and not (d == 64 and p["layout"] == "BNSD" and s2 % 256 and s2 not in (4032, 42192))
+        nz = bool(s2 % 64 and d != 64)
+    elif n * as1 * as2 <= 65536 and as2 <= 128:
+        family, priority = ("b_drop" if p["has_drop_mask"] else "b"), 98
+        base, ratio = min(as1, 256, 8192 // as2 // 16 * 16), 0
+    else:
+        family, priority = "s1", 97
+        initial = min(128, as1)
+        l1 = ad == 64 and 512 <= as2 <= 1024 and s1 <= 3840
+        reuse = not l1 and ((s2 >= 512 and b * n > 64 and d <= 128) or (b * n >= 4800 and s2 == 256 and d == 144))
+        nz = bool(s2 % 64 or s2 == 64 or (s2 >= 704 and s2 % 128 and b * n * s1 > 20480))
+        maximum = 1 if l1 and as2 == 512 else 4
+        ratio, total = 1, b * n * ceil(s1, initial)
+        while ratio < maximum and total * ratio > (ratio - 1) * aiv and initial * ratio < as1 and initial * ratio * as2 <= 131072:
+            ratio += 1
+            total = b * n * ceil(ceil(s1, initial), ratio)
+        while total * ratio <= (ratio - 1) * aiv or initial * ratio > as1 or initial * ratio * as2 > 131072:
+            ratio -= 1
+            if ratio <= 0:
+                raise ValueError("unsupported official S1 block geometry")
+        base = initial * ratio
+    outer = ceil(s1, base)
+    total = b if family in ("b", "b_drop") else b * n * outer
+    split = ceil(total, min(total, aic if same else aiv)) * (2 if reuse else 1)
+    cores = min(total, aic if same else aiv) * (2 if same else 1)
+    if family in ("s1", "b", "b_drop"):
+        cores = min(aiv, ceil(total, split // (2 if reuse else 1)))
+        if reuse and cores % 2:
+            cores = min(aiv, cores + 1)
+    if family == "same_ab":
+        cores = 2 * ceil(total, split)
+    return {"family": family, "priority": priority, "same_ab": same, "reuse": bool(reuse), "l1": bool(l1), "nz": bool(nz),
+            "s1_base": base, "s2_base": min(128, as2), "n_ratio": ratio, "s1_outer": outer,
+            "total_tasks": total, "split_factor": split, "core_num": cores,
+            "domain": "same_ab" if same else "b" if family in ("b", "b_drop") else "s1_l1" if l1 else "s1_reuse" if family == "s1" and reuse else "s1" if family == "s1" else "windowed_reuse" if reuse else "windowed"}
+
+
+ROUTE_PIPES = {**PIPELINE_PIPES,
+    "vector": ("aiv_vec_active_sum_us", ("elements_k", "reduction_rows_k", "generic_rows_k", "calls", "nz_elements_k", "drop_elements_k", "online_elements_k"), (1, 3))}
+
+
+def route_design(inputs: dict, hardware: dict) -> dict:
+    p = input_cost.normalize(inputs)
+    s = route_schedule(p, hardware)
+    workers, counter_jobs = [], []
+    base, split, total = s["s1_base"], s["split_factor"], s["total_tasks"]
+    window = s["s2_base"] * s["n_ratio"] if s["same_ab"] or s["family"] in ("general", "varlen") else p["S2"]
+    for start in range(0, total, split):
+        clients = [[], []] if s["reuse"] else [[]]
+        previous = {}
+        for task in range(start, min(start + split, total)):
+            row_count = p["S1"] if s["domain"] == "b" else min(base, p["S1"] - task % s["s1_outer"] * base)
+            head = 0 if s["domain"] == "b" else task // s["s1_outer"] % p["N1"]
+            batch = task if s["domain"] == "b" else task // (s["s1_outer"] * p["N1"])
+            client = (task - start) % 2 if s["reuse"] else 0
+            for offset in range(0, p["S2"], window):
+                local = {**p, "S2": min(window, p["S2"] - offset)}
+                family = "s1" if s["family"] == "s1" else "b" if s["domain"] == "b" else "windowed"
+                heads, kv_heads = (p["N1"], p["N2"]) if s["domain"] == "b" else (1, 1)
+                job = pipeline_job(local, row_count, heads, kv_heads, base, family)
+                key = (batch, head // (p["N1"] // p["N2"]), offset)
+                for stage in (0, 2):
+                    width = p["D"] if stage == 0 else p["DV"]
+                    shared = s["reuse"] and client == 1 and previous.get(stage) == key
+                    carried = s["l1"] and stage == 2 and previous.get((stage, client)) == key
+                    if shared or carried:
+                        job[stage]["read_kb"] -= 2 * kv_heads * local["S2"] * width / 1024
+                    previous[stage], previous[stage, client] = key, key
+                job[1].update(nz_elements_k=heads * row_count * input_cost.align(local["S2"]) / 1000 if s["nz"] else 0.0,
+                              drop_elements_k=heads * row_count * input_cost.align(local["S2"]) / 1000 if p["has_drop_mask"] else 0.0,
+                              online_elements_k=heads * row_count * p["DV"] / 1000 if offset else 0.0)
+                counter_jobs.append(job)
+                if s["same_ab"]:
+                    vector_rows = min(row_count, max(1, base // 2))
+                    fraction = vector_rows / row_count
+                    timed = [dict(stage) for stage in job]
+                    for stage in (1, 3):
+                        timed[stage] = {name: value * fraction for name, value in job[stage].items()}
+                    clients[client].append(timed)
+                else:
+                    clients[client].append(job)
+        workers.extend(clients)
+    adapter = bool(p["has_drop_mask"] and (p["S2"] % 8 or p["layout"] == "TND" and p["B"] > 1))
+    adapter_inputs = {**p, "S2": p["S2"] if p["S2"] % 8 else p["S2"] + 1}
+    if adapter and not p["S2"] % 8:
+        bits = p["B"] * p["N1"] * p["S1"] * p["S2"]
+        single = input_cost.ceil_div(input_cost.ceil_div(bits, 2048), int(hardware["aiv_cores"])) * 2048
+        available = input_cost.ceil_div(int(hardware["ub_bytes"]), 6) // 2048 * 2048
+        passes = input_cost.ceil_div(single, min(available, single))
+    else:
+        passes = input_adapter_passes(adapter_inputs, hardware) if adapter else 0
+    pair_width = 1 if s["same_ab"] else 2
+    return {"inputs": p, "schedule": s, "workers": workers, "counter_jobs": counter_jobs,
+            "pair_width": pair_width, "active_cube_pairs": input_cost.ceil_div(len(workers), pair_width),
+            "adapter_passes": passes, "critical_cube_rows": max(sum(job[0]["query_rows"] for tasks in workers[first:first + pair_width] for job in tasks)
+                                                               for first in range(0, len(workers), pair_width)),
+            "mma_instructions": sum(job[stage]["mma_instructions"] for job in counter_jobs for stage in (0, 2))}
+
+
+def predict_route(inputs: dict, artifact: dict) -> dict:
+    if artifact.get("version") != ROUTE_MODEL_VERSION:
+        raise ValueError("a frozen FA route model is required")
+    if artifact.get("model_source_sha256") not in (None, route_source()):
+        raise ValueError("the frozen route model and input-only predictor differ")
+    schedule = route_schedule(inputs, artifact["hardware"])
+    legacy = None
+    try:
+        if schedule["family"] == "same_ab" and "legacy_same_ab" in artifact:
+            legacy = input_cost.predict(inputs, artifact["legacy_same_ab"])
+        elif "legacy_pipelines" in artifact:
+            legacy = predict_pipeline(inputs, artifact["legacy_pipelines"])
+    except (ValueError, KeyError):
+        legacy = None
+    if legacy is not None:
+        return {**legacy, "input_schedule": schedule, "prediction_quality": "route_frozen_before_measurement",
+                "transfer_from": "previously_frozen_input_model", "qualification": "legacy input domain; prospective validation required"}
+    design = route_design(inputs, artifact["hardware"])
+    domain = design["schedule"]["domain"]
+    if domain not in artifact["domains"]:
+        raise ValueError(f"no calibrated {domain} route model")
+    model = artifact["domains"][domain]
+    elapsed = pipeline_schedule(design, model)
+    features = (1.0, elapsed["pipeline_us"], design["active_cube_pairs"], design["adapter_passes"])
+    terms = {name: value * weight for name, value, weight in zip(PIPELINE_TERMS, features, model["weights"])}
+    value = sum(terms.values())
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("invalid route latency prediction")
+    return {"predicted_us": value, "cost_terms_us": terms, **elapsed, "input_schedule": design["schedule"],
+            "qualification": "development_model_requires_prospective_validation", "prediction_quality": "route_frozen_before_measurement",
+            "transfer_from": model.get("transfer_from", ""),
+            "extrapolated_inputs": [name for name, bounds in model["input_ranges"].items() if not bounds[0] <= design["inputs"][name] <= bounds[1]],
+            "unidentifiable_pipe_terms": [pipe for pipe, fit in model["pipes"].items() if fit["rank"] != fit["terms"]]}
+
+
+def fit_routes(rows: list[dict], hardware: dict) -> dict:
+    prepared = []
+    for row in rows:
+        try:
+            design = route_design(row["inputs"], hardware)
+            prepared.append((row, design))
+        except ValueError:
+            continue
+    artifact = {"version": ROUTE_MODEL_VERSION, "hardware": hardware, "domains": {},
+                "target": "median msprof FlashAttentionScore kernel Task Duration(us)",
+                "scope": "official dense FP16/BF16 tiling; uniform-length packed TND; no sparse/PSE/Rope/backward/static Matmul qualification",
+                "source_evidence": SOURCE_ROOT + "op_host/arch32/flash_attention_score_tiling_general.cpp",
+                "training_shapes": sorted(input_cost.sha256(row["inputs"]) for row, _ in prepared),
+                "qualification": "development_model_requires_prospective_validation"}
+    for domain in sorted({design["schedule"]["domain"] for _, design in prepared}):
+        selected = [(row, design) for row, design in prepared if design["schedule"]["domain"] == domain]
+        if len(selected) < 3:
+            continue
+        model = {"pipes": {}}
+        aligned = [(row, design) for row, design in selected if not design["adapter_passes"]]
+        for pipe, (target, names, stages) in ROUTE_PIPES.items():
+            matrix = [[sum(job[stage].get(name, 0.0) for job in design["counter_jobs"] for stage in stages) for name in names] for _, design in aligned]
+            fitted = pipeline_nnls(matrix, [float(row[target]) for row, _ in aligned])
+            model["pipes"][pipe] = {"coefficients": dict(zip(names, fitted.pop("weights"))), **fitted}
+        matrix = [[1.0, pipeline_schedule(design, model)["pipeline_us"], design["active_cube_pairs"], design["adapter_passes"]] for _, design in selected]
+        fitted = pipeline_nnls(matrix, [float(row["duration_us"]) for row, _ in selected])
+        model.update(weights=fitted.pop("weights"), fit=fitted, training_cases=[row["case"] for row, _ in selected],
+                     input_ranges={name: [min(row["inputs"][name] for row, _ in selected), max(row["inputs"][name] for row, _ in selected)] for name in SHAPE_FIELDS[:7]})
+        artifact["domains"][domain] = model
+    for domain in sorted({design["schedule"]["domain"] for _, design in prepared} - set(artifact["domains"])):
+        parent = "s1" if domain.startswith("s1_") else "windowed" if domain.startswith("windowed_") else None
+        if parent in artifact["domains"]:
+            model = {**artifact["domains"][parent], "weights": list(artifact["domains"][parent]["weights"]), "transfer_from": parent}
+            selected = [(row, design) for row, design in prepared if design["schedule"]["domain"] == domain]
+            if len(selected) >= 2:
+                elapsed = [pipeline_schedule(design, model)["pipeline_us"] for _, design in selected]
+                residual = [float(row["duration_us"]) - model["weights"][0] - model["weights"][2] * design["active_cube_pairs"] - model["weights"][3] * design["adapter_passes"] for row, design in selected]
+                if min(residual) > 0:
+                    model["weights"][1] = pipeline_nnls([[value] for value in elapsed], residual)["weights"][0]
+                    model["overlap_calibration_cases"] = [row["case"] for row, _ in selected]
+            model["qualification"] = "parent pipe rates transferred; sparse subbranch overlap calibration requires prospective validation"
+            artifact["domains"][domain] = model
+    return artifact
+
+
+def route_source() -> str:
+    return input_cost.sha256({"version": ROUTE_MODEL_VERSION, "pipes": ROUTE_PIPES,
+                              "source": [inspect.getsource(function) for function in (route_schedule, route_design, pipeline_job, pipeline_schedule, predict_route)]})
+
+
+def route_rows(paths: list[Path]) -> tuple[list[dict], dict]:
+    unique, hardware = {}, None
+    names = ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes")
+    for path in paths:
+        with path.open(newline="") as source:
+            for raw in csv.DictReader(source):
+                if raw.get("status") != "ok":
+                    continue
+                if None in raw or any(raw.get(name) is None for name in (*SHAPE_FIELDS, *names)):
+                    raise ValueError("invalid route diagnostic CSV columns")
+                observed = {name: raw[name] if name == "soc" else int(raw[name]) for name in names}
+                if hardware is not None and observed != hardware:
+                    raise ValueError("route measurements mix different hardware profiles")
+                hardware = observed
+                inputs = input_cost.normalize({name: raw[name] for name in SHAPE_FIELDS})
+                identity = input_cost.sha256(inputs)
+                positive(raw["duration_us"], "duration_us")
+                integer(raw["checked_elements"], "checked_elements")
+                row = {**raw, "inputs": inputs, "case": raw.get("case") or identity, "shape_sha256": identity}
+                sequence = input_cost.sha256({name: inputs[name] for name in ("S1", "S2")})
+                row["model_split"] = "holdout" if raw["split"] == "holdout" or int(sequence[:8], 16) % 5 == 0 else "calibration"
+                previous = unique.get(identity)
+                if previous is not None and previous["model_split"] == "holdout":
+                    row["model_split"] = "holdout"
+                unique[identity] = row
+    if not unique:
+        raise ValueError("no numerically checked route measurements were supplied")
+    return list(unique.values()), hardware
+
+
+def route_metrics(rows: list[dict]) -> dict:
+    errors = [float(row["ape_percent"]) for row in rows if row.get("ape_percent") is not None]
+    return {"count": len(rows), "predicted": len(errors), "pass_10_percent": sum(row.get("ape_percent", math.inf) <= 10 and not row.get("error") for row in rows),
+            "all_pass_10_percent": bool(rows) and len(errors) == len(rows) and max(errors) <= 10 and not any(row.get("error") for row in rows),
+            "mape_percent": statistics.mean(errors) if errors else None, "max_ape_percent": max(errors, default=None)}
+
+
+def build_route_models(paths: list[Path], output: Path, legacy_same_ab: dict | None = None) -> dict:
+    rows, hardware = route_rows(paths)
+    training = [row for row in rows if row["model_split"] == "calibration" and str(row.get("stable")).lower() == "true" and pipeline_counters_complete(row)]
+    artifact = fit_routes(training, hardware)
+    legacy_pipelines = output.parent / "pipeline_models.json"
+    if legacy_pipelines.is_file():
+        artifact["legacy_pipelines"] = json.loads(legacy_pipelines.read_text())
+        extra_training = [identity for model in artifact["legacy_pipelines"]["families"].values() for identity in model["calibration_cases"]]
+        artifact["training_shapes"] = sorted(set(artifact["training_shapes"]) | set(extra_training))
+    if legacy_same_ab is not None:
+        artifact["legacy_same_ab"] = {key: value for key, value in legacy_same_ab.items() if key != "calibration_grouped_cv"}
+        extra_training = [identity for model in legacy_same_ab["groups"].values() for identity in model["calibration_cases"]]
+        artifact["training_shapes"] = sorted(set(artifact["training_shapes"]) | set(extra_training))
+    artifact.update(model_source_sha256=route_source(),
+                    heldout_shapes=sorted(row["shape_sha256"] for row in rows if row["model_split"] == "holdout"),
+                    exposed_shapes=sorted(set(row["shape_sha256"] for row in rows) | set(artifact["training_shapes"]) |
+                                          set((legacy_same_ab or {}).get("previously_evaluated_shapes", []))),
+                    source_datasets=[{"sha256": digest(path), "rows": len(rows)} for path in paths],
+                    split_rule="new fit excludes original holdout and whole (S1,S2) groups with SHA256 prefix modulo 5 == 0; stable checked calibration with complete PMU only; frozen legacy models retain their original calibration, which is labeled training replay",
+                    evaluation="development holdout on previously exposed measurements; fresh prospective measurements still required")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    input_cost.save_json(output, artifact)
+    report = route_report(paths[-1], artifact, write=False)
+    input_cost.save_json(output.with_name("route_model_report.json"), report)
+    print(f"FA_ROUTE_MODEL={output}; stable_holdout={report['stable_holdout']}; fresh_blind_pass=False", flush=True)
+    return artifact
+
+
+def route_report(path: Path, artifact: dict, write: bool = True) -> dict:
+    with path.open(newline="") as source:
+        reader = csv.DictReader(source)
+        fields, flat = list(reader.fieldnames or []), list(reader)
+    columns = ("route_model_predicted_us", "route_model_ape_percent", "route_model_pass_10_percent", "route_model_evaluation",
+               "route_model_error", "route_model_sha256")
+    fields.extend(name for name in columns if name not in fields)
+    training, heldout = set(artifact["training_shapes"]), set(artifact.get("heldout_shapes", []))
+    model_hash = input_cost.sha256(artifact)
+    outcomes, schedule_errors = [], []
+    hardware = artifact["hardware"]
+    for row in flat:
+        row.update({name: "" for name in columns})
+        if row.get("status") != "ok":
+            continue
+        item = {"case": row.get("case", ""), "coverage": row.get("coverage", ""), "split": row.get("split", ""),
+                "stable": str(row.get("stable")).lower() == "true"}
+        try:
+            if any(str(row[name]) != str(hardware[name]) for name in ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes")):
+                raise ValueError("measurement and frozen model hardware differ")
+            inputs = input_cost.normalize({name: row[name] for name in SHAPE_FIELDS})
+            identity = input_cost.sha256(inputs)
+            evaluation = "training_replay" if identity in training else "development_holdout" if identity in heldout else "previously_exposed_replay" if identity in set(artifact.get("exposed_shapes", [])) else "not_forecast_before_measurement"
+            if identity not in set(artifact.get("exposed_shapes", [])) and row.get("model_sha256") == model_hash and str(row.get("prediction_before_measurement")).lower() == "true" and row.get("prediction_quality") == "route_frozen_before_measurement":
+                evaluation = "prospective"
+            item["evaluation"] = evaluation
+            result = predict_route(inputs, artifact)
+            schedule = result["input_schedule"]
+            mapping = {"priority": "priority", "s1_base": "s1_base", "s2_base": "s2_base", "n_ratio": "n_ratio", "total_tasks": "total_tasks", "split_factor": "split_factor", "core_num": "core_num"}
+            mismatch = {name: [schedule[name], row[field]] for name, field in mapping.items() if row.get(field) and schedule[name] != int(row[field])}
+            if mismatch:
+                schedule_errors.append({"case": item["case"], "mismatch": mismatch})
+            error = abs(result["predicted_us"] / positive(row["duration_us"], "duration_us") - 1) * 100
+            row.update(route_model_predicted_us=format(result["predicted_us"], ".6g"), route_model_ape_percent=format(error, ".6g"),
+                       route_model_pass_10_percent=error <= 10 and not mismatch, route_model_evaluation=evaluation,
+                       route_model_error="input-only schedule mismatch" if mismatch else "", route_model_sha256=model_hash)
+            item.update(predicted_us=result["predicted_us"], actual_us=float(row["duration_us"]), ape_percent=error, evaluation=evaluation)
+            if mismatch:
+                item["error"] = "input-only schedule mismatch"
+        except (ValueError, KeyError, RuntimeError) as error:
+            row["route_model_error"] = str(error)
+            item.update(error=str(error))
+            item.setdefault("evaluation", "unavailable")
+        outcomes.append(item)
+    stable_holdout = [row for row in outcomes if row["stable"] and row["evaluation"] == "development_holdout"]
+    report = {"version": ROUTE_MODEL_VERSION, "model_sha256": model_hash, "fresh_blind_pass": False,
+              "stable_holdout": route_metrics(stable_holdout), "schedule_mismatches": schedule_errors,
+              "evaluations": {name: route_metrics([row for row in outcomes if row["evaluation"] == name]) for name in sorted({row["evaluation"] for row in outcomes})},
+              "external_holdout": route_metrics([row for row in stable_holdout if row["split"] == "external"]),
+              "cases": outcomes}
+    prospective = [row for row in outcomes if row["evaluation"] == "prospective"]
+    report["prospective"] = route_metrics(prospective)
+    report["fresh_blind_pass"] = report["prospective"]["all_pass_10_percent"] and not schedule_errors and not any(row["evaluation"] == "not_forecast_before_measurement" for row in outcomes)
+    if write:
+        temporary = path.with_suffix(".route.tmp")
+        with temporary.open("w", newline="") as target:
+            writer = csv.DictWriter(target, fieldnames=fields, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(flat)
+        temporary.replace(path)
+        input_cost.save_json(path.parent / "route_model_report.json", report)
+        print(f"ROUTE MODEL: stable_holdout={report['stable_holdout']}; external_holdout={report['external_holdout']}; schedule_mismatches={len(schedule_errors)}; fresh_blind_pass=False", flush=True)
+    return report
 
 
 def pipeline_report(path: Path) -> dict:
@@ -920,6 +1274,12 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=Path("output") / MODEL_VERSION)
     parser.add_argument("--sameab-model", type=Path, default=Path("output/sameab_latency_model_v1/model.json"))
     args = parser.parse_args()
+    with args.csv[0].open(newline="") as source:
+        columns = next(csv.reader(source))
+    if "s1_base" in columns and all(name in columns for name in SHAPE_FIELDS):
+        legacy = json.loads(args.sameab_model.read_text()) if args.sameab_model.is_file() else None
+        build_route_models(args.csv, args.output_dir / "fa_route_model.json", legacy)
+        return
     build_models(args.csv, args.output_dir, args.sameab_model)
 
 

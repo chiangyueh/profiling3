@@ -1,0 +1,2322 @@
+{
+  "domains": {
+    "b": {
+      "fit": {
+        "observed": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "rank": 4,
+        "terms": 4
+      },
+      "input_ranges": {
+        "B": [
+          1,
+          16
+        ],
+        "D": [
+          64,
+          64
+        ],
+        "DV": [
+          64,
+          64
+        ],
+        "N1": [
+          1,
+          4
+        ],
+        "N2": [
+          1,
+          1
+        ],
+        "S1": [
+          16,
+          128
+        ],
+        "S2": [
+          32,
+          128
+        ]
+      },
+      "pipes": {
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.06783440480973017,
+            "mma_instructions": 0.023892733315899764
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 0.3357193188143539,
+            "write_kb": 0.012948083093119112
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte1": {
+          "coefficients": {
+            "calls": 0.026135659631397076,
+            "l0_kb": 0.003978613085436591
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte2": {
+          "coefficients": {
+            "calls": 0.3663936554226619,
+            "read_kb": 0.010467250777950205
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vector": {
+          "coefficients": {
+            "calls": 0.1547763741851314,
+            "drop_elements_k": 0.035737378740088546,
+            "elements_k": 0.048424149226049956,
+            "generic_rows_k": 7.38095234336733,
+            "nz_elements_k": 0.0,
+            "online_elements_k": 0.0,
+            "reduction_rows_k": 0.0
+          },
+          "observed": [
+            true,
+            true,
+            true,
+            true,
+            false,
+            true,
+            false
+          ],
+          "rank": 5,
+          "terms": 5
+        },
+        "vmte2": {
+          "coefficients": {
+            "calls": 0.2831717383538157,
+            "read_kb": 0.0024315576754699655
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vmte3": {
+          "coefficients": {
+            "calls": 0.3532644938027455,
+            "write_kb": 0.0017113371891416007
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        }
+      },
+      "training_cases": [
+        "27fa821312b4e23508f60dfc285fe00549b82fbcb6641c6c2a2932a33e191d36",
+        "11c667f99e803232d2b0e237254a7382197009d31853cb93c06dd8266d6a6e06",
+        "c400cd3c3f5311b26ed620105cf1bfb28d20e57fb7fc6152d1bad4777fbb2798",
+        "d9a4be59b49021c7ed2ca5221af13c965aa746ac7d12223178a3e1d945080f3d",
+        "1c295259c90f5c20880a44b20805dc0056c52e631c65ad9a21e53778dd0b9b63",
+        "373c2292a5daa32a22b8dbdf0f5f7b1f1a172601bd9cb8c95c028ab7e0791194",
+        "20497c73ebc3454ed3874b8eb591c4408dd68b6047b9ec41ec19a59cdf627aed",
+        "665c33a05304942cd7c546cf2c1717405dc408c49979d563132112f380af096a",
+        "0b2a36789a70fadb261faed1b69b86c0bef15d1cfd774f9e0edb4d16291d3f30",
+        "59b63a4898eafc0fd1a526c41635a754735fc5bf6aca75a9c73e36ba274b36da",
+        "8f6e9b9761955cf40c6dced0e04a4e3e5c3e941e12f3085874f798088e695f01",
+        "e8ea13cca3b9ad6b40574f93054426a837586ea558c6f0d33c06f0c90cd5c9c8",
+        "86a3fd0f033fa44f71a75d9f45c38f2fca2aca0598055a828f57f8a5819436d4",
+        "aad226e94ab15c0daef0bdf004ac7cd023c7d1c2408466fa8da0ef3f1d2b9966",
+        "4d5353b6776d39e727bdf8f80885c63c06533027a75d2a8f8327b75c09aa22a6",
+        "3a916667091c49adffe47a4e6c739e637d903d466ee81e1a7a87c614b1a13642",
+        "815e5472cb2ec088eeca26f7a517128416c8ebbd178affd13449a9d027d98aef",
+        "989ea011c0731bc31342b0778cdc926c7208e983642f9fa9f97610e5136b318f",
+        "84c925822d1e25c1e3de45f6aab47d8c4fdf30008715cf8b6ee5fdea83e79481",
+        "d0ed7be88d19877aa4f97f2562551ff6abb645a006447495d7360f3027d14733",
+        "56e3ab09c77250ba53b32febabf73e1a5e920a5bb844489759cd4f2376f238df",
+        "20d0153d9060f4187ca08b831f344cdb7b25282ce06c4faec8c71b70afb83241",
+        "31ce528d4c3c9bf25d202e3d7e26b658a0ab817243fb8db5890a51f230423d61",
+        "dd939b5bbaa82ec03ed75d8a3c72274853dcba2d22960638f6f0b773f967fd5e",
+        "7dc4c405f7d76a4ea4348b1420eaf792ae401ccfacbbda7873a76200255a2b8d",
+        "f1525eccdea6980e21d5b5630dcea1a45e60ecf1c4f030756f4b69e77d7cefbb"
+      ],
+      "weights": [
+        14.435712219194212,
+        0.852988576035243,
+        0.24537229252986884,
+        15.767658565444203
+      ]
+    },
+    "s1": {
+      "fit": {
+        "observed": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "rank": 4,
+        "terms": 4
+      },
+      "input_ranges": {
+        "B": [
+          1,
+          8
+        ],
+        "D": [
+          128,
+          128
+        ],
+        "DV": [
+          128,
+          128
+        ],
+        "N1": [
+          4,
+          64
+        ],
+        "N2": [
+          1,
+          4
+        ],
+        "S1": [
+          64,
+          640
+        ],
+        "S2": [
+          256,
+          1024
+        ]
+      },
+      "pipes": {
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.08019787119560706,
+            "mma_instructions": 0.0
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 0.562310132300671,
+            "write_kb": 0.011183277776018899
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte1": {
+          "coefficients": {
+            "calls": 0.027459807448685262,
+            "l0_kb": 0.00417398012981261
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte2": {
+          "coefficients": {
+            "calls": 0.001710599530672184,
+            "read_kb": 0.009058471335132798
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vector": {
+          "coefficients": {
+            "calls": 0.3913015415498597,
+            "drop_elements_k": 0.029055589049293697,
+            "elements_k": 0.028415497926555486,
+            "generic_rows_k": 0.0,
+            "nz_elements_k": 0.02284064219683019,
+            "online_elements_k": 0.0,
+            "reduction_rows_k": 0.0
+          },
+          "observed": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            true,
+            false
+          ],
+          "rank": 5,
+          "terms": 5
+        },
+        "vmte2": {
+          "coefficients": {
+            "calls": 0.39107951285270237,
+            "read_kb": 0.0
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vmte3": {
+          "coefficients": {
+            "calls": 0.12080414551901018,
+            "write_kb": 0.010861569416938553
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        }
+      },
+      "training_cases": [
+        "c57c155f6b01e64bc046953d6ff5e1e3c97c7bb50e23ae7cd789f7c0ee9521da",
+        "ba72d40a7a4f2fc2f12727e95a7ec4421c8d87558163981d9548e8b439099507",
+        "faf86b20d47362666ae42efb0559d2e47140608b0b5af1c9ebe8418406a95beb",
+        "9b8494195fcaacebffc86fee0d48f83988699dab294a2dd719b6b91c1c6c94c3",
+        "1e08cf62088c9de734e3714bcc937caa1a471cfaac572b5b461d533ce369ef09",
+        "8ffb3e2024ec0bafb79b3307206223d100484bfb08d3289e4b3c5219fd70d993",
+        "58f7c4204ecf73d84fdecbfbc7c49dfca8f6c89cf93e7917dfc7927c56bd6679",
+        "05548df28bf8875da93c6c1e0e255337464e779cc7cffdc5e7700e9b553975a9",
+        "964511fa4f522b925b0343301f4758dc700231edb88a2d2093ba9642c30eadda",
+        "63796a95a8104402d467efdfb51a93925b5c31ab93f7267298d4d5d26070883c",
+        "1424d4e084bd1c742fd82f22525501450e206b582f696e31044ee819f634c433",
+        "336f944215410c9c108802394354c072ff7786ae24992ee3e27178a053322caf",
+        "f15daf3ce6ec6a29f1130852e55f52e227718f78e798c689f3106186778b2572",
+        "ab096c26ee0109d8f266790c0fda142681d6ac0273a780849d33d8f11e7741f1",
+        "681083c901ff4315babd0d269a078e046c508b209019c6b6618c3103cd14a885",
+        "3ace462367850f14b2feff9118013b0924c3d602b2e7a19b7de3c645b62266c9",
+        "fa_branch_s1_drop_0de851236632",
+        "fa_branch_s1_drop_adapter_0327c5472606",
+        "fa_branch_s1_nz_gm_0112da79d881",
+        "fa_branch_s1_nz_gm_02c460dbe4a5",
+        "fa_branch_s1_nz_gm_03f60b1cd14b",
+        "fa_branch_s1_nz_gm_f185bf7864de"
+      ],
+      "weights": [
+        12.289854099257925,
+        0.7661024019855176,
+        0.7628140580750578,
+        3.481896138172739
+      ]
+    },
+    "s1_l1": {
+      "fit": {
+        "observed": [
+          true,
+          true,
+          true,
+          false
+        ],
+        "rank": 3,
+        "terms": 3
+      },
+      "input_ranges": {
+        "B": [
+          1,
+          8
+        ],
+        "D": [
+          64,
+          64
+        ],
+        "DV": [
+          64,
+          64
+        ],
+        "N1": [
+          8,
+          64
+        ],
+        "N2": [
+          2,
+          4
+        ],
+        "S1": [
+          320,
+          640
+        ],
+        "S2": [
+          752,
+          912
+        ]
+      },
+      "pipes": {
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.1429437410104863,
+            "mma_instructions": 0.0
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 0.0,
+            "write_kb": 0.011728648535337324
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte1": {
+          "coefficients": {
+            "calls": 0.14915651459488208,
+            "l0_kb": 0.0034928670180299206
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte2": {
+          "coefficients": {
+            "calls": 0.0,
+            "read_kb": 0.009512603320065283
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vector": {
+          "coefficients": {
+            "calls": 0.0,
+            "drop_elements_k": 0.0,
+            "elements_k": 0.09627419047470491,
+            "generic_rows_k": 0.0,
+            "nz_elements_k": 0.02466186769638553,
+            "online_elements_k": 0.0,
+            "reduction_rows_k": 0.0
+          },
+          "observed": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false,
+            false
+          ],
+          "rank": 3,
+          "terms": 4
+        },
+        "vmte2": {
+          "coefficients": {
+            "calls": 0.24237528155837756,
+            "read_kb": 0.0018750626511815475
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vmte3": {
+          "coefficients": {
+            "calls": 0.0,
+            "write_kb": 0.02070552874103698
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        }
+      },
+      "training_cases": [
+        "fa_branch_s1_nd_l1_00a6c818c819",
+        "fa_branch_s1_nd_l1_8d5dac94efbf",
+        "fa_branch_s1_nz_l1_0016e0c962a7",
+        "fa_branch_s1_nz_l1_021410374a3d"
+      ],
+      "weights": [
+        0.0,
+        0.8810396852600844,
+        1.359169410702051,
+        0.0
+      ]
+    },
+    "s1_reuse": {
+      "fit": {
+        "observed": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "rank": 4,
+        "terms": 4
+      },
+      "input_ranges": {
+        "B": [
+          1,
+          8
+        ],
+        "D": [
+          128,
+          128
+        ],
+        "DV": [
+          128,
+          128
+        ],
+        "N1": [
+          4,
+          64
+        ],
+        "N2": [
+          1,
+          4
+        ],
+        "S1": [
+          64,
+          640
+        ],
+        "S2": [
+          256,
+          1024
+        ]
+      },
+      "overlap_calibration_cases": [
+        "fa_branch_s1_nd_incremental_reuse_7073363b2902",
+        "fa_branch_s1_nz_incremental_reuse_055a2532d015"
+      ],
+      "pipes": {
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.08019787119560706,
+            "mma_instructions": 0.0
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 0.562310132300671,
+            "write_kb": 0.011183277776018899
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte1": {
+          "coefficients": {
+            "calls": 0.027459807448685262,
+            "l0_kb": 0.00417398012981261
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte2": {
+          "coefficients": {
+            "calls": 0.001710599530672184,
+            "read_kb": 0.009058471335132798
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vector": {
+          "coefficients": {
+            "calls": 0.3913015415498597,
+            "drop_elements_k": 0.029055589049293697,
+            "elements_k": 0.028415497926555486,
+            "generic_rows_k": 0.0,
+            "nz_elements_k": 0.02284064219683019,
+            "online_elements_k": 0.0,
+            "reduction_rows_k": 0.0
+          },
+          "observed": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            true,
+            false
+          ],
+          "rank": 5,
+          "terms": 5
+        },
+        "vmte2": {
+          "coefficients": {
+            "calls": 0.39107951285270237,
+            "read_kb": 0.0
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vmte3": {
+          "coefficients": {
+            "calls": 0.12080414551901018,
+            "write_kb": 0.010861569416938553
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        }
+      },
+      "qualification": "parent pipe rates transferred; sparse subbranch overlap calibration requires prospective validation",
+      "training_cases": [
+        "c57c155f6b01e64bc046953d6ff5e1e3c97c7bb50e23ae7cd789f7c0ee9521da",
+        "ba72d40a7a4f2fc2f12727e95a7ec4421c8d87558163981d9548e8b439099507",
+        "faf86b20d47362666ae42efb0559d2e47140608b0b5af1c9ebe8418406a95beb",
+        "9b8494195fcaacebffc86fee0d48f83988699dab294a2dd719b6b91c1c6c94c3",
+        "1e08cf62088c9de734e3714bcc937caa1a471cfaac572b5b461d533ce369ef09",
+        "8ffb3e2024ec0bafb79b3307206223d100484bfb08d3289e4b3c5219fd70d993",
+        "58f7c4204ecf73d84fdecbfbc7c49dfca8f6c89cf93e7917dfc7927c56bd6679",
+        "05548df28bf8875da93c6c1e0e255337464e779cc7cffdc5e7700e9b553975a9",
+        "964511fa4f522b925b0343301f4758dc700231edb88a2d2093ba9642c30eadda",
+        "63796a95a8104402d467efdfb51a93925b5c31ab93f7267298d4d5d26070883c",
+        "1424d4e084bd1c742fd82f22525501450e206b582f696e31044ee819f634c433",
+        "336f944215410c9c108802394354c072ff7786ae24992ee3e27178a053322caf",
+        "f15daf3ce6ec6a29f1130852e55f52e227718f78e798c689f3106186778b2572",
+        "ab096c26ee0109d8f266790c0fda142681d6ac0273a780849d33d8f11e7741f1",
+        "681083c901ff4315babd0d269a078e046c508b209019c6b6618c3103cd14a885",
+        "3ace462367850f14b2feff9118013b0924c3d602b2e7a19b7de3c645b62266c9",
+        "fa_branch_s1_drop_0de851236632",
+        "fa_branch_s1_drop_adapter_0327c5472606",
+        "fa_branch_s1_nz_gm_0112da79d881",
+        "fa_branch_s1_nz_gm_02c460dbe4a5",
+        "fa_branch_s1_nz_gm_03f60b1cd14b",
+        "fa_branch_s1_nz_gm_f185bf7864de"
+      ],
+      "transfer_from": "s1",
+      "weights": [
+        12.289854099257925,
+        0.7210168495195405,
+        0.7628140580750578,
+        3.481896138172739
+      ]
+    },
+    "same_ab": {
+      "fit": {
+        "observed": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "rank": 4,
+        "terms": 4
+      },
+      "input_ranges": {
+        "B": [
+          2,
+          32
+        ],
+        "D": [
+          96,
+          192
+        ],
+        "DV": [
+          96,
+          128
+        ],
+        "N1": [
+          4,
+          64
+        ],
+        "N2": [
+          1,
+          4
+        ],
+        "S1": [
+          256,
+          2048
+        ],
+        "S2": [
+          641,
+          4114
+        ]
+      },
+      "pipes": {
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.05990720459114456,
+            "mma_instructions": 0.08098264772815685
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 0.0,
+            "write_kb": 0.010247069131850079
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte1": {
+          "coefficients": {
+            "calls": 0.6906304468473469,
+            "l0_kb": 0.0028536750823004936
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte2": {
+          "coefficients": {
+            "calls": 0.0,
+            "read_kb": 0.008648850875347645
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vector": {
+          "coefficients": {
+            "calls": 1.621742691939983,
+            "drop_elements_k": 0.0,
+            "elements_k": 0.008846138092512142,
+            "generic_rows_k": 60.20575704622811,
+            "nz_elements_k": 0.0,
+            "online_elements_k": 1.015881028393068,
+            "reduction_rows_k": 0.0
+          },
+          "observed": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "rank": 5,
+          "terms": 7
+        },
+        "vmte2": {
+          "coefficients": {
+            "calls": 1.571863752010618,
+            "read_kb": 0.006498662222383287
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vmte3": {
+          "coefficients": {
+            "calls": 0.0,
+            "write_kb": 0.022871090258534066
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        }
+      },
+      "training_cases": [
+        "fa_branch_same_ab_drop_00685a929b79",
+        "fa_branch_same_ab_drop_01f2605d049e",
+        "fa_branch_same_ab_drop_adapter_01d1cebe4b3d",
+        "fa_branch_same_ab_drop_adapter_067816b6f787",
+        "fa_branch_same_ab_nz_061c69287377",
+        "fa_branch_tnd_same_ab_06dd7ed00558",
+        "fa_branch_tnd_same_ab_d3a4eda034b8"
+      ],
+      "weights": [
+        0.0,
+        0.8173028783429368,
+        2.11110100094733,
+        3.415680217421923
+      ]
+    },
+    "windowed": {
+      "fit": {
+        "observed": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "rank": 4,
+        "terms": 4
+      },
+      "input_ranges": {
+        "B": [
+          1,
+          16
+        ],
+        "D": [
+          128,
+          256
+        ],
+        "DV": [
+          128,
+          256
+        ],
+        "N1": [
+          4,
+          64
+        ],
+        "N2": [
+          1,
+          4
+        ],
+        "S1": [
+          160,
+          768
+        ],
+        "S2": [
+          320,
+          4096
+        ]
+      },
+      "pipes": {
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.06707707355884306,
+            "mma_instructions": 0.022303289810498467
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 0.0,
+            "write_kb": 0.01599872262110375
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte1": {
+          "coefficients": {
+            "calls": 0.10943212029592574,
+            "l0_kb": 0.003314884534475096
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte2": {
+          "coefficients": {
+            "calls": 0.0,
+            "read_kb": 0.010898584618395468
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vector": {
+          "coefficients": {
+            "calls": 0.3004870902795367,
+            "drop_elements_k": 0.03538012998834005,
+            "elements_k": 0.06678108587137273,
+            "generic_rows_k": 0.0,
+            "nz_elements_k": 0.0,
+            "online_elements_k": 0.0,
+            "reduction_rows_k": 7.939226017828089
+          },
+          "observed": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "rank": 7,
+          "terms": 7
+        },
+        "vmte2": {
+          "coefficients": {
+            "calls": 0.41275193104176033,
+            "read_kb": 0.010704789484254651
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vmte3": {
+          "coefficients": {
+            "calls": 0.7890751167006703,
+            "write_kb": 0.005395923030997453
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        }
+      },
+      "training_cases": [
+        "fa_branch_general_nd_no_reuse_0070ab087368",
+        "fa_branch_general_nd_no_reuse_050219e6d7cc",
+        "fa_branch_general_nd_no_reuse_1691c9b510ac",
+        "fa_branch_general_nz_no_reuse_04cdcf5ebefd",
+        "fa_branch_general_nz_no_reuse_05d78926bee0",
+        "fa_branch_general_nz_no_reuse_0897a2575614",
+        "fa_branch_tnd_drop_023d41781917",
+        "fa_branch_tnd_drop_36d54bb1b12d",
+        "fa_branch_tnd_drop_adapter_00c31531244a",
+        "fa_branch_tnd_drop_f3f1bac535ad",
+        "fa_branch_tnd_general_07172658c3b5",
+        "fa_branch_tnd_general_084cb73dbd78",
+        "fa_branch_tnd_general_a7bfdd96c7c7"
+      ],
+      "weights": [
+        36.87340704783095,
+        0.7700938307157982,
+        0.0,
+        0.9491786690015709
+      ]
+    },
+    "windowed_reuse": {
+      "fit": {
+        "observed": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "rank": 4,
+        "terms": 4
+      },
+      "input_ranges": {
+        "B": [
+          1,
+          8
+        ],
+        "D": [
+          128,
+          128
+        ],
+        "DV": [
+          128,
+          128
+        ],
+        "N1": [
+          8,
+          64
+        ],
+        "N2": [
+          2,
+          4
+        ],
+        "S1": [
+          256,
+          1024
+        ],
+        "S2": [
+          1153,
+          4096
+        ]
+      },
+      "pipes": {
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.08941663759445971,
+            "mma_instructions": 0.0
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 0.0,
+            "write_kb": 0.01269457521434664
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte1": {
+          "coefficients": {
+            "calls": 0.10849379292121583,
+            "l0_kb": 0.0037824656748924003
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "mte2": {
+          "coefficients": {
+            "calls": 0.0,
+            "read_kb": 0.006619550073069073
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vector": {
+          "coefficients": {
+            "calls": 0.0,
+            "drop_elements_k": 0.025127511147816636,
+            "elements_k": 0.0820937286320196,
+            "generic_rows_k": 13.8861866516687,
+            "nz_elements_k": 0.0,
+            "online_elements_k": 0.03586540102691165,
+            "reduction_rows_k": 0.0
+          },
+          "observed": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "rank": 5,
+          "terms": 7
+        },
+        "vmte2": {
+          "coefficients": {
+            "calls": 0.0,
+            "read_kb": 0.0129189155746186
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        },
+        "vmte3": {
+          "coefficients": {
+            "calls": 0.5370880218785524,
+            "write_kb": 0.010756554875405187
+          },
+          "observed": [
+            true,
+            true
+          ],
+          "rank": 2,
+          "terms": 2
+        }
+      },
+      "training_cases": [
+        "fa_branch_general_drop_01414fa1b5d0",
+        "fa_branch_general_drop_01c79ab50165",
+        "fa_branch_general_drop_20b8e30f1608",
+        "fa_branch_general_drop_adapter_0b26ab68f169",
+        "fa_branch_general_drop_adapter_0e16e01d4d20",
+        "fa_branch_general_drop_adapter_f1e444b4deee",
+        "fa_branch_general_nd_reuse_08c0b35349cc",
+        "fa_branch_general_nd_reuse_49f196162516",
+        "fa_branch_general_nz_reuse_11c9e8111cbb",
+        "fa_branch_general_nz_reuse_e70279f90a90"
+      ],
+      "weights": [
+        1.0039489712100667,
+        0.7333623737485956,
+        2.95897988120706,
+        3.2860214098142193
+      ]
+    }
+  },
+  "evaluation": "development holdout on previously exposed measurements; fresh prospective measurements still required",
+  "exposed_shapes": [
+    "0016e0c962a773460c0a40a67e093b38f621f9519ca5b3086cc71b39aacf539e",
+    "0018905d43ae000d961e7ee83a33305bf7236a7027f0a5c10fb6551224fc4f66",
+    "003e62e71a2469dba9a4fb1a6ebd6aff4b866638edfacf21d658dba14493417e",
+    "005bc60592dd5603fffa53360b3defd1b77c732b5e1509c5aa6c3a7b59b8f71b",
+    "00685a929b794c189667a09b4770a3ffbe2f2ed3184f402470f467598f95e6c1",
+    "0070ab087368ad9deca4a3bb407aa2c7b66a685db022647de4dc4e00a5ec34a9",
+    "00a6c818c81909f62bdf3d18f2f6e5082f8101a3b806a5e37bde2ab6eb0bf725",
+    "00c31531244a81e3e0b81f60c96b6aaf77c5c417650981f45cebe714831a64b9",
+    "0112da79d881851e8b94168660f61b25e881217483f1903eb67e899583da91b8",
+    "01414fa1b5d0c1d114b765aefd01464fd33f44d62cf5a8011473c9b161378bb0",
+    "01a537e167ce87e8a3a5fe203b775b10339ebbdb04229fa53e7326814bd4573a",
+    "01c79ab50165ac793f8fd558fe0353c32d99f53d93727e27ecc28a8a3a9e6c27",
+    "01d1cebe4b3dc814f44f4fba0acb24d58f1b85315ecbe5cf5f985b85c2cb962a",
+    "01f2605d049eb1b5533eee3813e7b67c64f515d120dbc5f767468a116bd13c2a",
+    "021410374a3dd23179737619dc8e02fc942e7226a292c9843b9a02e1a1ee3692",
+    "0219c3d64dbe750be11dc677ce8760b9c939dbda795974d58f7532dac0f006a1",
+    "022b940f85587e63a96cccd1f4fce3aef1e63ffb40ccd6d65be86a60481f7a57",
+    "0239af1bebd4282cac9c01bba180cfbcc6fc2e0958f649e6fffff628047cbe18",
+    "023d41781917d04c6f4ea15ae54af76388b710150b16d10f30c58c727c218e64",
+    "02c460dbe4a5a14756ec1a9c60beb60a6f118dec25ceec05300eabd027441376",
+    "0315c3391fa412c806503d5837a23831834e5a8e0e18bda5116a4f147b3cced7",
+    "0327c5472606aec05dbaa84783d4ced39c033f9866892fbf1964b4d86bddba1c",
+    "03e4c6a1b0abaeda4c8815cec6850b44fc29e1bf59fb42807c87dbfaf5192298",
+    "03f60b1cd14b0626fb6aae677ef7ad7422385ad055d0aacc7d5cdf06ccb1d9d0",
+    "0411fe4de3b0bbe4163422817187f1521a84066108eeefd769c82f758707e5b8",
+    "0488eab78eded9ac86b5c03991652e474d85641182e27435064d040f16c2da85",
+    "04c3be15bac2b6f61e5f3dcfe94054c04f7b62dfd1bd2d0f5b2dace7d558b801",
+    "04cdcf5ebefdeb4d7bb9b05c81908090760cddd41970348cd27a1988e12ac72d",
+    "04d80237570a20f06a9912cb9d10b03863c31a16f75bc058f2014bef62215cca",
+    "050219e6d7cc1d7132c194612114d0e0766f2b1ab6e85f9b2736291316646ada",
+    "05548df28bf8875da93c6c1e0e255337464e779cc7cffdc5e7700e9b553975a9",
+    "055a2532d015e8cc1d516ab3a6cccf88c20def3b758a8ec7c1bacf79801670e2",
+    "05d78926bee09288e020047481945fb4b97baa18b1a3478f29bb0b64e941b0f5",
+    "061c692873777cf4538606721df525c715f6fdeee325b9a94c8df6419003eb86",
+    "067816b6f7876c38a806c2ef22a5c7c971e7e0c18818983be68426922ed2aff3",
+    "06dd7ed00558a9b44fdd70d59583f5b0f6a747c9a392d8625b92a384275dd4fb",
+    "06fa65a891b04652d61511680fd4e7c7bbb38aac22fd0d9deb73edb7c0ed93ff",
+    "07172658c3b524a0da188111d3de8b63faa9b377b8b4421d5042b92e5eb73b7d",
+    "07c8b6d4f50dee0f63fad029bb87ae1fc2da1ce1d7bc6a5aef4f635c1794d83f",
+    "084cb73dbd788a636cbf8af5a6fe97a7ede40a73a7e285ec41d44f8dcff864da",
+    "0897a257561495a0efea4e91f2a2ee72e23ded7fc088093552b20f0957fe8d5e",
+    "08c0b35349ccc0df593b40e66b1e0ecd6889d7feff1a91ba61c427803d4a46fc",
+    "0989896f2324eb82a8ef85fb65075b7277acda2788ef9cabe47697770c47b4ce",
+    "0a9a5499c146ebd23a5d57ad96f7aedfcbf796bc11151c45854c3a0edc93192c",
+    "0b05e40b35396d13b92f27e41b1d2922ae89407d030975158458a9bcf60de242",
+    "0b26ab68f169006bc3714e0551478c3cc53e3231aa5679653b118924b08dbd84",
+    "0b2a36789a70fadb261faed1b69b86c0bef15d1cfd774f9e0edb4d16291d3f30",
+    "0b2b28505d7ba7da5fdd52a8a4af2cd7f10685831a58d8619a5a9a4207f02abd",
+    "0bef9e627d2fc22562e36b5c99fe2da5db8d5dd4eae66dafa07bcc8d91cc8575",
+    "0c932a653eacee39d03c096683ba55a468f702d7a68067de4996300346346955",
+    "0de36ff82d3d68e99162236a91372ce6b5e438240ccd1ecf5e3553b390c6b8ce",
+    "0de851236632e958f402c4fc6162d75893c85847b0870efec0c41b79379644f7",
+    "0e16e01d4d20236a3f07bb7b4459c467ce1319a6b5882333b31cd80bfef8b1c0",
+    "0e21b5060c8ca67ffbebb0680b401b7e61cbb3d3565654572373ea299d50856e",
+    "0f8157e551000200e7e778a606d3619ac3b80730d957eb3b7f136b7da9e0348a",
+    "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+    "1024e3d58069f54bace20e34752f188d67e1a3b1c3278ac35e142fa9fb12310f",
+    "11c61ac7e77dfcfadb8efd136c48eb2ee711816d68692c6cfce3c33739d968a2",
+    "11c667f99e803232d2b0e237254a7382197009d31853cb93c06dd8266d6a6e06",
+    "11c9e8111cbb758181a9374ad58f8c08bc95f2da7602777334d59019fb4bd751",
+    "12d4cd573d21236cc2925558ede5041e90608ce2770cfe981cac0af9894b74a1",
+    "132270c26bd18afce10d987c4eab0dd0c2aeeeb90f22f393a897fcc6d682cc01",
+    "1424d4e084bd1c742fd82f22525501450e206b582f696e31044ee819f634c433",
+    "1691c9b510aca57e4fcaafdcc9ce2b6af826798ee4e27869e38d256a037fc6a8",
+    "175a485d6cd4aa25cfac768df729161f6cf283074dad85887f678023545c3201",
+    "17817cd8b768bb7b82923daccd6476ac595fb3561f423f1787fa0906e5ac7fb2",
+    "185d65fef26889d228696eadc6839968c33ab6530baa94ff6b3defb6e6404b60",
+    "18baee5bd32cb92c538ffe7dcb8049cd47d709090f5f3f89e8acc2b56f201971",
+    "1918ee7aab0b794a80765ae15fbb5ae1d6316f0674a63907ad7359efd7fa76d9",
+    "1a877cea600fedb62773b90c1e778bccd3abbf50d79079908134defb9415539c",
+    "1c295259c90f5c20880a44b20805dc0056c52e631c65ad9a21e53778dd0b9b63",
+    "1d14dd3830e9c6a4b568f9fdcdc1752a24531e3d6041c16ac45e17e614f6598e",
+    "1e08cf62088c9de734e3714bcc937caa1a471cfaac572b5b461d533ce369ef09",
+    "1fd4907554e11b340b12df1376b5158007a65a1ac6bf19cf4e7576afc660e51f",
+    "20497c73ebc3454ed3874b8eb591c4408dd68b6047b9ec41ec19a59cdf627aed",
+    "20b8e30f1608354cadaa868a8da1157ec70fa04903d620b219ac5e5a086ab343",
+    "20d0153d9060f4187ca08b831f344cdb7b25282ce06c4faec8c71b70afb83241",
+    "26ec1f80ce039fc74d705ebcc4645b1b39548494ae9a3386d88433d9bdeaaec6",
+    "276765d94c10c71792700d0c12a284472d40f21763b594af41aaa323824b0925",
+    "27fa821312b4e23508f60dfc285fe00549b82fbcb6641c6c2a2932a33e191d36",
+    "281e405e37f2dfded21a23cb92037bf5605a7cf17c0adc973cea29b63f7a8be5",
+    "2b4c78b79652fdd9fa0e76f2f93e907805eca925181ce009f6bd2d32d6ee45c2",
+    "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
+    "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+    "30133ba9b995db8d96ef0aa9793f5a6f3103f744ff8ad4c8fd8f7595dd4f16f8",
+    "31111d1a3523030549cea4bb1ad27770df3e16911b565708f54cbb40bd155634",
+    "31ce528d4c3c9bf25d202e3d7e26b658a0ab817243fb8db5890a51f230423d61",
+    "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+    "336f944215410c9c108802394354c072ff7786ae24992ee3e27178a053322caf",
+    "352704c9ffd55fbf3b6eed031ceeae3fd6fcf54aa7adb52cc81c1f196ed804cb",
+    "36d54bb1b12ddbed137b2de9a5d70e77cf0fd693d14b385be6ae748d6445a0b3",
+    "373c2292a5daa32a22b8dbdf0f5f7b1f1a172601bd9cb8c95c028ab7e0791194",
+    "38fd997d99538f4c57458d3e078964843ea72c4578af85364e3bb86221a9faec",
+    "3a916667091c49adffe47a4e6c739e637d903d466ee81e1a7a87c614b1a13642",
+    "3ace462367850f14b2feff9118013b0924c3d602b2e7a19b7de3c645b62266c9",
+    "3ae755530199c4d21ce5177727994438ffea895820555ef4b7eadc203e139e70",
+    "3cefb8f34f3c20cc46271442693e1a3f10dca2c88cd0d6bfe6dcc5e58e54bf3a",
+    "3d47963434add8cf508ced77311f8dd442e0e1b811b4cc36d0f2e976cf69b4b6",
+    "3eb6c54354027213c479760dc6a30ba7ee4b80e2f8a0cabe45b57d2ee3b53102",
+    "3f21975a9de24833ec62b1dc91397a3215862f8490729c1b2c86e3330630d9fd",
+    "40c15087092709fabe049c3cc01ea375723c5b44769fc5b08ca55cd433d1ca87",
+    "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+    "4246f83ca0a7700ea8fd9e891aff4cc14602e2396d9e9b3ffa2b6c8327750b50",
+    "49f1961625165ffd9a12390c9c1ac1d01b9fc4c1e3f31d622ceb1ac1f0535a8b",
+    "4d5353b6776d39e727bdf8f80885c63c06533027a75d2a8f8327b75c09aa22a6",
+    "52486dbbd8bb56010321b3eb751fe3ee2e80380f690ea92cd9bcb935bfa50323",
+    "5265b7e1ad010a4be98d4762b7e50631ba7c81d1af3b6d727f8ac67ab293406b",
+    "56e3ab09c77250ba53b32febabf73e1a5e920a5bb844489759cd4f2376f238df",
+    "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+    "58f7c4204ecf73d84fdecbfbc7c49dfca8f6c89cf93e7917dfc7927c56bd6679",
+    "59724ab1e8bb3687e822a2e1bf82a5e11be178841b6261fc660dda58e58cea5c",
+    "59b63a4898eafc0fd1a526c41635a754735fc5bf6aca75a9c73e36ba274b36da",
+    "5c2752afcb75b7e17f96da26acdae7fbae0068a650280f99a7f11dd80b2caf1b",
+    "61d1a74da29eeef68024e292b759207b382c36a34bb8e2f2e8a642525a637038",
+    "63796a95a8104402d467efdfb51a93925b5c31ab93f7267298d4d5d26070883c",
+    "65cda8819eca9e225449a45fdb0da32767dea97440cd7106ca3234f3fa8a952c",
+    "665c33a05304942cd7c546cf2c1717405dc408c49979d563132112f380af096a",
+    "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+    "681083c901ff4315babd0d269a078e046c508b209019c6b6618c3103cd14a885",
+    "6e74b201333b0993ea98913f1d67caaccb13152aedd4cdde6573db77a82f7d65",
+    "6eee5457f2d3a5d2dfeeb824bc9c7b5d6844047d9ac2b3ce41c9999f70be6f6b",
+    "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+    "6fc2b2853c2726ca62ca7086e5643f97055e3a6ef0cf059666439cd8857681ae",
+    "7073363b290247d9b82d9c26327f408e49709df7e63484b585578cfd75f531ea",
+    "73493ad3733eb015ad2a4b7a09d6d1493d26d641b22afd01c1fa5b43279d78d4",
+    "73888b6b887d4ce26625df2419710e20f9168653f75490ec2d8bb04259cd0131",
+    "743be37cb7aa8310dae402a96dccee989b92055f16fcd1a57bf99b309bfe9233",
+    "7ae66174f75dcf1d85005c802963e6b7a7f57ff396d45d3c602c2fe210a4139d",
+    "7bb813bc0052a996972bf1a97c11b44294be8ea87e37b6cd7a8d4dc9b1ab5ca2",
+    "7c02d388f95dd40fd5bac4e9bd4673a4ff31b112a09268569dae53684d328792",
+    "7dc4c405f7d76a4ea4348b1420eaf792ae401ccfacbbda7873a76200255a2b8d",
+    "81295cd4314aebd98b52931996d9f6a1f216ebe882cfffea817296f347bd76a4",
+    "815e5472cb2ec088eeca26f7a517128416c8ebbd178affd13449a9d027d98aef",
+    "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
+    "84c925822d1e25c1e3de45f6aab47d8c4fdf30008715cf8b6ee5fdea83e79481",
+    "8501089f32dc649595b6d6a2c3b6f88ae8eb1943dad274b9980d1a566deacd4f",
+    "85a1fa21daca4acdd55b24306836ad896dd6c8fdb039a3575a95ae02bc1685bd",
+    "86a3fd0f033fa44f71a75d9f45c38f2fca2aca0598055a828f57f8a5819436d4",
+    "86a46821b6273fcd235893432d2de652a2ef705353caf836146a844c96a7927c",
+    "8d5dac94efbf9ddae6a04a1c789b8d6a58ca29054290eb37277affe8f7601f9d",
+    "8ee92dffbbe776d928e07fd63f69fd28d0827cdf44114c040d67a82c4c3beab3",
+    "8f6e9b9761955cf40c6dced0e04a4e3e5c3e941e12f3085874f798088e695f01",
+    "8ffb3e2024ec0bafb79b3307206223d100484bfb08d3289e4b3c5219fd70d993",
+    "9148059d9eb60b28e7ab8852790bb383baa352554094257ac45596e1c1402efa",
+    "91e468ae4fdede5093d86db9455fde98ce001988dfcba1fa5d7c2d0ae271316d",
+    "9265ddfd9e63260fe17f5829b5e458c13e3682970095d8a6df55256cb3122f03",
+    "964511fa4f522b925b0343301f4758dc700231edb88a2d2093ba9642c30eadda",
+    "96cef8bcd563b9f1680cacc39b4f8b105f6cb52c98cff41accff771e328644e5",
+    "989ea011c0731bc31342b0778cdc926c7208e983642f9fa9f97610e5136b318f",
+    "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+    "9ab602f20c8559a911f993d8c9dd4efca0e633b29558fe171abee3110268fb98",
+    "9b8494195fcaacebffc86fee0d48f83988699dab294a2dd719b6b91c1c6c94c3",
+    "9c988de922d5c06403e481b105f4e1e487eeb082a21d237c87df26a0ad187420",
+    "9df02549b3ea974732d773b45582df2e545d5d856448b7279ba31c6290c7ace6",
+    "9ed4574f4b3732c3d829f194a70a727633f93a4d22f46a6337b5b7eab2d1cba5",
+    "a386782a29e79bcade8a8aa450d365f03ffef41a207d2787c0fff012f732064e",
+    "a66d16ac8ceb2106c8322f33185dc44f11d688a582a0b35defb5693057c56459",
+    "a7bfdd96c7c7c86c78306679ac81cd410b82f1b7f7db01023d8228c8785ecc2e",
+    "a8777ca4b54afa60010fc48dd125f47e05e123992121b4fdcd34cb43e884f6a7",
+    "aad226e94ab15c0daef0bdf004ac7cd023c7d1c2408466fa8da0ef3f1d2b9966",
+    "ab096c26ee0109d8f266790c0fda142681d6ac0273a780849d33d8f11e7741f1",
+    "ac1a99938789a9292294d5884485a44432a23ad544df9af66240559aacb32dc0",
+    "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
+    "acd88e554e78ff0a75afb7f537e059c8995e8c90b498b00e1e52339ae0b800ea",
+    "b04d807419a0746dd9199260a0a98756a2128efc0028baebbda2544c154b67b4",
+    "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+    "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+    "b8d8b9b7ec0be3894e867be041f3cbc18ce673b4e09952443e7f7eb1dedcae69",
+    "ba72d40a7a4f2fc2f12727e95a7ec4421c8d87558163981d9548e8b439099507",
+    "be0a50525c9135a7bc40fe5c6a92a5804737419e726fcd6fdd77e4fc8b92726f",
+    "bffa8b6c6514d9f6a2c22894f86950b59d1b9013be5b3d3042485acd48ac3db7",
+    "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
+    "c0d4e604b3c19787f6c9c1f302e7f9b9d4636dcd6f3c902a6518aedd2db52884",
+    "c0fec943f94a4f4822a4d89007ef27495179cda83d308dafa01736865f7fd261",
+    "c10cb9edfca54f229a40d3b2bb34dd15edabf056058eeb8460b4b036fe778940",
+    "c3a85c57c74bed4931b14f4bf0bf0a06ec62a3ab5feaedd75cf0176a6507af17",
+    "c400cd3c3f5311b26ed620105cf1bfb28d20e57fb7fc6152d1bad4777fbb2798",
+    "c57c155f6b01e64bc046953d6ff5e1e3c97c7bb50e23ae7cd789f7c0ee9521da",
+    "c894dc3a0e4128de75295b55f4dfa7d77be54c55aeb75d5ba91795d07f0d916d",
+    "ca14929f9c2a726f2502c2929fca74690e6d875fd7d396392e97bc2eed0a6d05",
+    "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+    "ce8029855d4b4743df727690fd1479ac25d2ab864bfca858a3d875844d842686",
+    "d0ed7be88d19877aa4f97f2562551ff6abb645a006447495d7360f3027d14733",
+    "d125ed8b566f356f6f7a6a439f6db107fcea328387c92fef7544428dbdc45d49",
+    "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+    "d3a4eda034b813e5cd7489dc974e3112ee1de4e726530569911ef69326b95514",
+    "d4fd61f6fcf286d630a2a12db5c730d5b257b69f6a43fb61df051eb461e4bfa2",
+    "d6263a3e775626e50e6506eb76a033f11e1547330828473ae0b0ce9c52c4ce8d",
+    "d720f9edd7bedb0291c485fb0ce8733fe7888e02e0b9df3565893a96ac27e47c",
+    "d92a800317d2ab4503cb2aa30bc5e69ff5a6669849c68920106b2e1dbab1dc31",
+    "d96302085bf560f64719b688c4f1468ffb4189f9ec6a0674e454aecf6dfbafdc",
+    "d9a4be59b49021c7ed2ca5221af13c965aa746ac7d12223178a3e1d945080f3d",
+    "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+    "dd4204f413422f546eb346b9549cec55ce074f5d1392899427407ead55d87823",
+    "dd939b5bbaa82ec03ed75d8a3c72274853dcba2d22960638f6f0b773f967fd5e",
+    "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+    "e1e1ff2f59a2fade91e1e3c6803e293df0efd1b1080f70a9b6d6f6a4d231c9db",
+    "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad",
+    "e603092b9cd31da6cc56f149c04346797e7b3ff499e25f599e4882c420fea99a",
+    "e70279f90a902575994d84bef3d7685716830e078ac00f9bc6a8df93a52339d8",
+    "e787bcead416f07322ce88429ba5156aebbe145fe9a86c1b501da17aefe69de2",
+    "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+    "e8ea13cca3b9ad6b40574f93054426a837586ea558c6f0d33c06f0c90cd5c9c8",
+    "e95ca56572b5f58883702c69a24fbe2d81bd2e3b220630ed1b181f6e926ec942",
+    "ebcbc08a4fa15677db0c2726e5c50dddfe0d977a0485af8fec3bbdbdf627fcd4",
+    "ec4cf7c224412be083b512585c447095336c0d84dedc396bdb86df9d5156aebd",
+    "edece15bf7d7173e4645b91d3b723564741a05a86ccbff73242982a72e276f31",
+    "ef9ca815b0a74bbbdc01a7130966d17b85492e507fc9958200db69341c0e85f7",
+    "efbe85a7d13d4d3f71ad384f2fe9d9f30e3ce3fa94e49e53d3787cd0d08fc7f6",
+    "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+    "f1525eccdea6980e21d5b5630dcea1a45e60ecf1c4f030756f4b69e77d7cefbb",
+    "f15daf3ce6ec6a29f1130852e55f52e227718f78e798c689f3106186778b2572",
+    "f185bf7864de86f4dc8fce3afac3bf5eb6e0061abc9aa9a4e3270570fc09e789",
+    "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527",
+    "f1e444b4deee71b9a21243ba9e50e3acc93ef9f8c55df124591dc5aded7895bb",
+    "f2354b7f26fdc89667bbaa0fc3dd77141e54432fe7dce93130e2d54d15da20e3",
+    "f3f1bac535adbb6d10e969d2907faba497dd0fcfc1f5aa5a250a2543defbddf1",
+    "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+    "faf86b20d47362666ae42efb0559d2e47140608b0b5af1c9ebe8418406a95beb",
+    "fb57ec1cd97f574cbd5a641918fdfb38a2e2926625a5c539316c466a741671bd",
+    "fe8b7243214add33e2f37c0ac0c0b02eaea19192c15b92bd4e8307b2292332f7",
+    "fea49c254a73c5454e2fa60797c3c710333ded4c9d85b42e95ed3e22508815f4",
+    "ffebf677437abeff10ac7065331defb7bb282e2939b61218995e52f0f8cc903c"
+  ],
+  "hardware": {
+    "aic_cores": 20,
+    "aiv_cores": 40,
+    "l1_bytes": 524288,
+    "l2_bytes": 201326592,
+    "soc": "Ascend910B3",
+    "ub_bytes": 196608
+  },
+  "heldout_shapes": [
+    "003e62e71a2469dba9a4fb1a6ebd6aff4b866638edfacf21d658dba14493417e",
+    "01a537e167ce87e8a3a5fe203b775b10339ebbdb04229fa53e7326814bd4573a",
+    "0219c3d64dbe750be11dc677ce8760b9c939dbda795974d58f7532dac0f006a1",
+    "0488eab78eded9ac86b5c03991652e474d85641182e27435064d040f16c2da85",
+    "04c3be15bac2b6f61e5f3dcfe94054c04f7b62dfd1bd2d0f5b2dace7d558b801",
+    "04d80237570a20f06a9912cb9d10b03863c31a16f75bc058f2014bef62215cca",
+    "06fa65a891b04652d61511680fd4e7c7bbb38aac22fd0d9deb73edb7c0ed93ff",
+    "07c8b6d4f50dee0f63fad029bb87ae1fc2da1ce1d7bc6a5aef4f635c1794d83f",
+    "0b05e40b35396d13b92f27e41b1d2922ae89407d030975158458a9bcf60de242",
+    "0c932a653eacee39d03c096683ba55a468f702d7a68067de4996300346346955",
+    "0de36ff82d3d68e99162236a91372ce6b5e438240ccd1ecf5e3553b390c6b8ce",
+    "0e21b5060c8ca67ffbebb0680b401b7e61cbb3d3565654572373ea299d50856e",
+    "12d4cd573d21236cc2925558ede5041e90608ce2770cfe981cac0af9894b74a1",
+    "132270c26bd18afce10d987c4eab0dd0c2aeeeb90f22f393a897fcc6d682cc01",
+    "17817cd8b768bb7b82923daccd6476ac595fb3561f423f1787fa0906e5ac7fb2",
+    "18baee5bd32cb92c538ffe7dcb8049cd47d709090f5f3f89e8acc2b56f201971",
+    "1918ee7aab0b794a80765ae15fbb5ae1d6316f0674a63907ad7359efd7fa76d9",
+    "1a877cea600fedb62773b90c1e778bccd3abbf50d79079908134defb9415539c",
+    "1d14dd3830e9c6a4b568f9fdcdc1752a24531e3d6041c16ac45e17e614f6598e",
+    "276765d94c10c71792700d0c12a284472d40f21763b594af41aaa323824b0925",
+    "281e405e37f2dfded21a23cb92037bf5605a7cf17c0adc973cea29b63f7a8be5",
+    "30133ba9b995db8d96ef0aa9793f5a6f3103f744ff8ad4c8fd8f7595dd4f16f8",
+    "352704c9ffd55fbf3b6eed031ceeae3fd6fcf54aa7adb52cc81c1f196ed804cb",
+    "3ae755530199c4d21ce5177727994438ffea895820555ef4b7eadc203e139e70",
+    "3cefb8f34f3c20cc46271442693e1a3f10dca2c88cd0d6bfe6dcc5e58e54bf3a",
+    "3eb6c54354027213c479760dc6a30ba7ee4b80e2f8a0cabe45b57d2ee3b53102",
+    "40c15087092709fabe049c3cc01ea375723c5b44769fc5b08ca55cd433d1ca87",
+    "52486dbbd8bb56010321b3eb751fe3ee2e80380f690ea92cd9bcb935bfa50323",
+    "6eee5457f2d3a5d2dfeeb824bc9c7b5d6844047d9ac2b3ce41c9999f70be6f6b",
+    "6fc2b2853c2726ca62ca7086e5643f97055e3a6ef0cf059666439cd8857681ae",
+    "73888b6b887d4ce26625df2419710e20f9168653f75490ec2d8bb04259cd0131",
+    "743be37cb7aa8310dae402a96dccee989b92055f16fcd1a57bf99b309bfe9233",
+    "7ae66174f75dcf1d85005c802963e6b7a7f57ff396d45d3c602c2fe210a4139d",
+    "7c02d388f95dd40fd5bac4e9bd4673a4ff31b112a09268569dae53684d328792",
+    "85a1fa21daca4acdd55b24306836ad896dd6c8fdb039a3575a95ae02bc1685bd",
+    "8ee92dffbbe776d928e07fd63f69fd28d0827cdf44114c040d67a82c4c3beab3",
+    "9148059d9eb60b28e7ab8852790bb383baa352554094257ac45596e1c1402efa",
+    "9df02549b3ea974732d773b45582df2e545d5d856448b7279ba31c6290c7ace6",
+    "acd88e554e78ff0a75afb7f537e059c8995e8c90b498b00e1e52339ae0b800ea",
+    "be0a50525c9135a7bc40fe5c6a92a5804737419e726fcd6fdd77e4fc8b92726f",
+    "c0d4e604b3c19787f6c9c1f302e7f9b9d4636dcd6f3c902a6518aedd2db52884",
+    "c10cb9edfca54f229a40d3b2bb34dd15edabf056058eeb8460b4b036fe778940",
+    "ca14929f9c2a726f2502c2929fca74690e6d875fd7d396392e97bc2eed0a6d05",
+    "ce8029855d4b4743df727690fd1479ac25d2ab864bfca858a3d875844d842686",
+    "d720f9edd7bedb0291c485fb0ce8733fe7888e02e0b9df3565893a96ac27e47c",
+    "d96302085bf560f64719b688c4f1468ffb4189f9ec6a0674e454aecf6dfbafdc",
+    "dd4204f413422f546eb346b9549cec55ce074f5d1392899427407ead55d87823",
+    "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad",
+    "e603092b9cd31da6cc56f149c04346797e7b3ff499e25f599e4882c420fea99a",
+    "ef9ca815b0a74bbbdc01a7130966d17b85492e507fc9958200db69341c0e85f7",
+    "efbe85a7d13d4d3f71ad384f2fe9d9f30e3ce3fa94e49e53d3787cd0d08fc7f6",
+    "f2354b7f26fdc89667bbaa0fc3dd77141e54432fe7dce93130e2d54d15da20e3",
+    "fb57ec1cd97f574cbd5a641918fdfb38a2e2926625a5c539316c466a741671bd",
+    "fe8b7243214add33e2f37c0ac0c0b02eaea19192c15b92bd4e8307b2292332f7",
+    "ffebf677437abeff10ac7065331defb7bb282e2939b61218995e52f0f8cc903c"
+  ],
+  "legacy_pipelines": {
+    "families": {
+      "b": {
+        "adapter_pass_range": [
+          0,
+          0
+        ],
+        "calibration_cases": [
+          "27fa821312b4e23508f60dfc285fe00549b82fbcb6641c6c2a2932a33e191d36",
+          "e603092b9cd31da6cc56f149c04346797e7b3ff499e25f599e4882c420fea99a",
+          "11c667f99e803232d2b0e237254a7382197009d31853cb93c06dd8266d6a6e06",
+          "9df02549b3ea974732d773b45582df2e545d5d856448b7279ba31c6290c7ace6",
+          "c400cd3c3f5311b26ed620105cf1bfb28d20e57fb7fc6152d1bad4777fbb2798",
+          "d9a4be59b49021c7ed2ca5221af13c965aa746ac7d12223178a3e1d945080f3d",
+          "c10cb9edfca54f229a40d3b2bb34dd15edabf056058eeb8460b4b036fe778940",
+          "1c295259c90f5c20880a44b20805dc0056c52e631c65ad9a21e53778dd0b9b63",
+          "373c2292a5daa32a22b8dbdf0f5f7b1f1a172601bd9cb8c95c028ab7e0791194",
+          "20497c73ebc3454ed3874b8eb591c4408dd68b6047b9ec41ec19a59cdf627aed",
+          "665c33a05304942cd7c546cf2c1717405dc408c49979d563132112f380af096a",
+          "1a877cea600fedb62773b90c1e778bccd3abbf50d79079908134defb9415539c",
+          "0b2a36789a70fadb261faed1b69b86c0bef15d1cfd774f9e0edb4d16291d3f30",
+          "59b63a4898eafc0fd1a526c41635a754735fc5bf6aca75a9c73e36ba274b36da",
+          "ca14929f9c2a726f2502c2929fca74690e6d875fd7d396392e97bc2eed0a6d05"
+        ],
+        "coefficients": {
+          "active_cube_pairs": 0.19095561418564488,
+          "adapter_passes": 0.0,
+          "initialization_us": 13.951372814542875,
+          "pipeline_us": 0.8554020280477251
+        },
+        "family": "b",
+        "fit": {
+          "observed": [
+            true,
+            true,
+            true,
+            false
+          ],
+          "rank": 3,
+          "terms": 3
+        },
+        "hardware": {
+          "aic_cores": 20,
+          "aiv_cores": 40,
+          "calibrated_frequency_mhz": [
+            1800.0
+          ],
+          "l1_bytes": 524288,
+          "l2_bytes": 201326592,
+          "soc": "Ascend910B3",
+          "ub_bytes": 196608
+        },
+        "input_ranges": {
+          "B": [
+            1,
+            16
+          ],
+          "D": [
+            64,
+            64
+          ],
+          "DV": [
+            64,
+            64
+          ],
+          "N1": [
+            1,
+            4
+          ],
+          "N2": [
+            1,
+            1
+          ],
+          "S1": [
+            16,
+            128
+          ],
+          "S2": [
+            32,
+            128
+          ]
+        },
+        "pipes": {
+          "cube": {
+            "coefficients": {
+              "flops_m": 0.06784937651704427,
+              "mma_instructions": 0.023891682805306933
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "fixpipe": {
+            "coefficients": {
+              "calls": 0.39381651864807743,
+              "write_kb": 0.01285811064686735
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "mte1": {
+            "coefficients": {
+              "calls": 0.027191274705153843,
+              "l0_kb": 0.0041354037320746224
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "mte2": {
+            "coefficients": {
+              "calls": 0.41149201327600515,
+              "read_kb": 0.009852301904410029
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "vector": {
+            "coefficients": {
+              "calls": 0.11582044602713765,
+              "elements_k": 0.0504112571174693,
+              "generic_rows_k": 7.9601742261944395,
+              "reduction_rows_k": 0.0
+            },
+            "observed": [
+              true,
+              true,
+              true,
+              true
+            ],
+            "rank": 4,
+            "terms": 4
+          },
+          "vmte2": {
+            "coefficients": {
+              "calls": 0.2124894334906937,
+              "read_kb": 0.0031860454390498015
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "vmte3": {
+            "coefficients": {
+              "calls": 0.30980115921569124,
+              "write_kb": 0.00391032434449506
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          }
+        },
+        "qualification": "development_model_requires_fresh_blind_validation",
+        "rules": {
+          "adapter": "first-pass synchronization and unpacking are jointly identified; extra-pass behavior is not independently calibrated",
+          "bmm_service": "max(Cube, MTE1, MTE2) + Fixpipe, calibrated from aggregate per-pipe active times",
+          "dependencies": "BMM1 -> Vec1 -> BMM2 -> Vec2; asynchronous Matmul FIFO, ping-pong waits and two drain iterations",
+          "latency": "initialization + fitted intra-call overlap scale * scheduled elapsed + active-pair setup + adapter passes",
+          "limits": "no same_ab, backward, TND, sparse, L1 reuse or arbitrary candidate tiling coverage",
+          "mapping": "two adjacent Vector clients share one Cube; contiguous Host task partitions with actual S1 tails",
+          "memory": "GQA K/V counts, FP16 operands and probabilities, FP32 BMM intermediates and statistics; L0 tile model uses 128-sized tiles",
+          "stage_totals": "aggregate service in the critical Cube pair, before overlap scaling; do not add to the final elapsed time",
+          "vector_service": "max(Vector, MTE2 + MTE3); S1 64-column alignment; B Softmax generic/basic-block branch"
+        },
+        "source_evidence": {
+          "adapter": "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_drop_mask_adapter.h:90",
+          "file": "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_bn2gs1s2_b.h",
+          "head_loop_line": 794,
+          "intermediate_dtype": "attention/flash_attention_score/op_kernel/flash_attention_score.cpp:642",
+          "line": 544,
+          "rule": "batch tasks distributed between workers; heads and S1 blocks loop inside each task",
+          "softmax": "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_common.h:143"
+        },
+        "target": "median msprof OpBasicInfo Task Duration(us); official dense FP16 BNSD tiling",
+        "version": "fa_input_pipeline_v1"
+      },
+      "b_drop": {
+        "adapter_pass_range": [
+          0,
+          1
+        ],
+        "calibration_cases": [
+          "8f6e9b9761955cf40c6dced0e04a4e3e5c3e941e12f3085874f798088e695f01",
+          "e8ea13cca3b9ad6b40574f93054426a837586ea558c6f0d33c06f0c90cd5c9c8",
+          "86a3fd0f033fa44f71a75d9f45c38f2fca2aca0598055a828f57f8a5819436d4",
+          "276765d94c10c71792700d0c12a284472d40f21763b594af41aaa323824b0925",
+          "aad226e94ab15c0daef0bdf004ac7cd023c7d1c2408466fa8da0ef3f1d2b9966",
+          "4d5353b6776d39e727bdf8f80885c63c06533027a75d2a8f8327b75c09aa22a6",
+          "3a916667091c49adffe47a4e6c739e637d903d466ee81e1a7a87c614b1a13642",
+          "7ae66174f75dcf1d85005c802963e6b7a7f57ff396d45d3c602c2fe210a4139d",
+          "815e5472cb2ec088eeca26f7a517128416c8ebbd178affd13449a9d027d98aef",
+          "989ea011c0731bc31342b0778cdc926c7208e983642f9fa9f97610e5136b318f",
+          "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad",
+          "84c925822d1e25c1e3de45f6aab47d8c4fdf30008715cf8b6ee5fdea83e79481",
+          "d0ed7be88d19877aa4f97f2562551ff6abb645a006447495d7360f3027d14733",
+          "56e3ab09c77250ba53b32febabf73e1a5e920a5bb844489759cd4f2376f238df",
+          "17817cd8b768bb7b82923daccd6476ac595fb3561f423f1787fa0906e5ac7fb2",
+          "20d0153d9060f4187ca08b831f344cdb7b25282ce06c4faec8c71b70afb83241",
+          "31ce528d4c3c9bf25d202e3d7e26b658a0ab817243fb8db5890a51f230423d61",
+          "dd939b5bbaa82ec03ed75d8a3c72274853dcba2d22960638f6f0b773f967fd5e",
+          "fe8b7243214add33e2f37c0ac0c0b02eaea19192c15b92bd4e8307b2292332f7",
+          "7dc4c405f7d76a4ea4348b1420eaf792ae401ccfacbbda7873a76200255a2b8d",
+          "f1525eccdea6980e21d5b5630dcea1a45e60ecf1c4f030756f4b69e77d7cefbb",
+          "1d14dd3830e9c6a4b568f9fdcdc1752a24531e3d6041c16ac45e17e614f6598e"
+        ],
+        "coefficients": {
+          "active_cube_pairs": 0.28371324294197775,
+          "adapter_passes": 15.24338907190668,
+          "initialization_us": 14.982923146543873,
+          "pipeline_us": 0.8059277073322607
+        },
+        "family": "b_drop",
+        "fit": {
+          "observed": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "rank": 4,
+          "terms": 4
+        },
+        "hardware": {
+          "aic_cores": 20,
+          "aiv_cores": 40,
+          "calibrated_frequency_mhz": [
+            1800.0
+          ],
+          "l1_bytes": 524288,
+          "l2_bytes": 201326592,
+          "soc": "Ascend910B3",
+          "ub_bytes": 196608
+        },
+        "input_ranges": {
+          "B": [
+            1,
+            16
+          ],
+          "D": [
+            64,
+            64
+          ],
+          "DV": [
+            64,
+            64
+          ],
+          "N1": [
+            1,
+            4
+          ],
+          "N2": [
+            1,
+            1
+          ],
+          "S1": [
+            16,
+            128
+          ],
+          "S2": [
+            32,
+            128
+          ]
+        },
+        "pipes": {
+          "cube": {
+            "coefficients": {
+              "flops_m": 0.06781684086158205,
+              "mma_instructions": 0.023888883742323647
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "fixpipe": {
+            "coefficients": {
+              "calls": 0.37160040226573143,
+              "write_kb": 0.01339361642548405
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "mte1": {
+            "coefficients": {
+              "calls": 0.026143716323316153,
+              "l0_kb": 0.004200036696465798
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "mte2": {
+            "coefficients": {
+              "calls": 0.39902011859830266,
+              "read_kb": 0.010045166174375654
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "vector": {
+            "coefficients": {
+              "calls": 0.14478464101279545,
+              "elements_k": 0.06533460689461118,
+              "generic_rows_k": 7.727200012933219,
+              "reduction_rows_k": 0.0
+            },
+            "observed": [
+              true,
+              true,
+              true,
+              true
+            ],
+            "rank": 4,
+            "terms": 4
+          },
+          "vmte2": {
+            "coefficients": {
+              "calls": 0.2791026714674779,
+              "read_kb": 0.004410654643174284
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "vmte3": {
+            "coefficients": {
+              "calls": 0.31264534426872953,
+              "write_kb": 0.003153323222838795
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          }
+        },
+        "qualification": "development_model_requires_fresh_blind_validation",
+        "rules": {
+          "adapter": "first-pass synchronization and unpacking are jointly identified; extra-pass behavior is not independently calibrated",
+          "bmm_service": "max(Cube, MTE1, MTE2) + Fixpipe, calibrated from aggregate per-pipe active times",
+          "dependencies": "BMM1 -> Vec1 -> BMM2 -> Vec2; asynchronous Matmul FIFO, ping-pong waits and two drain iterations",
+          "latency": "initialization + fitted intra-call overlap scale * scheduled elapsed + active-pair setup + adapter passes",
+          "limits": "no same_ab, backward, TND, sparse, L1 reuse or arbitrary candidate tiling coverage",
+          "mapping": "two adjacent Vector clients share one Cube; contiguous Host task partitions with actual S1 tails",
+          "memory": "GQA K/V counts, FP16 operands and probabilities, FP32 BMM intermediates and statistics; L0 tile model uses 128-sized tiles",
+          "stage_totals": "aggregate service in the critical Cube pair, before overlap scaling; do not add to the final elapsed time",
+          "vector_service": "max(Vector, MTE2 + MTE3); S1 64-column alignment; B Softmax generic/basic-block branch"
+        },
+        "source_evidence": {
+          "adapter": "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_drop_mask_adapter.h:90",
+          "file": "attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp",
+          "intermediate_dtype": "attention/flash_attention_score/op_kernel/flash_attention_score.cpp:642",
+          "line": 1690,
+          "rule": "B schedule plus dropout; S2 % 8 != 0 requires bit-to-byte mask adaptation",
+          "softmax": "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_common.h:143"
+        },
+        "target": "median msprof OpBasicInfo Task Duration(us); official dense FP16 BNSD tiling",
+        "version": "fa_input_pipeline_v1"
+      },
+      "s1": {
+        "adapter_pass_range": [
+          0,
+          0
+        ],
+        "calibration_cases": [
+          "c57c155f6b01e64bc046953d6ff5e1e3c97c7bb50e23ae7cd789f7c0ee9521da",
+          "ba72d40a7a4f2fc2f12727e95a7ec4421c8d87558163981d9548e8b439099507",
+          "faf86b20d47362666ae42efb0559d2e47140608b0b5af1c9ebe8418406a95beb",
+          "8ee92dffbbe776d928e07fd63f69fd28d0827cdf44114c040d67a82c4c3beab3",
+          "9b8494195fcaacebffc86fee0d48f83988699dab294a2dd719b6b91c1c6c94c3",
+          "1e08cf62088c9de734e3714bcc937caa1a471cfaac572b5b461d533ce369ef09",
+          "8ffb3e2024ec0bafb79b3307206223d100484bfb08d3289e4b3c5219fd70d993",
+          "58f7c4204ecf73d84fdecbfbc7c49dfca8f6c89cf93e7917dfc7927c56bd6679",
+          "05548df28bf8875da93c6c1e0e255337464e779cc7cffdc5e7700e9b553975a9",
+          "964511fa4f522b925b0343301f4758dc700231edb88a2d2093ba9642c30eadda",
+          "07c8b6d4f50dee0f63fad029bb87ae1fc2da1ce1d7bc6a5aef4f635c1794d83f",
+          "63796a95a8104402d467efdfb51a93925b5c31ab93f7267298d4d5d26070883c",
+          "1424d4e084bd1c742fd82f22525501450e206b582f696e31044ee819f634c433",
+          "336f944215410c9c108802394354c072ff7786ae24992ee3e27178a053322caf",
+          "f15daf3ce6ec6a29f1130852e55f52e227718f78e798c689f3106186778b2572",
+          "ab096c26ee0109d8f266790c0fda142681d6ac0273a780849d33d8f11e7741f1",
+          "ef9ca815b0a74bbbdc01a7130966d17b85492e507fc9958200db69341c0e85f7",
+          "681083c901ff4315babd0d269a078e046c508b209019c6b6618c3103cd14a885",
+          "3ace462367850f14b2feff9118013b0924c3d602b2e7a19b7de3c645b62266c9"
+        ],
+        "coefficients": {
+          "active_cube_pairs": 0.7276202598671084,
+          "adapter_passes": 0.0,
+          "initialization_us": 13.537690457988523,
+          "pipeline_us": 0.6760891229132615
+        },
+        "family": "s1",
+        "fit": {
+          "observed": [
+            true,
+            true,
+            true,
+            false
+          ],
+          "rank": 3,
+          "terms": 3
+        },
+        "hardware": {
+          "aic_cores": 20,
+          "aiv_cores": 40,
+          "calibrated_frequency_mhz": [
+            1800.0
+          ],
+          "l1_bytes": 524288,
+          "l2_bytes": 201326592,
+          "soc": "Ascend910B3",
+          "ub_bytes": 196608
+        },
+        "input_ranges": {
+          "B": [
+            1,
+            2
+          ],
+          "D": [
+            128,
+            128
+          ],
+          "DV": [
+            128,
+            128
+          ],
+          "N1": [
+            4,
+            16
+          ],
+          "N2": [
+            1,
+            4
+          ],
+          "S1": [
+            64,
+            512
+          ],
+          "S2": [
+            256,
+            1024
+          ]
+        },
+        "pipes": {
+          "cube": {
+            "coefficients": {
+              "flops_m": 0.0811767129037891,
+              "mma_instructions": 0.001204987797336206
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "fixpipe": {
+            "coefficients": {
+              "calls": 0.594899473663908,
+              "write_kb": 0.011015802362468997
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "mte1": {
+            "coefficients": {
+              "calls": 0.017316983163210013,
+              "l0_kb": 0.004233391607216519
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "mte2": {
+            "coefficients": {
+              "calls": 0.06997549022840248,
+              "read_kb": 0.008441200467244772
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "vector": {
+            "coefficients": {
+              "calls": 0.0,
+              "elements_k": 0.07669384808356766,
+              "generic_rows_k": 0.0,
+              "reduction_rows_k": 0.0
+            },
+            "observed": [
+              true,
+              true,
+              false,
+              true
+            ],
+            "rank": 2,
+            "terms": 3
+          },
+          "vmte2": {
+            "coefficients": {
+              "calls": 0.0,
+              "read_kb": 0.011615204111373846
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          },
+          "vmte3": {
+            "coefficients": {
+              "calls": 0.0,
+              "write_kb": 0.017435052769123546
+            },
+            "observed": [
+              true,
+              true
+            ],
+            "rank": 2,
+            "terms": 2
+          }
+        },
+        "qualification": "development_model_requires_fresh_blind_validation",
+        "rules": {
+          "adapter": "first-pass synchronization and unpacking are jointly identified; extra-pass behavior is not independently calibrated",
+          "bmm_service": "max(Cube, MTE1, MTE2) + Fixpipe, calibrated from aggregate per-pipe active times",
+          "dependencies": "BMM1 -> Vec1 -> BMM2 -> Vec2; asynchronous Matmul FIFO, ping-pong waits and two drain iterations",
+          "latency": "initialization + fitted intra-call overlap scale * scheduled elapsed + active-pair setup + adapter passes",
+          "limits": "no same_ab, backward, TND, sparse, L1 reuse or arbitrary candidate tiling coverage",
+          "mapping": "two adjacent Vector clients share one Cube; contiguous Host task partitions with actual S1 tails",
+          "memory": "GQA K/V counts, FP16 operands and probabilities, FP32 BMM intermediates and statistics; L0 tile model uses 128-sized tiles",
+          "stage_totals": "aggregate service in the critical Cube pair, before overlap scaling; do not add to the final elapsed time",
+          "vector_service": "max(Vector, MTE2 + MTE3); S1 64-column alignment; B Softmax generic/basic-block branch"
+        },
+        "source_evidence": {
+          "adapter": "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_drop_mask_adapter.h:90",
+          "file": "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_s1_bn2gs1.h",
+          "intermediate_dtype": "attention/flash_attention_score/op_kernel/flash_attention_score.cpp:557",
+          "line": 880,
+          "rule": "blockIdx * splitFactorSize; Q-task pipeline; BMM1, Vec1, BMM2, Vec2",
+          "softmax": "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_common.h:143"
+        },
+        "target": "median msprof OpBasicInfo Task Duration(us); official dense FP16 BNSD tiling",
+        "version": "fa_input_pipeline_v1"
+      }
+    },
+    "version": "fa_input_pipeline_v1"
+  },
+  "legacy_same_ab": {
+    "address_model": {
+      "groups": 24,
+      "line_bytes": 512,
+      "qualification": "effective address-cost feature; not verified physical silicon cache geometry",
+      "source": "recovered Toolkit behavioral simulator address mapping"
+    },
+    "fit_method": "nonnegative_address_minimax_v4",
+    "groups": {
+      "same_ab/BF16/BNSD": {
+        "active_features": [
+          "fixed",
+          "critical_work_m",
+          "global_io_mb"
+        ],
+        "calibration_cases": [
+          "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+          "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+          "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+          "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+          "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+          "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+          "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+          "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+          "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e"
+        ],
+        "coefficients": {
+          "adapter_melements": 0.0,
+          "cache_reload_mb": 0.0,
+          "critical_work_m": 0.12393423291165413,
+          "fixed": 35.53883399388109,
+          "global_io_mb": 0.14428948368177133,
+          "kv_read_mb": 0.0,
+          "serial_steps": 0.0
+        },
+        "feature_count": 3,
+        "feature_ranges": {
+          "critical_work_m": [
+            1342.17728,
+            206695.30112
+          ],
+          "fixed": [
+            1.0,
+            1.0
+          ],
+          "global_io_mb": [
+            20.97152,
+            1006.63296
+          ]
+        },
+        "feature_rank": 3,
+        "input_ranges": {
+          "B": [
+            1,
+            1
+          ],
+          "D": [
+            192,
+            192
+          ],
+          "DV": [
+            128,
+            128
+          ],
+          "N1": [
+            8,
+            96
+          ],
+          "N2": [
+            8,
+            96
+          ],
+          "S1": [
+            2048,
+            8192
+          ],
+          "S2": [
+            2048,
+            8192
+          ]
+        },
+        "objective": "minimize sum of squared relative calibration errors"
+      },
+      "same_ab/BF16/SBH": {
+        "active_features": [
+          "fixed",
+          "critical_work_m",
+          "cache_reload_mb"
+        ],
+        "calibration_cases": [
+          "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+          "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
+          "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+          "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+          "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+          "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+          "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+          "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+          "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965"
+        ],
+        "coefficients": {
+          "adapter_melements": 0.0,
+          "cache_reload_mb": 27.505305629944043,
+          "critical_work_m": 0.15059243606698156,
+          "fixed": 30.878253771044726,
+          "global_io_mb": 0.0,
+          "kv_read_mb": 0.0,
+          "serial_steps": 0.0
+        },
+        "feature_count": 3,
+        "feature_ranges": {
+          "cache_reload_mb": [
+            0.0,
+            367.2513995019343
+          ],
+          "critical_work_m": [
+            1342.17728,
+            206695.30112
+          ],
+          "fixed": [
+            1.0,
+            1.0
+          ]
+        },
+        "feature_rank": 3,
+        "input_ranges": {
+          "B": [
+            1,
+            1
+          ],
+          "D": [
+            192,
+            192
+          ],
+          "DV": [
+            128,
+            128
+          ],
+          "N1": [
+            8,
+            96
+          ],
+          "N2": [
+            8,
+            96
+          ],
+          "S1": [
+            2048,
+            8192
+          ],
+          "S2": [
+            2048,
+            8192
+          ]
+        },
+        "objective": "minimize maximum absolute relative calibration error; average optimal vertices when nonunique"
+      }
+    },
+    "hardware": {
+      "aic_cores": 20,
+      "aiv_cores": 40,
+      "l1_bytes": 524288,
+      "l2_bytes": 201326592,
+      "soc": "Ascend910B3",
+      "ub_bytes": 196608
+    },
+    "version": "fa_input_latency_v1"
+  },
+  "model_source_sha256": "21133140c76d0f012270214e66a6bf7cb7abd604a1e629194bf19699ba98c744",
+  "qualification": "development_model_requires_prospective_validation",
+  "scope": "official dense FP16/BF16 tiling; uniform-length packed TND; no sparse/PSE/Rope/backward/static Matmul qualification",
+  "source_datasets": [
+    {
+      "rows": 164,
+      "sha256": "9dcaad15a98f7388ce608432714c08fad735ad36891c6b83157bf3b2be4b4592"
+    }
+  ],
+  "source_evidence": "attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp",
+  "split_rule": "new fit excludes original holdout and whole (S1,S2) groups with SHA256 prefix modulo 5 == 0; stable checked calibration with complete PMU only; frozen legacy models retain their original calibration, which is labeled training replay",
+  "target": "median msprof FlashAttentionScore kernel Task Duration(us)",
+  "training_shapes": [
+    "0016e0c962a773460c0a40a67e093b38f621f9519ca5b3086cc71b39aacf539e",
+    "00685a929b794c189667a09b4770a3ffbe2f2ed3184f402470f467598f95e6c1",
+    "0070ab087368ad9deca4a3bb407aa2c7b66a685db022647de4dc4e00a5ec34a9",
+    "00a6c818c81909f62bdf3d18f2f6e5082f8101a3b806a5e37bde2ab6eb0bf725",
+    "00c31531244a81e3e0b81f60c96b6aaf77c5c417650981f45cebe714831a64b9",
+    "0112da79d881851e8b94168660f61b25e881217483f1903eb67e899583da91b8",
+    "01414fa1b5d0c1d114b765aefd01464fd33f44d62cf5a8011473c9b161378bb0",
+    "01c79ab50165ac793f8fd558fe0353c32d99f53d93727e27ecc28a8a3a9e6c27",
+    "01d1cebe4b3dc814f44f4fba0acb24d58f1b85315ecbe5cf5f985b85c2cb962a",
+    "01f2605d049eb1b5533eee3813e7b67c64f515d120dbc5f767468a116bd13c2a",
+    "021410374a3dd23179737619dc8e02fc942e7226a292c9843b9a02e1a1ee3692",
+    "023d41781917d04c6f4ea15ae54af76388b710150b16d10f30c58c727c218e64",
+    "02c460dbe4a5a14756ec1a9c60beb60a6f118dec25ceec05300eabd027441376",
+    "0327c5472606aec05dbaa84783d4ced39c033f9866892fbf1964b4d86bddba1c",
+    "03f60b1cd14b0626fb6aae677ef7ad7422385ad055d0aacc7d5cdf06ccb1d9d0",
+    "04cdcf5ebefdeb4d7bb9b05c81908090760cddd41970348cd27a1988e12ac72d",
+    "050219e6d7cc1d7132c194612114d0e0766f2b1ab6e85f9b2736291316646ada",
+    "05548df28bf8875da93c6c1e0e255337464e779cc7cffdc5e7700e9b553975a9",
+    "055a2532d015e8cc1d516ab3a6cccf88c20def3b758a8ec7c1bacf79801670e2",
+    "05d78926bee09288e020047481945fb4b97baa18b1a3478f29bb0b64e941b0f5",
+    "061c692873777cf4538606721df525c715f6fdeee325b9a94c8df6419003eb86",
+    "067816b6f7876c38a806c2ef22a5c7c971e7e0c18818983be68426922ed2aff3",
+    "06dd7ed00558a9b44fdd70d59583f5b0f6a747c9a392d8625b92a384275dd4fb",
+    "07172658c3b524a0da188111d3de8b63faa9b377b8b4421d5042b92e5eb73b7d",
+    "07c8b6d4f50dee0f63fad029bb87ae1fc2da1ce1d7bc6a5aef4f635c1794d83f",
+    "084cb73dbd788a636cbf8af5a6fe97a7ede40a73a7e285ec41d44f8dcff864da",
+    "0897a257561495a0efea4e91f2a2ee72e23ded7fc088093552b20f0957fe8d5e",
+    "08c0b35349ccc0df593b40e66b1e0ecd6889d7feff1a91ba61c427803d4a46fc",
+    "0b26ab68f169006bc3714e0551478c3cc53e3231aa5679653b118924b08dbd84",
+    "0b2a36789a70fadb261faed1b69b86c0bef15d1cfd774f9e0edb4d16291d3f30",
+    "0de851236632e958f402c4fc6162d75893c85847b0870efec0c41b79379644f7",
+    "0e16e01d4d20236a3f07bb7b4459c467ce1319a6b5882333b31cd80bfef8b1c0",
+    "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+    "11c667f99e803232d2b0e237254a7382197009d31853cb93c06dd8266d6a6e06",
+    "11c9e8111cbb758181a9374ad58f8c08bc95f2da7602777334d59019fb4bd751",
+    "1424d4e084bd1c742fd82f22525501450e206b582f696e31044ee819f634c433",
+    "1691c9b510aca57e4fcaafdcc9ce2b6af826798ee4e27869e38d256a037fc6a8",
+    "17817cd8b768bb7b82923daccd6476ac595fb3561f423f1787fa0906e5ac7fb2",
+    "1a877cea600fedb62773b90c1e778bccd3abbf50d79079908134defb9415539c",
+    "1c295259c90f5c20880a44b20805dc0056c52e631c65ad9a21e53778dd0b9b63",
+    "1d14dd3830e9c6a4b568f9fdcdc1752a24531e3d6041c16ac45e17e614f6598e",
+    "1e08cf62088c9de734e3714bcc937caa1a471cfaac572b5b461d533ce369ef09",
+    "20497c73ebc3454ed3874b8eb591c4408dd68b6047b9ec41ec19a59cdf627aed",
+    "20b8e30f1608354cadaa868a8da1157ec70fa04903d620b219ac5e5a086ab343",
+    "20d0153d9060f4187ca08b831f344cdb7b25282ce06c4faec8c71b70afb83241",
+    "276765d94c10c71792700d0c12a284472d40f21763b594af41aaa323824b0925",
+    "27fa821312b4e23508f60dfc285fe00549b82fbcb6641c6c2a2932a33e191d36",
+    "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+    "31ce528d4c3c9bf25d202e3d7e26b658a0ab817243fb8db5890a51f230423d61",
+    "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+    "336f944215410c9c108802394354c072ff7786ae24992ee3e27178a053322caf",
+    "36d54bb1b12ddbed137b2de9a5d70e77cf0fd693d14b385be6ae748d6445a0b3",
+    "373c2292a5daa32a22b8dbdf0f5f7b1f1a172601bd9cb8c95c028ab7e0791194",
+    "3a916667091c49adffe47a4e6c739e637d903d466ee81e1a7a87c614b1a13642",
+    "3ace462367850f14b2feff9118013b0924c3d602b2e7a19b7de3c645b62266c9",
+    "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+    "49f1961625165ffd9a12390c9c1ac1d01b9fc4c1e3f31d622ceb1ac1f0535a8b",
+    "4d5353b6776d39e727bdf8f80885c63c06533027a75d2a8f8327b75c09aa22a6",
+    "56e3ab09c77250ba53b32febabf73e1a5e920a5bb844489759cd4f2376f238df",
+    "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+    "58f7c4204ecf73d84fdecbfbc7c49dfca8f6c89cf93e7917dfc7927c56bd6679",
+    "59b63a4898eafc0fd1a526c41635a754735fc5bf6aca75a9c73e36ba274b36da",
+    "63796a95a8104402d467efdfb51a93925b5c31ab93f7267298d4d5d26070883c",
+    "665c33a05304942cd7c546cf2c1717405dc408c49979d563132112f380af096a",
+    "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+    "681083c901ff4315babd0d269a078e046c508b209019c6b6618c3103cd14a885",
+    "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+    "7073363b290247d9b82d9c26327f408e49709df7e63484b585578cfd75f531ea",
+    "7ae66174f75dcf1d85005c802963e6b7a7f57ff396d45d3c602c2fe210a4139d",
+    "7dc4c405f7d76a4ea4348b1420eaf792ae401ccfacbbda7873a76200255a2b8d",
+    "815e5472cb2ec088eeca26f7a517128416c8ebbd178affd13449a9d027d98aef",
+    "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
+    "84c925822d1e25c1e3de45f6aab47d8c4fdf30008715cf8b6ee5fdea83e79481",
+    "86a3fd0f033fa44f71a75d9f45c38f2fca2aca0598055a828f57f8a5819436d4",
+    "8d5dac94efbf9ddae6a04a1c789b8d6a58ca29054290eb37277affe8f7601f9d",
+    "8ee92dffbbe776d928e07fd63f69fd28d0827cdf44114c040d67a82c4c3beab3",
+    "8f6e9b9761955cf40c6dced0e04a4e3e5c3e941e12f3085874f798088e695f01",
+    "8ffb3e2024ec0bafb79b3307206223d100484bfb08d3289e4b3c5219fd70d993",
+    "964511fa4f522b925b0343301f4758dc700231edb88a2d2093ba9642c30eadda",
+    "989ea011c0731bc31342b0778cdc926c7208e983642f9fa9f97610e5136b318f",
+    "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+    "9b8494195fcaacebffc86fee0d48f83988699dab294a2dd719b6b91c1c6c94c3",
+    "9df02549b3ea974732d773b45582df2e545d5d856448b7279ba31c6290c7ace6",
+    "a7bfdd96c7c7c86c78306679ac81cd410b82f1b7f7db01023d8228c8785ecc2e",
+    "aad226e94ab15c0daef0bdf004ac7cd023c7d1c2408466fa8da0ef3f1d2b9966",
+    "ab096c26ee0109d8f266790c0fda142681d6ac0273a780849d33d8f11e7741f1",
+    "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+    "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+    "ba72d40a7a4f2fc2f12727e95a7ec4421c8d87558163981d9548e8b439099507",
+    "c10cb9edfca54f229a40d3b2bb34dd15edabf056058eeb8460b4b036fe778940",
+    "c400cd3c3f5311b26ed620105cf1bfb28d20e57fb7fc6152d1bad4777fbb2798",
+    "c57c155f6b01e64bc046953d6ff5e1e3c97c7bb50e23ae7cd789f7c0ee9521da",
+    "ca14929f9c2a726f2502c2929fca74690e6d875fd7d396392e97bc2eed0a6d05",
+    "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+    "d0ed7be88d19877aa4f97f2562551ff6abb645a006447495d7360f3027d14733",
+    "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+    "d3a4eda034b813e5cd7489dc974e3112ee1de4e726530569911ef69326b95514",
+    "d9a4be59b49021c7ed2ca5221af13c965aa746ac7d12223178a3e1d945080f3d",
+    "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+    "dd939b5bbaa82ec03ed75d8a3c72274853dcba2d22960638f6f0b773f967fd5e",
+    "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+    "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad",
+    "e603092b9cd31da6cc56f149c04346797e7b3ff499e25f599e4882c420fea99a",
+    "e70279f90a902575994d84bef3d7685716830e078ac00f9bc6a8df93a52339d8",
+    "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+    "e8ea13cca3b9ad6b40574f93054426a837586ea558c6f0d33c06f0c90cd5c9c8",
+    "ef9ca815b0a74bbbdc01a7130966d17b85492e507fc9958200db69341c0e85f7",
+    "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+    "f1525eccdea6980e21d5b5630dcea1a45e60ecf1c4f030756f4b69e77d7cefbb",
+    "f15daf3ce6ec6a29f1130852e55f52e227718f78e798c689f3106186778b2572",
+    "f185bf7864de86f4dc8fce3afac3bf5eb6e0061abc9aa9a4e3270570fc09e789",
+    "f1e444b4deee71b9a21243ba9e50e3acc93ef9f8c55df124591dc5aded7895bb",
+    "f3f1bac535adbb6d10e969d2907faba497dd0fcfc1f5aa5a250a2543defbddf1",
+    "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+    "faf86b20d47362666ae42efb0559d2e47140608b0b5af1c9ebe8418406a95beb",
+    "fe8b7243214add33e2f37c0ac0c0b02eaea19192c15b92bd4e8307b2292332f7"
+  ],
+  "version": "fa_route_pipeline_v1"
+}
