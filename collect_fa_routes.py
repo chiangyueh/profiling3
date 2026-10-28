@@ -26,6 +26,7 @@ import numpy as np
 import main as fa
 import fa_latency_inputs as cost
 import fit_fa_latency as family_models
+import fa_latency_model as source_model
 
 
 VERSION = cost.VERSION
@@ -383,8 +384,10 @@ def discover(params, directory: Path, hardware_trace: Path | None = None, timeou
     fa.build_host()
     trace = directory / "host_route.tsv"
     trace.unlink(missing_ok=True)
+    effective = directory / "host_effective.tsv"
+    effective.unlink(missing_ok=True)
     env = fa.run_env(params, None)
-    env.update(FA_ROUTE_TRACE=str(trace), FA_DISCOVER_ONLY="1", FA_PROFILE="0", FA_SKIP_BUILD="1")
+    env.update(FA_ROUTE_TRACE=str(trace), FA_EFFECTIVE_TILING_TRACE=str(effective), FA_DISCOVER_ONLY="1", FA_PROFILE="0", FA_SKIP_BUILD="1")
     if hardware_trace is not None:
         env["FA_HARDWARE_TRACE"] = str(hardware_trace)
     process = subprocess.run(["bash", "run.sh"], env=env, capture_output=True, text=True, timeout=timeout)
@@ -851,7 +854,7 @@ def external_design(hardware: dict) -> list[dict]:
     }
     plan = []
 
-    def add(target, family, first, second, **required):
+    def add(target, family, first, second, source_boundary_only=False, **required):
         for shape in (first, second):
             inputs = cost.normalize(dict(zip(cost.INPUT_FIELDS, shape)))
             ub0, ub1, block = frames[family]
@@ -872,6 +875,7 @@ def external_design(hardware: dict) -> list[dict]:
                 "inputs": inputs, "coverage": target, "required_branch": requirements,
                 "derived_schedule": {"family": family, "priority": priorities[family], "prediction_quality": "unmodeled_variant"},
                 "official_schedule_only": True, "timeout_seconds": 300,
+                **({"source_boundary_only": True} if source_boundary_only else {}),
             })
 
     add("same_ab_normal", "same_ab",
@@ -906,10 +910,10 @@ def external_design(hardware: dict) -> list[dict]:
         (1, 16, 4, 512, 1553, 256, 256, "FP16", "BNSD", 0), key_bmm1_format="NZ")
     add("tnd_general", "varlen",
         (2, 4, 1, 160, 320, 128, 128, "FP16", "TND", 0),
-        (2, 8, 2, 224, 640, 128, 128, "FP16", "TND", 0))
+        (2, 8, 2, 224, 640, 128, 128, "FP16", "TND", 0), source_l1_carry=True)
     add("tnd_same_ab", "varlen",
         (4, 4, 1, 2048, 2048, 128, 128, "FP16", "TND", 0),
-        (4, 8, 2, 3072, 2048, 128, 128, "FP16", "TND", 0), key_ub1="NONE")
+        (4, 8, 2, 3072, 2048, 128, 128, "FP16", "TND", 0), source_l1_carry=True, key_ub1="NONE")
     add("s1_nz_gm", "s1",
         (1, 8, 2, 160, 272, 128, 128, "FP16", "BNSD", 0),
         (1, 16, 4, 320, 336, 128, 128, "FP16", "BNSD", 0), key_bmm1_format="NZ")
@@ -954,10 +958,34 @@ def external_design(hardware: dict) -> list[dict]:
         (1, 16, 4, 512, 2065, 128, 128, "FP16", "BNSD", 1), key_bmm1_format="NZ", key_l1_reuse=1)
     add("tnd_drop", "varlen",
         (1, 4, 1, 160, 320, 128, 128, "FP16", "TND", 1),
-        (1, 8, 2, 224, 640, 128, 128, "FP16", "TND", 1))
+        (1, 8, 2, 224, 640, 128, 128, "FP16", "TND", 1), source_l1_carry=True)
     add("tnd_drop_adapter", "varlen",
         (2, 4, 1, 160, 320, 128, 128, "FP16", "TND", 1),
-        (2, 8, 2, 224, 640, 128, 128, "FP16", "TND", 1))
+        (2, 8, 2, 224, 640, 128, 128, "FP16", "TND", 1), source_l1_carry=True)
+    add("same_ab_384", "same_ab",
+        (1, 4, 1, 3072, 1536, 96, 96, "FP16", "BNSD", 0),
+        (2, 4, 1, 4096, 1536, 96, 96, "FP16", "BNSD", 0), source_boundary_only=True, source_s1_base=384)
+    add("same_ab_nratio5", "same_ab",
+        (1, 4, 1, 3072, 1030, 96, 96, "FP16", "BNSD", 0),
+        (2, 4, 1, 4096, 1037, 96, 96, "FP16", "BNSD", 0), source_boundary_only=True, source_s1_base=384, source_n_ratio=5, key_bmm1_format="NZ")
+    add("same_ab_d64_nratio6", "same_ab",
+        (1, 4, 1, 256, 2050, 64, 64, "FP16", "BNSD", 0),
+        (2, 4, 1, 512, 2100, 64, 64, "FP16", "BNSD", 0), source_boundary_only=True, source_d=64, source_n_ratio=6, key_bmm1_format="NZ")
+    add("same_ab_d_tail", "same_ab",
+        (1, 4, 1, 256, 641, 88, 88, "FP16", "BNSD", 0),
+        (2, 4, 1, 512, 1537, 88, 88, "FP16", "BNSD", 0), source_boundary_only=True, source_d=88, key_bmm1_format="NZ")
+    add("tnd_same_ab_gm", "varlen",
+        (4, 4, 1, 2048, 2048, 96, 96, "FP16", "TND", 0),
+        (4, 8, 2, 3072, 2048, 96, 96, "FP16", "TND", 0), source_boundary_only=True, source_l1_carry=False, key_ub1="NONE")
+    add("tnd_general_gm", "varlen",
+        (2, 4, 1, 160, 320, 256, 256, "FP16", "TND", 0),
+        (2, 8, 2, 224, 640, 256, 256, "FP16", "TND", 0), source_boundary_only=True, source_l1_carry=False, source_s1_base=128)
+    add("tnd_general_s1_256", "varlen",
+        (5, 2, 1, 2048, 512, 128, 128, "FP16", "TND", 0),
+        (6, 2, 1, 2048, 640, 128, 128, "FP16", "TND", 0), source_boundary_only=True, source_s1_base=256)
+    add("tnd_general_s1_512", "varlen",
+        (3, 2, 1, 4096, 256, 128, 128, "FP16", "TND", 0),
+        (4, 2, 1, 3072, 384, 128, 128, "FP16", "TND", 0), source_boundary_only=True, source_s1_base=512)
     return plan
 
 @lru_cache(maxsize=4)
@@ -999,7 +1027,7 @@ def decode_fa_key(key: int) -> dict:
         return {"key_decode_status": "unavailable; numeric key retained"}
 
 
-def describe_branch(priority: int, key: int, inputs: dict) -> dict:
+def describe_branch(priority: int, key: int, inputs: dict, effective: dict | None = None) -> dict:
     decoded = decode_fa_key(key)
     if decoded.get("key_decode_status") != "official_v8.5.0_schema":
         raise RuntimeError("the official key schema is unavailable; branch coverage cannot be verified")
@@ -1008,7 +1036,15 @@ def describe_branch(priority: int, key: int, inputs: dict) -> dict:
                    drop_adapter=bool(p["has_drop_mask"] and (p["S2"] % 8 or p["layout"] == "TND" and p["B"] > 1)))
     if decoded["key_has_drop_out"] != p["has_drop_mask"]:
         raise RuntimeError("Host key DropMask flag differs from the operator inputs")
-    return {name: decoded[name] for name in BRANCH_FIELDS}
+    result = {name: decoded[name] for name in BRANCH_FIELDS}
+    result["source_d"] = p["D"]
+    if effective:
+        if isinstance(effective, str):
+            effective = json.loads(effective)
+        result.update(source_s1_base=effective["FA_S1_BASE"], source_n_ratio=effective["FA_N_RATIO"])
+        if p["layout"] == "TND":
+            result["source_l1_carry"] = (p["D"] in (80, 88, 128, 192) and effective["FA_S1_BASE"] <= 256) if decoded["key_ub1"] == "NONE" else (max(p["D"], p["DV"]) <= 128 and effective["FA_S1_BASE"] <= 128)
+    return result
 
 
 def matches_branch(case: dict, branch: dict) -> bool:
@@ -1023,7 +1059,7 @@ def measured_branches(directory: Path, folder: Path) -> dict:
             if row.get("status") != "ok" or not row.get("tiling_key") or not isinstance(correctness, dict) or (finite(correctness.get("checked_elements")) or 0) <= 0 or (finite(row.get("duration_us")) or 0) <= 0:
                 continue
             try:
-                branch = describe_branch(int(row["priority"]), int(row["tiling_key"]), row["inputs"])
+                branch = describe_branch(int(row["priority"]), int(row["tiling_key"]), row["inputs"], row.get("effective_tiling"))
             except (ValueError, RuntimeError, KeyError):
                 continue
             known.setdefault(cost.sha256(branch), {"branch": branch, "case": name, "source": str(origin), "tiling_key": int(row["tiling_key"])})
@@ -1034,7 +1070,7 @@ def branch_samples(catalog: list[dict], targets: set) -> list[dict]:
     plan = list(catalog)
     seen = {cost.sha256(case["inputs"]) for case in plan}
     for seed in catalog:
-        if seed["coverage"] not in targets:
+        if seed["coverage"] not in targets or seed.get("source_boundary_only"):
             continue
         for batch_factor in (1, 2, 4, 8):
             for head_factor in (1, 2, 4):
@@ -1066,7 +1102,7 @@ def branch_samples(catalog: list[dict], targets: set) -> list[dict]:
 
 def probe_branch(case: dict, folder: Path) -> tuple[int, int]:
     trace = folder / "host_route.tsv"
-    if trace.is_file():
+    if trace.is_file() and (not case.get("source_boundary_only") or (folder / "host_effective.tsv").is_file()):
         try:
             return fa.read_route(trace)
         except (ValueError, RuntimeError):
@@ -1128,10 +1164,7 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
         if name not in fields:
             fields.append(name)
     for row in additional:
-        saved = payload["predictions"][row["case"]]
-        route_saved = payload.get("route_predictions", {}).get(row["case"])
-        if route_saved and row.get("model_sha256") == route_saved.get("model_sha256"):
-            saved = route_saved
+        saved = saved_external_prediction(payload, row["case"], row)
         row.update(prediction_model_kind=saved["kind"], prediction_status=saved["status"])
         case = active_cases.get(row["case"], all_cases[row["case"]])
         row["coverage"] = case.get("coverage", case["family"])
@@ -1175,9 +1208,9 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
     for family in ALL_FAMILIES:
         cases = [case for case in active_plan if case["family"] == family]
         observed = [latest.get(case["name"], {}) for case in cases]
-        saved_predictions = [payload.get("route_predictions", {}).get(case["name"], payload["predictions"][case["name"]]) for case in cases]
+        saved_predictions = [saved_external_prediction(payload, case["name"], row) for case, row in zip(cases, observed)]
         errors = [float(row["ape_percent"]) for case, row in zip(cases, observed) if row.get("status") == "ok" and row.get("ape_percent") not in (None, "")
-                  and external_prediction_matches(row, payload.get("route_predictions", {}).get(case["name"], payload["predictions"][case["name"]]))]
+                  and external_prediction_matches(row, saved_external_prediction(payload, case["name"], row))]
         families[family] = {"requested": len(cases), "runtime_ok": sum(row.get("status") == "ok" for row in observed),
                             "failed": sum(row.get("status") == "failed" for row in observed),
                             "skipped_covered": sum(coverage_records.get(case["name"], {}).get("state") == "covered" for case in cases),
@@ -1211,6 +1244,8 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
     cost.save_json(folder / "summary.json", result)
     if payload.get("route_model"):
         result["route_model"] = family_models.route_report(original, payload["route_model"])
+    if payload.get("source_model"):
+        result["source_model"] = source_model.report(original, payload["source_model"], payload.get("source_predictions", {}), active_plan)
     print(f"EXTERNAL SUMMARY: {families}", flush=True)
     print(f"FA BRANCH COVERAGE: {sum(value['covered'] for value in targets.values())}/{len(targets)}; dtype/layout alone do not count as new branches", flush=True)
     print(f"CSV_REPORT={original}; original measurements plus external cases; no raw-log bundle", flush=True)
@@ -1223,6 +1258,18 @@ def external_prediction_matches(row: dict, saved: dict) -> bool:
                 and str(row.get("prediction_before_measurement")).lower() == "true"
                 and row.get("model_sha256") == saved["model_sha256"]
                 and math.isclose(value, saved["result"]["predicted_us"], rel_tol=1e-5, abs_tol=1e-8))
+
+
+def saved_external_prediction(payload: dict, name: str, row: dict) -> dict:
+    for field in ("source_predictions", "route_predictions"):
+        saved = payload.get(field, {}).get(name)
+        if saved and (not row or external_prediction_matches(row, saved)):
+            return saved
+    for history in payload.get("source_history", {}).values():
+        saved = history["predictions"].get(name)
+        if saved and external_prediction_matches(row, saved):
+            return saved
+    return payload["predictions"][name]
 
 
 def collect_external(directory: Path, hardware: dict, signature: str, ensured: set, deadline: float | None = None) -> dict:
@@ -1299,6 +1346,10 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
     payload["protocol_sha256"] = cost.sha256(protocol)
     cost.save_json(snapshot, payload)
     cost.save_json(manifest, protocol)
+    source_model.freeze_predictions(payload, active_plan, records, snapshot, hardware)
+    print(f"SOURCE FORECASTS FROZEN: {len(payload['source_predictions'])}; source models use operator inputs and CPU tiling only", flush=True)
+    if (directory / "diagnostics.csv").is_file():
+        source_model.report(directory / "diagnostics.csv", payload["source_model"], payload["source_predictions"], active_plan)
     coverage_path = folder / "branch_coverage.json"
     coverage = json.loads(coverage_path.read_text()) if coverage_path.is_file() else {}
     initially_known = set(known)
@@ -1327,7 +1378,7 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
             saved = records.get(name, {})
             if saved.get("status") == "ok":
                 try:
-                    observed = describe_branch(int(saved["priority"]), int(saved["tiling_key"]), case["inputs"])
+                    observed = describe_branch(int(saved["priority"]), int(saved["tiling_key"]), case["inputs"], saved.get("effective_tiling"))
                     if matches_branch(case, observed) and (finite(saved.get("duration_us")) or 0) > 0 and (finite((saved.get("correctness") or {}).get("checked_elements")) or 0) > 0:
                         coverage[name] = {"state": "measured", "target": target, "observed": observed}
                         print(f"SHAPE CACHE HIT: {name}", flush=True)
@@ -1343,21 +1394,13 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
             print(f"BRANCH {index}/{len(active_plan)} PROBE: {target}; shape={case['inputs']}", flush=True)
             probe_started = time.monotonic()
             try:
-                if name not in payload["route_predictions"]:
-                    try:
-                        prediction = family_models.predict_route(case["inputs"], route_model)
-                        if name in records or cost.sha256(case["inputs"]) in set(route_model.get("exposed_shapes", [])):
-                            prediction["prediction_quality"] = "retry_previously_exposed_shape"
-                        payload["route_predictions"][name] = {"kind": "route", "status": "predicted", "result": prediction,
-                                                              "model_sha256": cost.sha256(route_model)}
-                        print(f"PREDICTION BEFORE HOST/NPU: {name} predicted_us={prediction['predicted_us']:.6f}", flush=True)
-                    except (ValueError, RuntimeError) as error:
-                        payload["route_predictions"][name] = {"kind": "route", "status": "unavailable", "error": str(error)}
-                        print(f"PREDICTION UNAVAILABLE: {name}; {error}", flush=True)
-                    cost.save_json(snapshot, payload)
-                saved_prediction = payload["route_predictions"][name]
+                saved_prediction = payload["source_predictions"][name]
+                if saved_prediction["status"] == "predicted":
+                    print(f"SOURCE PREDICTION: {name} predicted_us={saved_prediction['result']['predicted_us']:.6f}", flush=True)
+                else:
+                    print(f"SOURCE PREDICTION UNAVAILABLE: {name}; {saved_prediction['error']}", flush=True)
                 route = probe_branch(case, location)
-                observed = describe_branch(route[0], route[1], case["inputs"])
+                observed = describe_branch(route[0], route[1], case["inputs"], fa.read_effective(location / "host_effective.tsv"))
                 if not matches_branch(case, observed):
                     message = f"requested branch was not selected: expected_priority={case['expected']} actual={observed}"
                     coverage[name] = {"state": "not_hit", "target": target, "observed": observed, "error": message}
@@ -1374,7 +1417,7 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
                 case["derived_schedule"]["prediction_quality"] = "branch_unmodeled"
                 select_shape(case)
                 collect(case, hardware, folder, records, folder / "routes.csv", ensured,
-                        frozen=route_model if saved_prediction["status"] == "predicted" else None,
+                        frozen=payload["source_model"] if saved_prediction["status"] == "predicted" else None,
                         precomputed=saved_prediction.get("result"),
                         build_failures=failures, discovered_route=route)
                 row = records.get(name, {})
@@ -1464,7 +1507,7 @@ def main() -> None:
     if not (directory / "diagnostics.csv").is_file():
         text_report(directory, ALL_FAMILIES)
     result = collect_external(directory, hardware, signature, set())
-    model_report = result.get("route_model", {})
+    model_report = result.get("source_model", result.get("route_model", {}))
     if model_report.get("prospective", {}).get("count") and not model_report.get("fresh_blind_pass"):
         print("PREDICTION ACCURACY FAIL: the full collection finished; prospective latency predictions did not all meet 10%", flush=True)
         raise SystemExit(1)
