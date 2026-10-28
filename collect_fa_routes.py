@@ -1030,6 +1030,40 @@ def measured_branches(directory: Path, folder: Path) -> dict:
     return known
 
 
+def branch_samples(catalog: list[dict], targets: set) -> list[dict]:
+    plan = list(catalog)
+    seen = {cost.sha256(case["inputs"]) for case in plan}
+    for seed in catalog:
+        if seed["coverage"] not in targets:
+            continue
+        for batch_factor in (1, 2, 4, 8):
+            for head_factor in (1, 2, 4):
+                lengths = ("base",) if seed["family"] == "b" else ("base", "s1", "s2")
+                for length in lengths:
+                    p = dict(seed["inputs"])
+                    p["B"] *= batch_factor
+                    p["N1"] *= head_factor
+                    if length == "s1":
+                        p["S1"] *= 2
+                    elif length == "s2":
+                        if seed["family"] == "s1":
+                            p["S2"] += 128 if p["S2"] + 128 <= 1024 else -128
+                        else:
+                            p["S2"] *= 2
+                    adapter = bool(p["has_drop_mask"] and (p["S2"] % 8 or p["layout"] == "TND" and p["B"] > 1))
+                    if adapter != seed["required_branch"]["drop_adapter"]:
+                        continue
+                    elements = p["B"] * (p["N1"] * p["S1"] + p["N2"] * p["S2"]) * (p["D"] + p["DV"])
+                    storage = elements * (4 if p["dtype"] == "FP32" else 2) + 64 * p["B"] * p["N1"] * p["S1"]
+                    identity = cost.sha256(p)
+                    if storage > 512 * 1024 * 1024 or identity in seen:
+                        continue
+                    seen.add(identity)
+                    plan.append({**seed, "name": f"fa_branch_{seed['coverage']}_{identity[:12]}", "inputs": p,
+                                 "derived_schedule": dict(seed["derived_schedule"])})
+    return plan[:len(catalog)] + sorted(plan[len(catalog):], key=lambda case: cost.sha256(case["inputs"]))
+
+
 def probe_branch(case: dict, folder: Path) -> tuple[int, int]:
     trace = folder / "host_route.tsv"
     if trace.is_file():
@@ -1159,7 +1193,13 @@ def external_report(directory: Path, folder: Path, plan: list[dict], payload: di
         target = case.get("coverage", case["family"])
         reference = next((item for item in known.values() if matches_branch(case, item["branch"])), None)
         targets[target] = {"covered": reference is not None, "reference": reference, "required_branch": case["required_branch"], "priority": case["expected"]}
+    sampling_cases = [case for case in active_plan if case["coverage"] in manifest.get("sampling_targets", [])]
+    for target, item in targets.items():
+        cases = [case for case in sampling_cases if case["coverage"] == target]
+        item.update(planned_shapes=len(cases), measured_shapes=sum(latest.get(case["name"], {}).get("status") == "ok" for case in cases))
     result = {"version": EXTERNAL_VERSION, "families": families, "frozen_predictions_sha256": cost.sha256(payload),
+              "sampling_targets": manifest.get("sampling_targets", []), "planned_new_branch_shapes": len(sampling_cases),
+              "measured_new_branch_shapes": sum(latest.get(case["name"], {}).get("status") == "ok" for case in sampling_cases),
               "requested_coverage": dict(Counter(case.get("coverage", case["family"]) for case in active_plan)),
               "branch_targets": targets, "coverage_complete": all(value["covered"] for value in targets.values()),
               "measured_variants": [{"family": key[0], "dtype": key[1], "layout": key[2], "tiling_key": key[3], "bmm1_format": key[4], "bmm2_source": key[5], "l1_reuse": key[6], "cases": count} for key, count in sorted(variants.items())],
@@ -1189,10 +1229,15 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
     cost.save_json(folder / "hardware.json", hardware)
     manifest = folder / "manifest.json"
     previous = json.loads(manifest.read_text()) if manifest.is_file() else None
+    catalog = external_design(hardware)
+    known = measured_branches(directory, folder)
+    sampling_targets = set(previous.get("sampling_targets", [])) if previous else set()
+    sampling_targets.update(case["coverage"] for case in catalog if not any(matches_branch(case, item["branch"]) for item in known.values()))
+    sampling_plan = branch_samples(catalog, sampling_targets)
     registry = list(previous["plan"]) if previous else []
     by_input = {cost.sha256(case["inputs"]): case for case in registry}
     active_plan = []
-    for candidate in external_design(hardware):
+    for candidate in sampling_plan:
         original = by_input.get(cost.sha256(candidate["inputs"]))
         if original is None:
             original = candidate
@@ -1203,9 +1248,10 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
                             "required_branch": candidate["required_branch"], "official_schedule_only": True,
                             "derived_schedule": dict(candidate["derived_schedule"])})
     protocol = {"version": EXTERNAL_VERSION, "protocol_sha256": signature, "plan": registry, "active_plan": active_plan,
+                "sampling_targets": sorted(sampling_targets),
                 "predictor_sha256": cost.sha256({"source": Path(family_models.__file__).read_text()})}
     if previous is not None:
-        excluded = ("plan", "active_plan")
+        excluded = ("plan", "active_plan", "sampling_targets")
         if cost.sha256({key: value for key, value in previous.items() if key not in excluded}) != cost.sha256({key: value for key, value in protocol.items() if key not in excluded}):
             raise RuntimeError("the external measurement protocol or predictor changed; existing measurements are preserved")
     records = recorded(folder / "routes.csv")
@@ -1241,24 +1287,37 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
     cost.save_json(manifest, protocol)
     coverage_path = folder / "branch_coverage.json"
     coverage = json.loads(coverage_path.read_text()) if coverage_path.is_file() else {}
-    known = measured_branches(directory, folder)
     initially_known = set(known)
     targets = {case["coverage"]: case for case in active_plan}
     already_covered = sum(any(matches_branch(case, item["branch"]) for item in known.values()) for case in targets.values())
     print(f"FA BRANCH PLAN: targets={len(targets)} already_covered={already_covered} uncovered={len(targets) - already_covered}; no per-family shape quotas", flush=True)
-    print("A candidate is profiled only after Host key verification and only for an unmeasured execution path; dtype/layout alone do not create a new path", flush=True)
+    sampling_cases = [case for case in active_plan if case["coverage"] in sampling_targets]
+    cached = sum(records.get(case["name"], {}).get("status") == "ok" for case in sampling_cases)
+    print(f"NEW-BRANCH SHAPES: targets={len(sampling_targets)} candidates={len(sampling_cases)} successful_cache={cached}; sampling distinct batch/head/sequence inputs", flush=True)
+    print("New paths stay in the collection plan after their first success; previously covered paths are skipped; every shape requires Host key verification", flush=True)
     print(f"RUN BUDGET: remaining_seconds={max(0, deadline - time.monotonic()):.0f}; no repeated measurements to fill the time budget", flush=True)
     failures = {}
     budget_reached = False
+    next_report = time.monotonic() + 15 * 60
     try:
         for index, case in enumerate(external_order(active_plan), 1):
             name, target = case["name"], case["coverage"]
             reference = next((item for item in known.values() if matches_branch(case, item["branch"])), None)
-            if reference is not None:
+            if reference is not None and target not in sampling_targets:
                 coverage[name] = {"state": "covered", "target": target, "reference": reference}
                 save_coverage_record(case, "covered", records, folder / "routes.csv", reference=reference)
                 print(f"BRANCH {index}/{len(active_plan)} COVERED: {target}; reuse {reference['case']}", flush=True)
                 continue
+            saved = records.get(name, {})
+            if saved.get("status") == "ok":
+                try:
+                    observed = describe_branch(int(saved["priority"]), int(saved["tiling_key"]), case["inputs"])
+                    if matches_branch(case, observed) and (finite(saved.get("duration_us")) or 0) > 0 and (finite((saved.get("correctness") or {}).get("checked_elements")) or 0) > 0:
+                        coverage[name] = {"state": "measured", "target": target, "observed": observed}
+                        print(f"SHAPE CACHE HIT: {name}", flush=True)
+                        continue
+                except (KeyError, ValueError, RuntimeError):
+                    pass
             if time.monotonic() >= deadline:
                 budget_reached = True
                 print("RUN BUDGET REACHED: unmeasured branches remain pending", flush=True)
@@ -1274,10 +1333,10 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
                     message = f"requested branch was not selected: expected_priority={case['expected']} actual={observed}"
                     coverage[name] = {"state": "not_hit", "target": target, "observed": observed, "error": message}
                     save_coverage_record(case, "not_hit", records, folder / "routes.csv", route=route, error=message)
-                    print(f"BRANCH NOT HIT: {target}; trying the next representative", flush=True)
+                    print(f"BRANCH NOT HIT: {target}; continuing with other inputs", flush=True)
                     continue
                 identity = cost.sha256(observed)
-                if identity in known:
+                if identity in known and target not in sampling_targets:
                     reference = known[identity]
                     coverage[name] = {"state": "covered", "target": target, "reference": reference}
                     save_coverage_record(case, "covered", records, folder / "routes.csv", route=route, reference=reference)
@@ -1299,8 +1358,9 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
                 print(f"BRANCH FAILED: {target}; {error}; continuing", flush=True)
             finally:
                 cost.save_json(coverage_path, coverage)
-                if index % 8 == 0:
+                if time.monotonic() >= next_report:
                     external_report(directory, folder, registry, payload)
+                    next_report = time.monotonic() + 15 * 60
     finally:
         cost.save_json(coverage_path, coverage)
         result = external_report(directory, folder, registry, payload)
