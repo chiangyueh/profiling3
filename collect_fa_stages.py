@@ -392,7 +392,7 @@ def export_cached(output, work, npu_id):
     for row in rows:
         if row['phase'] in PHASES:
             print(f'{row["case"]} {row["phase"]} {row["key_window"]}: target={row.get("gating_target_busy_us", "")} other={row.get("gating_other_busy_us", "")} diagnosis={row["diagnostic_error"]}', flush=True)
-    print(f'CSV={output}; diagnostic values are not accepted stage measurements', flush=True)
+    print(f'CSV={output}; saved cached diagnostics; original acquisition status preserved; no new NPU measurements', flush=True)
 
 
 def main():
