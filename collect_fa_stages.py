@@ -1,0 +1,455 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import fcntl
+import hashlib
+import json
+import math
+import os
+import re
+import shutil
+import signal
+import statistics
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['OMP_NUM_THREADS'] = '1'
+
+import numpy as np
+import fa_latency_inputs as cost
+
+ROOT = Path(__file__).resolve().parent
+KEY = 1153197616
+LIMIT_SECONDS = 900
+REPEATS = 3
+CASES = (
+    ('fa_branch_same_ab_nz_9265ddfd9e63', (1, 8, 1, 256, 641, 96, 96, 'FP16', 'BNSD', 0), 'first'),
+    ('fa_branch_same_ab_nz_12d4cd573d21', (1, 8, 1, 256, 1282, 96, 96, 'FP16', 'BNSD', 0), 'first'),
+    ('fa_branch_same_ab_nz_5ab5d8e5a801', (2, 32, 1, 256, 1282, 96, 96, 'FP16', 'BNSD', 0), 'last'),
+)
+PHASES = ('bmm1', 'vec1', 'bmm2', 'vec2')
+PIPE_COLUMNS = {
+    'aic': ('cube', 'mte1', 'mte2', 'mte3', 'fixpipe', 'scalar'),
+    'aiv': ('vec', 'mte2', 'mte3', 'scalar'),
+}
+MEMORY_COLUMNS = {'gm_to_l1_kb': 'GM_to_L1_datas(KB)', 'l0c_to_gm_kb': 'L0C_to_GM_datas(KB)',
+                  'gm_to_ub_kb': 'GM_to_UB_datas(KB)', 'ub_to_gm_kb': 'UB_to_GM_datas(KB)'}
+
+
+def finite(value):
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def profile_table(path):
+    with path.open(newline='', encoding='utf-8-sig') as source:
+        rows = [[cell.strip() for cell in row] for row in csv.reader(source) if any(cell.strip() for cell in row)]
+    if len(rows) < 2 or any(len(row) != len(rows[0]) for row in rows[1:]):
+        raise ValueError(f'invalid profiler CSV: {path}')
+    return [dict(zip(rows[0], row)) for row in rows[1:]]
+
+
+def read_trace(folder):
+    route = None
+    effective = None
+    for line in (folder / 'route.tsv').read_text().splitlines():
+        fields = line.split('\t')
+        if len(fields) == 4 and fields[0] == 'FlashAttentionScore' and fields[2] == '0':
+            route = int(fields[1]), int(fields[3])
+    for line in (folder / 'effective.tsv').read_text().splitlines():
+        fields = line.split('\t')
+        if fields[0] == 'FINAL':
+            effective = {field.partition('=')[0]: int(field.partition('=')[2]) for field in fields[2:] if '=' in field}
+    return route, effective
+
+
+def check_output(inputs, path):
+    p = cost.normalize(inputs)
+    if p['dtype'] != 'FP16' or p['layout'] != 'BNSD' or p['has_drop_mask']:
+        raise ValueError('this phase measurement uses the three existing FP16 BNSD cases without dropout')
+    elements = p['B'] * p['N1'] * p['S1'] * p['DV']
+    if not path.is_file() or path.stat().st_size != elements * 4:
+        raise RuntimeError('attention output is missing or has an incorrect size')
+    output = np.memmap(path, dtype=np.float32, mode='r')
+    def tensor(batch, head, rows, heads, sequence, width, salt):
+        indices = ((batch * heads + head) * sequence + rows[:, None]) * width + np.arange(width)
+        hashed = indices.astype(np.uint32) ^ np.uint32(salt)
+        hashed ^= hashed >> 16
+        hashed *= np.uint32(0x7feb352d)
+        hashed ^= hashed >> 15
+        hashed *= np.uint32(0x846ca68b)
+        hashed ^= hashed >> 16
+        values = ((hashed & 2047).astype(np.int32) - 1024).astype(np.float32) / np.float32(1024.0)
+        return values.astype(np.float16).astype(np.float64)
+    checked, maximum = 0, 0.0
+    for batch in sorted({0, p['B'] - 1}):
+        for head in sorted({0, p['N1'] - 1}):
+            kv = head // (p['N1'] // p['N2'])
+            positions = np.arange(p['S2'])
+            keys = tensor(batch, kv, positions, p['N2'], p['S2'], p['D'], 0x87654321)
+            values = tensor(batch, kv, positions, p['N2'], p['S2'], p['DV'], 0x31415926)
+            for query in sorted({0, p['S1'] // 2, p['S1'] - 1}):
+                q = tensor(batch, head, np.array([query]), p['N1'], p['S1'], p['D'], 0x12345678)[0]
+                scores = keys @ q / math.sqrt(p['D'])
+                weights = np.exp(scores - np.max(scores))
+                golden = (weights / np.sum(weights)) @ values
+                offset = ((batch * p['N1'] + head) * p['S1'] + query) * p['DV']
+                actual = np.asarray(output[offset:offset + p['DV']], dtype=np.float64)
+                if not np.all(np.isfinite(actual)) or not np.allclose(actual, golden, rtol=0.01, atol=1e-4):
+                    raise RuntimeError(f'independent numerical check failed: b={batch}, head={head}, query={query}')
+                maximum = max(maximum, float(np.max(np.abs(actual - golden))))
+                checked += p['DV']
+    return {'checked_elements': checked, 'max_abs_error': maximum}
+
+
+def command(argv, env, cwd, log, deadline, maximum):
+    remaining = min(maximum, deadline - time.monotonic())
+    if remaining <= 0:
+        raise TimeoutError('15-minute total budget exhausted; no further command was started')
+    with Path(log).open('w') as output:
+        process = subprocess.Popen(argv, env=env, cwd=cwd, stdout=output, stderr=subprocess.STDOUT,
+                                   text=True, start_new_session=True)
+        try:
+            code = process.wait(timeout=remaining)
+        except BaseException:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            except ProcessLookupError:
+                pass
+            raise
+    if code:
+        lines = Path(log).read_text(errors='replace').splitlines()
+        raise RuntimeError(f'command exited {code}; log={log}; ' + ' | '.join(lines[-5:]))
+
+
+def prepare_runner(ops_root, folder):
+    base = ROOT / 'patches/fa_candidate_hook.patch'
+    stage = ROOT / 'patches/fa_stage_profile.patch'
+    files = sorted({line[6:] for patch in (base, stage) for line in patch.read_text().splitlines() if line.startswith('+++ b/')})
+    dirty = subprocess.run(['git', '-C', str(ops_root), 'diff', '--quiet', '--', *files])
+    if dirty.returncode:
+        raise RuntimeError('official source files for this measurement have local changes; they were left untouched')
+    folder.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='source_', dir=folder) as temporary:
+        checkout = Path(temporary)
+        for name in files:
+            target = checkout / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ops_root / name).read_bytes())
+        for args in (['init', '-q'], ['add', '.'], ['apply', str(base)], ['apply', str(stage)]):
+            result = subprocess.run(['git', '-C', temporary, *args], capture_output=True, text=True)
+            if result.returncode:
+                raise RuntimeError('stage instrumentation does not match official v8.5.0: ' + result.stderr[-2000:])
+        patch = subprocess.run(['git', '-C', temporary, 'diff', '--binary', '--no-ext-diff'], check=True, capture_output=True, text=True).stdout
+    (folder / 'patches').mkdir(exist_ok=True)
+    (folder / 'patches/fa_candidate_hook.patch').write_text(patch)
+    shutil.copy2(ROOT / 'patches/ops_transformer_incremental_build.patch', folder / 'patches')
+    for name in ('build.sh', 'run.sh', 'fa_launcher.cpp'):
+        shutil.copy2(ROOT / name, folder / name)
+    return hashlib.sha256(patch.encode()).hexdigest()
+
+
+def cache_location(base):
+    version = os.environ.get('OPS_TRANSFORMER_VERSION', 'v8.5.0')
+    soc = os.environ.get('FA_SOC_UNIT', 'ascend910b')
+    folder = base / version / soc / str(KEY) / 'dtype_1'
+    vendors = list((folder / 'opp/vendors').glob('*_transformer'))
+    if len(vendors) != 1 or not (folder / 'fa_npu').is_file():
+        raise FileNotFoundError(f'cached FP16 FA binary is missing: {folder}; the baseline will not be rebuilt')
+    vendor = vendors[0]
+    found = False
+    for path in vendor.glob(f'op_impl/ai_core/tbe/kernel/{soc}/flash_attention_score/*.json'):
+        data = json.loads(path.read_text())
+        keys = {int(item['tilingKey']) for item in data.get('kernelList', []) if 'tilingKey' in item}
+        inputs = {item.get('name'): item for item in data.get('supportInfo', {}).get('inputs', [])}
+        binary = path.with_name(data.get('binFileName', '') + data.get('binFileSuffix', '.o'))
+        if KEY in keys and inputs.get('query', {}).get('dtype') == 'float16' and binary.is_file():
+            found = True
+            break
+    if not found or not (vendor / 'bin/set_env.bash').is_file():
+        raise RuntimeError(f'the cached package does not contain FP16 tiling_key={KEY}: {vendor}')
+    return folder / 'fa_npu', vendor
+
+
+def runtime_env(vendor, env):
+    sdk = Path(env.get('ASCEND_HOME_PATH', '/usr/local/Ascend/ascend-toolkit/latest'))
+    script = 'set -e; if [ -f "$1" ]; then source "$1"; fi; source "$2"; printf "\\0FA_ENV_BEGIN\\0"; env -0'
+    result = subprocess.run(['bash', '-c', script, 'bash', str(sdk / 'bin/setenv.bash'), str(vendor / 'bin/set_env.bash')],
+                            env=env, capture_output=True, timeout=20)
+    marker = b'\0FA_ENV_BEGIN\0'
+    if result.returncode or marker not in result.stdout:
+        raise RuntimeError(f'could not source runtime environment: {vendor / "bin/set_env.bash"}')
+    exported = dict(item.decode().split('=', 1) for item in result.stdout.split(marker, 1)[1].split(b'\0') if b'=' in item)
+    exported.update(FA_CUSTOM_OPP_ROOT=str(vendor), ATTENTION_CUSTOM_OPP_ROOT=str(vendor))
+    return exported
+
+
+def save_csv(path, rows):
+    fields = list(dict.fromkeys(name for row in rows for name in row))
+    temporary = path.with_suffix('.tmp')
+    with temporary.open('w', newline='') as target:
+        writer = csv.DictWriter(target, fieldnames=fields, lineterminator='\n')
+        writer.writeheader()
+        writer.writerows(rows)
+    temporary.replace(path)
+
+
+def parse_metrics(folder, phase):
+    target_engine = None if phase in ('baseline', 'control') else 'aic' if phase in ('bmm1', 'bmm2') else 'aiv'
+    groups = {}
+    for path in sorted(folder.rglob('*.csv')):
+        match = re.fullmatch(r'(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_(\d{17})\.csv', path.name)
+        if match is None:
+            continue
+        records = profile_table(path)
+        identity = match.groups()
+        if identity in groups and groups[identity] != records:
+            raise RuntimeError('conflicting profiler tables for one launch')
+        groups[identity] = records
+    basic = [row for (kind, _), records in groups.items() if kind == 'OpBasicInfo' for row in records
+             if re.match(rf'^FlashAttentionScore_[A-Za-z0-9]+_{KEY}(?:_|$)', row.get('Op Name', ''))]
+    durations = [float(row['Task Duration(us)']) for row in basic if finite(row.get('Task Duration(us)'))]
+    if len(durations) != REPEATS:
+        raise RuntimeError(f'expected {REPEATS} kernel launches, got {len(durations)}')
+    result = {'profile_launches': len(durations), 'task_duration_us': statistics.median(durations),
+              'task_duration_min_us': min(durations), 'task_duration_max_us': max(durations),
+              'task_duration_spread_ratio': max(durations) / min(durations)}
+    freq = [float(row['Current Freq']) for row in basic if finite(row.get('Current Freq'))]
+    result.update(freq_min_mhz=min(freq) if freq else '', freq_max_mhz=max(freq) if freq else '')
+    for engine, pipes in PIPE_COLUMNS.items():
+        core = 'cube' if engine == 'aic' else 'vector'
+        launches = []
+        for (kind, _), records in groups.items():
+            if kind != 'PipeUtilization':
+                continue
+            selected = [row for row in records if row.get('sub_block_id', '').startswith(core)]
+            if not selected and target_engine in (None, engine):
+                raise RuntimeError(f'no {engine} core rows in PipeUtilization')
+            values = {pipe: [finite(row.get(f'{engine}_{pipe}_time(us)')) for row in selected] for pipe in pipes}
+            required = ('cube', 'mte1', 'mte2', 'fixpipe') if engine == 'aic' else ('vec', 'mte2', 'mte3')
+            if target_engine in (None, engine) and any(not any(value is not None for value in values[pipe]) for pipe in required):
+                raise RuntimeError(f'missing {engine} per-pipe active times')
+            observed = {pipe: [value for value in values[pipe] if value is not None] for pipe in pipes}
+            launches.append({**{f'{engine}_{pipe}_sum_us': sum(observed[pipe]) if observed[pipe] else None for pipe in pipes},
+                             **{f'{engine}_{pipe}_max_us': max(observed[pipe]) if observed[pipe] else None for pipe in pipes},
+                             f'{engine}_active_cores': sum(any((values[pipe][index] or 0) > 1e-6 for pipe in required) for index in range(len(selected)))})
+        if len(launches) != REPEATS:
+            raise RuntimeError(f'expected {REPEATS} PipeUtilization tables, got {len(launches)}')
+        for name in launches[0]:
+            values = [row[name] for row in launches if row[name] is not None]
+            result[name] = statistics.median(values) if values else ''
+        for pipe in pipes:
+            values = [row[f'{engine}_{pipe}_sum_us'] for row in launches if row[f'{engine}_{pipe}_sum_us'] is not None]
+            result[f'{engine}_{pipe}_spread_ratio'] = max(values) / min(values) if values and min(values) > 0 else ''
+    memory = []
+    for (kind, _), records in groups.items():
+        if kind != 'Memory':
+            continue
+        row = {}
+        for name, column in MEMORY_COLUMNS.items():
+            values = [finite(item.get(column)) for item in records]
+            values = [value for value in values if value is not None]
+            owner = 'aic' if name in ('gm_to_l1_kb', 'l0c_to_gm_kb') else 'aiv'
+            if not values and target_engine in (None, owner):
+                raise RuntimeError(f'missing memory counter: {column}')
+            row[name] = sum(values) if values else None
+        memory.append(row)
+    if len(memory) != REPEATS:
+        raise RuntimeError(f'expected {REPEATS} Memory tables, got {len(memory)}')
+    for name in MEMORY_COLUMNS:
+        values = [row[name] for row in memory if row[name] is not None]
+        result[name] = statistics.median(values) if values else ''
+    if phase not in ('baseline', 'control'):
+        target = 'aic' if phase in ('bmm1', 'bmm2') else 'aiv'
+        other = 'aiv' if target == 'aic' else 'aic'
+        busy = {engine: sum(finite(result[f'{engine}_{pipe}_sum_us']) or 0 for pipe in pipes if pipe != 'scalar') for engine, pipes in PIPE_COLUMNS.items()}
+        if busy[target] <= 0 or busy[other] > max(0.1, busy[target] * 0.1):
+            raise RuntimeError('KernelScale gating is not verified: inactive-engine counters are nonzero or the selected stage is empty')
+        result['gating_verified'] = True
+        result['unselected_engine_counters_reported'] = any(result[f'{other}_{pipe}_sum_us'] != '' for pipe in PIPE_COLUMNS[other])
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--id', type=int, default=4)
+    args = parser.parse_args()
+    if args.id < 0:
+        parser.error('--id must be nonnegative')
+    os.chdir(ROOT)
+    if hasattr(os, 'sched_getaffinity'):
+        os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
+    work = ROOT / 'out/fa_stage_profile'
+    output = ROOT / 'output/fa_stage_profile/stages.csv'
+    work.mkdir(parents=True, exist_ok=True)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    lock = (work / 'run.lock').open('w')
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    deadline = time.monotonic() + LIMIT_SECONDS
+    env = dict(os.environ)
+    env.update(FA_NPU_ID=str(args.id), ASCEND_RT_VISIBLE_DEVICES=str(args.id), FA_DTYPE_KIND='1', FA_BUILD_JOBS='1', FA_TILING_KEY=str(KEY))
+    env.pop('FA_DISCOVER_ONLY', None)
+    normal_cache = Path(env.get('FA_CACHE_ROOT', str(ROOT / 'out/fa_cache'))).resolve()
+    normal_binary, normal_vendor = cache_location(normal_cache)
+    normal_env = runtime_env(normal_vendor, env)
+    profiler = shutil.which('msprof', path=normal_env.get('PATH'))
+    if profiler is None:
+        raise FileNotFoundError('msprof is missing from the configured CANN environment')
+    help_result = subprocess.run([profiler, 'op', '--help'], env=normal_env, capture_output=True, text=True, timeout=20)
+    if '--aic-metrics' not in help_result.stdout + help_result.stderr:
+        raise RuntimeError('msprof operator-profiling options are unavailable; no compilation or measurement was started')
+    with tempfile.TemporaryDirectory(prefix='capability_', dir=work) as temporary:
+        probe = subprocess.run([profiler, 'op', '--aic-metrics=KernelScale,PipeUtilization,Memory,ArithmeticUtilization',
+                                str(Path(temporary) / 'missing_application')], env=normal_env, cwd=temporary,
+                               capture_output=True, text=True, timeout=20)
+    probe_text = (probe.stdout + probe.stderr).lower()
+    if 'invalid metric' in probe_text or re.search(r'argument --aic-metrics[^\n]*invalid', probe_text):
+        raise RuntimeError('installed msprof rejects KernelScale; no instrumentation was compiled')
+    if 'device profiling is not supported' in probe_text or "can't find valid libdcmi" in probe_text:
+        raise RuntimeError('NPU profiling environment is unavailable; no instrumentation was compiled')
+    runner = work / 'runner'
+    ops = Path(env.get('OPS_TRANSFORMER_ROOT', str(ROOT.parent / 'ops-transformer-official-8.5.0'))).resolve()
+    patch_sha = prepare_runner(ops, runner)
+    manifest = normal_binary.parent / 'build_manifest.txt'
+    signature = hashlib.sha256(json.dumps({'patch': patch_sha, 'cases': CASES, 'repeats': REPEATS,
+        'warmup': 2, 'metrics': 'KernelScale,PipeUtilization,Memory,ArithmeticUtilization', 'input_pattern': 1, 'unmarked_instrumented_control': True,
+        'baseline_manifest': hashlib.sha256(manifest.read_bytes()).hexdigest() if manifest.is_file() else None}, sort_keys=True).encode()).hexdigest()
+    plan = []
+    for name, shape, query_position in CASES:
+        inputs = dict(zip(cost.INPUT_FIELDS, shape))
+        positions = ('single',) if inputs['S2'] <= 1024 else ('first', 'last')
+        for phase, position in [('baseline', 'all'), ('control', 'all')] + [(phase, position) for position in positions for phase in PHASES]:
+            selector = 0 if phase in ('baseline', 'control') else PHASES.index(phase) + 1 + (256 if position == 'last' else 0) + (512 if query_position == 'last' else 0)
+            plan.append({'case': name, **inputs, 'tiling_key': KEY, 'physical_npu_id': args.id, 'phase': phase, 'key_window': position,
+                         'query_task': query_position if phase not in ('baseline', 'control') else 'all', 'stage_selector': selector, 'instrumented': phase != 'baseline',
+                         'measurement_scope': 'unmodified_kernel' if phase == 'baseline' else 'instrumented_kernel_without_markers' if phase == 'control' else 'isolated_phase_engine_counters_one_query_task_per_core',
+                         'phase_wall_time_measured': False, 'barriers_around_selected_phase': phase not in ('baseline', 'control'),
+                         'protocol_sha256': signature, 'status': 'pending', 'error': ''})
+    previous = list(csv.DictReader(output.open())) if output.is_file() else []
+    saved = {(row['case'], row['phase'], row['key_window']): row for row in previous
+             if row.get('status') == 'ok' and row.get('protocol_sha256') == signature and row.get('physical_npu_id') == str(args.id)}
+    for row in plan:
+        old = saved.get((row['case'], row['phase'], row['key_window']))
+        if old is not None:
+            row.update(old)
+    save_csv(output, plan)
+    if all(row['status'] == 'ok' for row in plan):
+        print(f'COMPLETE: all {len(plan)} measurements already cached; CSV={output}', flush=True)
+        return
+    print(f'SHAPES: 3; tiling_key={KEY}; stage measurements=20; cached-baseline measurements=3; unmarked controls=3; NPU={args.id}', flush=True)
+    print('BUILD: at most one instrumented tiling key, one CPU; baseline binaries are reused; total execution limit=900s', flush=True)
+    stage_env = dict(env, FA_CACHE_ROOT=str(work / 'cache'), OPS_TRANSFORMER_ROOT=str(ops))
+    stage_binary = stage_vendor = None
+    for index, row in enumerate(plan, 1):
+        if row['status'] == 'ok':
+            print(f'CACHE HIT {index}/{len(plan)} {row["case"]} {row["phase"]} {row["key_window"]}', flush=True)
+            continue
+        if time.monotonic() >= deadline:
+            row.update(status='not_measured', error='15-minute total budget exhausted')
+            save_csv(output, plan)
+            continue
+        if row['phase'] != 'baseline' and stage_binary is None:
+            try:
+                print(f'BUILD CHECK: instrumented tiling_key={KEY}; one CPU; limit=600s; log={work / "build.log"}', flush=True)
+                command(['bash', str(runner / 'build.sh')], stage_env, runner, work / 'build.log', deadline, 600)
+                for line in (work / 'build.log').read_text(errors='replace').splitlines():
+                    if line.startswith(('BUILD CACHE HIT:', 'BUILD READY:')):
+                        print(line, flush=True)
+                stage_binary, stage_vendor = cache_location(work / 'cache')
+                stage_env = runtime_env(stage_vendor, stage_env)
+            except BaseException as error:
+                for pending in plan:
+                    if pending['status'] != 'ok':
+                        pending.update(status='not_measured', error='instrumented build unavailable: ' + str(error))
+                save_csv(output, plan)
+                raise
+        folder = work / 'cases' / row['case'] / (row['phase'] + '_' + row['key_window'])
+        folder.mkdir(parents=True, exist_ok=True)
+        inputs = {name: row[name] for name in cost.INPUT_FIELDS}
+        configured = dict(normal_env if row['phase'] == 'baseline' else stage_env)
+        configured.update({'FA_' + name: str(inputs[name]) for name in cost.INPUT_FIELDS[:7]})
+        configured.update(FA_DTYPE_KIND='1', FA_DTYPE_BYTES='2', FA_LAYOUT='0', FA_HAS_DROP='0')
+        configured.update(FA_CUSTOM_OPP_ROOT=str(normal_vendor if row['phase'] == 'baseline' else stage_vendor),
+                          ATTENTION_CUSTOM_OPP_ROOT=str(normal_vendor if row['phase'] == 'baseline' else stage_vendor),
+                          FA_STAGE_PROFILE_ID=str(row['stage_selector']), FA_WARMUP='0', FA_REPEAT=str(REPEATS),
+                          FA_INPUT_PATTERN='1', FA_PROFILE='0', FA_EFFECTIVE_TILING_TRACE=str(folder / 'effective.tsv'),
+                          FA_ROUTE_TRACE=str(folder / 'route.tsv'), FA_HARDWARE_TRACE=str(folder / 'hardware.json'))
+        configured['LD_LIBRARY_PATH'] = (normal_env if row['phase'] == 'baseline' else stage_env).get('LD_LIBRARY_PATH', '')
+        configured['ASCEND_CUSTOM_OPP_PATH'] = (normal_env if row['phase'] == 'baseline' else stage_env).get('ASCEND_CUSTOM_OPP_PATH', '')
+        for name in ('FA_S1_BASE', 'FA_S2_BASE', 'FA_N_RATIO', 'FA_BMM_PRESET', 'FA_LATENCY_TRACE', 'FA_DISCOVER_ONLY'):
+            configured.pop(name, None)
+        (folder / 'output').mkdir(exist_ok=True)
+        for path in (folder / 'route.tsv', folder / 'effective.tsv', folder / 'hardware.json', folder / 'output/output.bin'):
+            path.unlink(missing_ok=True)
+        scratch = Path(tempfile.mkdtemp(prefix='profiler_', dir=folder))
+        metrics = 'PipeUtilization,Memory,ArithmeticUtilization'
+        if row['phase'] not in ('baseline', 'control'):
+            metrics = 'KernelScale,' + metrics
+        binary = normal_binary if row['phase'] == 'baseline' else stage_binary
+        argv = [profiler, 'op', '--aic-metrics=' + metrics, '--kernel-name=FlashAttentionScore', '--warm-up=2',
+                '--launch-count=' + str(REPEATS), '--output=' + str(scratch), str(binary)]
+        start = time.monotonic()
+        print(f'MEASURE {index}/{len(plan)} {row["case"]} {row["phase"]} {row["key_window"]} query={row["query_task"]}', flush=True)
+        try:
+            command(argv, configured, folder, folder / 'profile.log', deadline, 45)
+            route, effective = read_trace(folder)
+            priority, key = route if route is not None else (None, None)
+            if priority != 95 or key != KEY or effective is None or effective['FA_BMM_PRESET'] != 0:
+                raise RuntimeError('Host route or Matmul preset differs from the selected existing case')
+            if row['phase'] != 'baseline' and effective.get('FA_STAGE_PROFILE_ID') != int(row['stage_selector']):
+                raise RuntimeError('instrumented Host did not record the selected phase')
+            row.update(parse_metrics(scratch, row['phase']))
+            correctness = check_output(inputs, folder / 'output/output.bin')
+            hardware = json.loads((folder / 'hardware.json').read_text())
+            row.update(checked_elements=correctness['checked_elements'], max_abs_error=correctness['max_abs_error'],
+                       **{name: hardware[name] for name in ('soc', 'aic_cores', 'aiv_cores')},
+                       core_num=effective['FA_CORE_NUM'], total_tasks=effective['FA_TOTAL_TASKS'], split_factor=effective['FA_SPLIT_FACTOR'],
+                       s1_base=effective['FA_S1_BASE'], s2_base=effective['FA_S2_BASE'], n_ratio=effective['FA_N_RATIO'],
+                       collected_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), status='ok', error='')
+            print(f'OK: {row["phase"]} {row["key_window"]}; isolated counters only; msprof Task Duration={row["task_duration_us"]:.6g} us', flush=True)
+        except Exception as error:
+            row.update(status='failed', error=str(error))
+            print(f'FAILED: {row["phase"]} {row["key_window"]}: {error}', flush=True)
+            if row['phase'] == 'baseline' and stage_binary is None:
+                for pending in plan:
+                    if pending['status'] == 'pending':
+                        pending.update(status='not_measured', error='cached baseline failed; instrumentation was not compiled')
+                save_csv(output, plan)
+                raise
+        finally:
+            row['collection_wall_seconds'] = time.monotonic() - start
+            for item in plan:
+                baseline = next((saved for saved in plan if saved['case'] == item['case'] and saved['phase'] == 'baseline' and saved['status'] == 'ok'), None)
+                control = next((saved for saved in plan if saved['case'] == item['case'] and saved['phase'] == 'control' and saved['status'] == 'ok'), None)
+                if baseline is not None and control is not None:
+                    item['unmarked_instrumentation_delta_percent'] = 100 * (float(control['task_duration_us']) / float(baseline['task_duration_us']) - 1)
+            save_csv(output, plan)
+            tables = folder / 'tables'
+            if tables.is_dir():
+                shutil.rmtree(tables)
+            tables.mkdir(exist_ok=True)
+            for index, table in enumerate(sorted(scratch.rglob('*.csv'))):
+                if re.fullmatch(r'(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_\d{17}\.csv', table.name):
+                    shutil.copy2(table, tables / f'{index}_{table.name}')
+            shutil.rmtree(scratch)
+            for path in (folder / 'output').glob('*.bin'):
+                path.unlink()
+    ok = sum(row['status'] == 'ok' for row in plan)
+    print(f'CSV={output}\nCOMPLETED={ok}/{len(plan)}; elapsed_seconds={LIMIT_SECONDS - max(0, deadline - time.monotonic()):.1f}', flush=True)
+    if ok != len(plan):
+        raise SystemExit(1)
+
+
+if __name__ == '__main__':
+    main()
