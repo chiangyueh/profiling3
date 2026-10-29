@@ -2010,8 +2010,10 @@ def audit_stage_replays(rows, model, accuracy_budget_percent=10.0):
     budget = accuracy_budget_percent / 100
     if not 0 < budget < 1:
         raise ValueError('repeatability accuracy budget must be between zero and one hundred percent')
+    verified = [row for row in rows if row.get('status') == 'ok' and str(row.get('gating_verified')).lower() == 'true'
+                and int(row.get('checked_elements') or 0) > 0]
     observations = {(row['case'], row['phase'], row['window']): row
-                    for row in stage_observations(rows, model['hardware'])}
+                    for row in stage_observations(verified, model['hardware'])}
     columns = {'cube': 'aic_cube', 'mte1': 'aic_mte1', 'mte2': 'aic_mte2', 'fixpipe': 'aic_fixpipe',
                'cscalar': 'aic_scalar', 'vector': 'aiv_vec', 'vmte2': 'aiv_mte2', 'vmte3': 'aiv_mte3', 'vscalar': 'aiv_scalar'}
     output = []
@@ -2032,7 +2034,8 @@ def audit_stage_replays(rows, model, accuracy_budget_percent=10.0):
                 'repeat_span_percent': 100 * (max(samples) - min(samples)) / statistics.median(samples),
                 'accuracy_budget_percent': accuracy_budget_percent, 'largest_consistent_repeat_count': support,
                 'majority_consistent_with_accuracy_budget': support > len(samples) / 2,
-                'discarded_repeats': 0, 'phase_cost_fit_uses_this_metric': observation is not None and pipe != 'task_duration',
+                'discarded_repeats': 0, 'phase_cost_fit_uses_this_metric': observation is not None and
+                    saved['case'] in model['calibration_cases'] and pipe != 'task_duration',
                 'validation_scope': 'measurement-only interval consistency; no sample is deleted using prediction error'}
             if observation is not None and pipe != 'task_duration':
                 key = stage_component_key(observation['phase'], pipe, observation['runtime_bmm1_output'])
