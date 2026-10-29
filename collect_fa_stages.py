@@ -210,7 +210,7 @@ def save_csv(path, rows):
 def raw_counter_diagnostics(groups):
     selected_columns = re.compile(r'fops|flops|instr|mac|fp16|fp32|wait|stall|conflict|cflt|total_cycles', re.I)
     result = {}
-    for kind in ('ArithmeticUtilization', 'PipeUtilization'):
+    for kind in ('ArithmeticUtilization', 'PipeUtilization', 'Memory'):
         for engine, prefix in (('aic', 'cube'), ('aiv', 'vector')):
             values = {}
             for (table_kind, _), records in groups.items():
@@ -338,20 +338,21 @@ def parse_metrics(folder, phase, allow_partial=False):
     return result
 
 
-def export_cached(output, work, npu_id):
-    if not output.is_file():
-        raise FileNotFoundError(f'existing stage collection is missing: {output}; no NPU operation was attempted')
-    with output.open(newline='') as source:
-        rows = list(csv.DictReader(source))
+def export_cached(output, work, npu_id, rows=None, quiet=False):
+    if rows is None:
+        if not output.is_file():
+            raise FileNotFoundError(f'existing stage collection is missing: {output}; no NPU operation was attempted')
+        with output.open(newline='') as source:
+            rows = list(csv.DictReader(source))
     if any(int(row['physical_npu_id']) != npu_id for row in rows):
         raise RuntimeError('the saved collection uses another NPU ID; export with its recorded --id')
     recovered, schema = 0, {}
     for row in rows:
-        row.setdefault('acquisition_status', row['status'])
-        row.setdefault('acquisition_error', row.get('error', ''))
+        row['acquisition_status'] = row['status']
+        row['acquisition_error'] = row.get('error', '')
         row.update(export_action='cached_tables_only', calibration_ready=False,
                    numerical_check_recorded=(finite(row.get('checked_elements')) or 0) > 0,
-                   diagnostic_error='')
+                   diagnostics_complete=False, diagnostic_error='')
         folder = work / 'cases' / row['case'] / (row['phase'] + '_' + row['key_window'])
         if work.resolve() not in folder.resolve().parents:
             raise RuntimeError('invalid saved case path')
@@ -364,6 +365,15 @@ def export_cached(output, work, npu_id):
         try:
             row.update(parse_metrics(tables, row['phase'], allow_partial=True))
             issues = [row['gating_error']] if row.get('gating_error') else []
+            expected = int(row.get('requested_profile_launches') or REPEATS)
+            counts = json.loads(row['raw_metric_table_counts'])
+            for kind, count in counts.items():
+                if count != expected:
+                    issues.append(f'{kind}: expected {expected} tables, got {count}')
+            if row['profile_launches'] != expected:
+                issues.append(f'expected {expected} kernel launches, got {row["profile_launches"]}')
+            if not row['numerical_check_recorded']:
+                issues.append('numerical correctness check was not recorded')
             try:
                 route, effective = read_trace(folder)
                 row['cached_route_matches'] = route == (95, KEY)
@@ -376,6 +386,7 @@ def export_cached(output, work, npu_id):
             except (OSError, ValueError, KeyError) as error:
                 issues.append('cached trace unavailable: ' + str(error))
             row['diagnostic_error'] = '; '.join(issues)
+            row['diagnostics_complete'] = not issues
             for path in files:
                 match = re.fullmatch(r'(?:\d+_)?(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_\d{17}\.csv', path.name)
                 if match and match[1] not in schema:
@@ -384,15 +395,19 @@ def export_cached(output, work, npu_id):
                         schema[match[1]] = list(records[0])
             recovered += 1
         except (OSError, ValueError, RuntimeError, KeyError) as error:
+            row['diagnostics_complete'] = False
             row['diagnostic_error'] = str(error)
-    if rows:
+    if rows and schema:
         rows[0]['raw_metric_column_names'] = json.dumps(schema, separators=(',', ':'))
     save_csv(output, rows)
-    print(f'CACHED EXPORT: {recovered}/{len(rows)} rows have readable raw tables; NPU launches=0; compilations=0', flush=True)
+    if quiet:
+        return
+    complete = sum(row['diagnostics_complete'] for row in rows)
+    print(f'DIAGNOSTICS: complete={complete}/{len(rows)}; readable_raw_tables={recovered}/{len(rows)}; aggregation uses saved files only', flush=True)
     for row in rows:
-        if row['phase'] in PHASES:
-            print(f'{row["case"]} {row["phase"]} {row["key_window"]}: target={row.get("gating_target_busy_us", "")} other={row.get("gating_other_busy_us", "")} diagnosis={row["diagnostic_error"]}', flush=True)
-    print(f'CSV={output}; saved cached diagnostics; original acquisition status preserved; no new NPU measurements', flush=True)
+        if row['diagnostic_error']:
+            print(f'DIAGNOSTICS INCOMPLETE: {row["case"]} {row["phase"]} {row["key_window"]}: {row["diagnostic_error"]}', flush=True)
+    print(f'CSV={output}; acquisition status preserved; diagnostics do not certify independent phase wall times', flush=True)
 
 
 def main():
@@ -420,22 +435,6 @@ def main():
     env.pop('FA_DISCOVER_ONLY', None)
     normal_cache = Path(env.get('FA_CACHE_ROOT', str(ROOT / 'out/fa_cache'))).resolve()
     normal_binary, normal_vendor = cache_location(normal_cache)
-    normal_env = runtime_env(normal_vendor, env)
-    profiler = shutil.which('msprof', path=normal_env.get('PATH'))
-    if profiler is None:
-        raise FileNotFoundError('msprof is missing from the configured CANN environment')
-    help_result = subprocess.run([profiler, 'op', '--help'], env=normal_env, capture_output=True, text=True, timeout=20)
-    if '--aic-metrics' not in help_result.stdout + help_result.stderr:
-        raise RuntimeError('msprof operator-profiling options are unavailable; no compilation or measurement was started')
-    with tempfile.TemporaryDirectory(prefix='capability_', dir=work) as temporary:
-        probe = subprocess.run([profiler, 'op', '--aic-metrics=KernelScale,PipeUtilization,Memory,ArithmeticUtilization',
-                                str(Path(temporary) / 'missing_application')], env=normal_env, cwd=temporary,
-                               capture_output=True, text=True, timeout=20)
-    probe_text = (probe.stdout + probe.stderr).lower()
-    if 'invalid metric' in probe_text or re.search(r'argument --aic-metrics[^\n]*invalid', probe_text):
-        raise RuntimeError('installed msprof rejects KernelScale; no instrumentation was compiled')
-    if 'device profiling is not supported' in probe_text or "can't find valid libdcmi" in probe_text:
-        raise RuntimeError('NPU profiling environment is unavailable; no instrumentation was compiled')
     runner = work / 'runner'
     ops = Path(env.get('OPS_TRANSFORMER_ROOT', str(ROOT.parent / 'ops-transformer-official-8.5.0'))).resolve()
     patch_sha, kernel_sources = prepare_runner(ops, runner)
@@ -475,8 +474,25 @@ def main():
             row.update(old)
     save_csv(output, plan)
     if all(row['status'] == 'ok' for row in plan):
+        export_cached(output, work, args.id, rows=plan)
         print(f'COMPLETE: all {len(plan)} measurements already cached; CSV={output}', flush=True)
         return
+    normal_env = runtime_env(normal_vendor, env)
+    profiler = shutil.which('msprof', path=normal_env.get('PATH'))
+    if profiler is None:
+        raise FileNotFoundError('msprof is missing from the configured CANN environment')
+    help_result = subprocess.run([profiler, 'op', '--help'], env=normal_env, capture_output=True, text=True, timeout=20)
+    if '--aic-metrics' not in help_result.stdout + help_result.stderr:
+        raise RuntimeError('msprof operator-profiling options are unavailable; no compilation or measurement was started')
+    with tempfile.TemporaryDirectory(prefix='capability_', dir=work) as temporary:
+        probe = subprocess.run([profiler, 'op', '--aic-metrics=KernelScale,PipeUtilization,Memory,ArithmeticUtilization',
+                                str(Path(temporary) / 'missing_application')], env=normal_env, cwd=temporary,
+                               capture_output=True, text=True, timeout=20)
+    probe_text = (probe.stdout + probe.stderr).lower()
+    if 'invalid metric' in probe_text or re.search(r'argument --aic-metrics[^\n]*invalid', probe_text):
+        raise RuntimeError('installed msprof rejects KernelScale; no instrumentation was compiled')
+    if 'device profiling is not supported' in probe_text or "can't find valid libdcmi" in probe_text:
+        raise RuntimeError('NPU profiling environment is unavailable; no instrumentation was compiled')
     print(f'SHAPES: 3; tiling_key={KEY}; stage measurements=20; cached-baseline measurements=3; unmarked controls=3; NPU={args.id}', flush=True)
     print('BUILD: at most one instrumented tiling key, one CPU; baseline binaries are reused; total execution limit=900s', flush=True)
     print('REFERENCE: one existing shape, original cached binary, original profiler settings, three rounds; successful stage rows are reused', flush=True)
@@ -519,7 +535,7 @@ def main():
                 for pending in plan:
                     if pending['status'] != 'ok':
                         pending.update(status='not_measured', error='instrumented build unavailable: ' + str(error))
-                save_csv(output, plan)
+                export_cached(output, work, args.id, rows=plan)
                 raise
         folder = work / 'cases' / row['case'] / (row['phase'] + '_' + row['key_window'])
         folder.mkdir(parents=True, exist_ok=True)
@@ -591,18 +607,21 @@ def main():
                 control = next((saved for saved in plan if saved['case'] == item['case'] and saved['phase'] == 'control' and saved['status'] == 'ok'), None)
                 if baseline is not None and control is not None:
                     item['unmarked_instrumentation_delta_percent'] = 100 * (float(control['task_duration_us']) / float(baseline['task_duration_us']) - 1)
-            save_csv(output, plan)
-            tables = folder / 'tables'
-            if tables.is_dir():
-                shutil.rmtree(tables)
-            tables.mkdir(exist_ok=True)
-            for index, table in enumerate(sorted(scratch.rglob('*.csv'))):
-                if re.fullmatch(r'(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_\d{17}\.csv', table.name):
-                    shutil.copy2(table, tables / f'{index}_{table.name}')
-            shutil.rmtree(scratch)
-            for path in (folder / 'output').glob('*.bin'):
-                path.unlink()
+            try:
+                tables = folder / 'tables'
+                if tables.is_dir():
+                    shutil.rmtree(tables)
+                tables.mkdir(exist_ok=True)
+                for index, table in enumerate(sorted(scratch.rglob('*.csv'))):
+                    if re.fullmatch(r'(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_\d{17}\.csv', table.name):
+                        shutil.copy2(table, tables / f'{index}_{table.name}')
+                shutil.rmtree(scratch)
+                for path in (folder / 'output').glob('*.bin'):
+                    path.unlink()
+            finally:
+                export_cached(output, work, args.id, rows=plan, quiet=True)
     ok = sum(row['status'] == 'ok' for row in plan)
+    export_cached(output, work, args.id, rows=plan)
     print(f'CSV={output}\nCOMPLETED={ok}/{len(plan)}; elapsed_seconds={LIMIT_SECONDS - max(0, deadline - time.monotonic()):.1f}', flush=True)
     if ok != len(plan):
         raise SystemExit(1)
