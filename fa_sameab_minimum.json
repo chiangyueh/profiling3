@@ -1,0 +1,480 @@
+{
+  "classes": {
+    "kernel=same_ab|dtype=FP16|layout=BNSD|matmul=NORMAL|operand_path=GM|softmax_reduce=8": {
+      "calibration": "Nonnegative shared operation rates; kernel Task Duration targets. Cube and Vector PMU constraints use soft equality; memory and Scalar PMU occupancy is a soft upper bound. Stage rates are not independently identified.",
+      "calibration_mape_percent": 5.386466110713449,
+      "calibration_max_ape_percent": 23.55500762266648,
+      "calibration_shapes": [
+        "061c692873777cf4538606721df525c715f6fdeee325b9a94c8df6419003eb86",
+        "12d4cd573d21236cc2925558ede5041e90608ce2770cfe981cac0af9894b74a1",
+        "191c744a15606affd43c68eb562c83591979196a2cda3766a27951c017a09c59",
+        "1db935b07515710e487cb6e0777e27d7994d937021eb46329d18f0d0ddabf617",
+        "1de48bbfe5644cf174576af029caca9c480acdedcc0ab6cf9ec4cb796ff8c98e",
+        "226f0ee787a6a99629e307c52b475a7af0018a95c33697f2854e6da4f102a0b4",
+        "2323db57916354d83f81e56d28ec8859e166bd31cb63800acb0a0ffb794b4475",
+        "23f30fef891f0b484f0e275566541ba6f936a3a558eb47341498466ea1d60ef0",
+        "256cd41d681edc8f36d93b97e7f8cdc2e4b2e38b89a1bf192247f25a64226dd2",
+        "2b561bf0e7d45d6e7427c9cfd7e812ecfc3600bbfdf868742691c33b92080acc",
+        "2da768cf41d763c96a668fe651a3a0f4a39ea8ae3dcde5e8374ceeab166b10cb",
+        "2eeb25b975bf7a60131baa78b72b6bfdc8437c56ad56f9d201ebf4a26323ff0a",
+        "2f13c9a48d9390b294bf9ad26b91fd551c6459318a5bd284f6ce7ea9f7b8344c",
+        "377d9e4a062a96dc806a4aa1014d35d2806a6e95aed1088b3fb677041f794c8e",
+        "39c1bb6947d338935d6e91a2cd389aeee2f30fea9d55a2de595b438b99e05c48",
+        "3bda2d8550631797bb6474a5d8e65985d1e8830dc95fec756afd4d1372a25324",
+        "4506ad4ab829c7f0289d26f4d359924d71d9ffd1d31ae0312af6d77dc74a7645",
+        "461b357f942a94522bbb91eaf118ceca1adfef74fd0db4c5369843d54b818d4f",
+        "47a342214c705d8f4b2fc1316d5a73b855e1c9020c629f290e5e5238ca0ccc3c",
+        "48f1fabd46966c4821fa5e3c222da9ba03c1431d2d1d3e2c1f41ab7655ba0359",
+        "4a137b95d28122a1e29434b3006a2e8b7c2d3644a324c97e815b3ad5f048af7b",
+        "4d3e5e29f24899f8d4d76c20f58f9fe8358c70492497728b04ffc59830d80937",
+        "4f04d24d16a679e72c85ce9816934bea2a68614583985452f83df636a115dc92",
+        "4f59037c78ff21f3f48f94b92747568a0c0045f860df9567df22120c0132b3ea",
+        "50fa5e26073df2f2b2d432fd6d619aa2f928d40888a5f2e2ee6677ceb6c624dc",
+        "54e3e745b76b1b5a2cfcc7c722b04f4d5c4cd683cec761fa82447f7779554e62",
+        "57e60ddcb97c958658cbf687fea7dab5669f4179e090affad5ee17d77b9889e1",
+        "59ce3e72e843e0501fbb40184765aa7d78b61f49ca0ef2feff35adbf05e16014",
+        "5ab5d8e5a801db37e264f2a0278cada3e5f8097b3aebac7ce1e58e8592f9787f",
+        "9265ddfd9e63260fe17f5829b5e458c13e3682970095d8a6df55256cb3122f03",
+        "e95ca56572b5f58883702c69a24fbe2d81bd2e3b220630ed1b181f6e926ec942"
+      ],
+      "configurations": 31,
+      "event_bracket_overhead_us": 0,
+      "input_ranges": {
+        "B": [
+          1,
+          16
+        ],
+        "D": [
+          96,
+          96
+        ],
+        "DV": [
+          96,
+          96
+        ],
+        "N1": [
+          8,
+          32
+        ],
+        "N2": [
+          1,
+          1
+        ],
+        "S1": [
+          256,
+          1280
+        ],
+        "S2": [
+          641,
+          3074
+        ]
+      },
+      "matmul_end_fences": true,
+      "measured_shapes": 31,
+      "optimization_evaluations": 60,
+      "optimization_success": true,
+      "parameter_names": [
+        [
+          "cube",
+          "flops_m"
+        ],
+        [
+          "cube",
+          "tiles"
+        ],
+        [
+          "cube",
+          "output_tiles"
+        ],
+        [
+          "mte1",
+          "l0_kb"
+        ],
+        [
+          "mte1",
+          "tiles"
+        ],
+        [
+          "mte2",
+          "read_kb"
+        ],
+        [
+          "mte2",
+          "loads"
+        ],
+        [
+          "mte2",
+          "address_gap_kb"
+        ],
+        [
+          "fixpipe",
+          "nd_write_kb"
+        ],
+        [
+          "fixpipe",
+          "nz_write_kb"
+        ],
+        [
+          "fixpipe",
+          "stores"
+        ],
+        [
+          "fixpipe",
+          "calls"
+        ],
+        [
+          "vector",
+          "softmax_k"
+        ],
+        [
+          "vector",
+          "reduction_k"
+        ],
+        [
+          "vector",
+          "cast_k"
+        ],
+        [
+          "vector",
+          "nz2nd_k"
+        ],
+        [
+          "vector",
+          "nd2nz_k"
+        ],
+        [
+          "vector",
+          "online_k"
+        ],
+        [
+          "vector",
+          "rescale_k"
+        ],
+        [
+          "vector",
+          "normalize_k"
+        ],
+        [
+          "vector",
+          "drop_k"
+        ],
+        [
+          "vector",
+          "unpack_k"
+        ],
+        [
+          "vector",
+          "chunks"
+        ],
+        [
+          "vmte2",
+          "read_kb"
+        ],
+        [
+          "vmte2",
+          "alignment_read_kb"
+        ],
+        [
+          "vmte2",
+          "loads"
+        ],
+        [
+          "vmte3",
+          "write_kb"
+        ],
+        [
+          "vmte3",
+          "stores"
+        ],
+        [
+          "vmte3",
+          "address_gap_kb"
+        ],
+        [
+          "cscalar",
+          "workers"
+        ],
+        [
+          "cscalar",
+          "batch_entries"
+        ],
+        [
+          "cscalar",
+          "commands"
+        ],
+        [
+          "vscalar",
+          "workers"
+        ],
+        [
+          "vscalar",
+          "batch_entries"
+        ],
+        [
+          "vscalar",
+          "chunks"
+        ],
+        [
+          "vscalar",
+          "drop_chunks"
+        ],
+        [
+          "vscalar",
+          "adapter_workers"
+        ]
+      ],
+      "path": {
+        "d_tail": false,
+        "drop_mask": "NONE",
+        "dtype": "FP16",
+        "dv_tail": false,
+        "k_tail_mask": true,
+        "kernel": "same_ab",
+        "layout": "BNSD",
+        "matmul": "NORMAL",
+        "mm1_template": "NZ",
+        "mm1_windows": "NZ",
+        "mm2_output": "NZ",
+        "online_update": false,
+        "operand_path": "GM",
+        "probability_format": "NZ",
+        "q_tail": false,
+        "reuse_fake_peer": false,
+        "softmax_reduce": 8,
+        "softmax_row_padding": false,
+        "tiny_k": false
+      },
+      "pipeline_k_streaming": true,
+      "pipes": {
+        "cscalar": {
+          "coefficients": {
+            "batch_entries": 0.0,
+            "commands": 0.04177904140253343,
+            "workers": 20.849021014756172
+          },
+          "inactive_feature_rates": [
+            "batch_entries"
+          ],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        },
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.11508149235448693,
+            "output_tiles": 4.740717617240889e-24,
+            "tiles": 2.7085328305565483e-25
+          },
+          "inactive_feature_rates": [],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 2.729046789958828e-19,
+            "nd_write_kb": 5.611876987350497e-23,
+            "nz_write_kb": 0.004434606206411671,
+            "stores": 0.34900035925345224
+          },
+          "inactive_feature_rates": [],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte1": {
+          "coefficients": {
+            "l0_kb": 0.004052332150201842,
+            "tiles": 0.0006294742073409479
+          },
+          "inactive_feature_rates": [],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte2": {
+          "coefficients": {
+            "address_gap_kb": 0.0,
+            "loads": 0.8104869858216021,
+            "read_kb": 1.9030989655323912e-19
+          },
+          "inactive_feature_rates": [
+            "address_gap_kb"
+          ],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        },
+        "vector": {
+          "coefficients": {
+            "cast_k": 2.8186192118527938e-25,
+            "chunks": 0.20863427626857095,
+            "drop_k": 0.0,
+            "nd2nz_k": 9.219353946985657e-09,
+            "normalize_k": 2.336460580755815e-19,
+            "nz2nd_k": 0.022618108482779894,
+            "online_k": 0.2564731566434677,
+            "reduction_k": 0.08524987171165833,
+            "rescale_k": 2.5195900690394466e-14,
+            "softmax_k": 0.07168207713159631,
+            "unpack_k": 0.0
+          },
+          "inactive_feature_rates": [
+            "drop_k",
+            "unpack_k"
+          ],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte2": {
+          "coefficients": {
+            "alignment_read_kb": 0.007407575703873391,
+            "loads": 0.23197113908504308,
+            "read_kb": 0.0019859314652442756
+          },
+          "inactive_feature_rates": [],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte3": {
+          "coefficients": {
+            "address_gap_kb": 0.0,
+            "stores": 0.005633084607851863,
+            "write_kb": 0.015911790514727353
+          },
+          "inactive_feature_rates": [
+            "address_gap_kb"
+          ],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        },
+        "vscalar": {
+          "coefficients": {
+            "adapter_workers": 0.0,
+            "batch_entries": 0.0,
+            "chunks": 0.4916572718819671,
+            "drop_chunks": 0.0,
+            "workers": 1.0859229889508008e-14
+          },
+          "inactive_feature_rates": [
+            "batch_entries",
+            "drop_chunks",
+            "adapter_workers"
+          ],
+          "samples": 30,
+          "status": "joint_pipeline_calibration"
+        }
+      },
+      "rates": [
+        0.11508149235448693,
+        2.7085328305565483e-25,
+        4.740717617240889e-24,
+        0.004052332150201842,
+        0.0006294742073409479,
+        1.9030989655323912e-19,
+        0.8104869858216021,
+        0.0,
+        5.611876987350497e-23,
+        0.004434606206411671,
+        0.34900035925345224,
+        2.729046789958828e-19,
+        0.07168207713159631,
+        0.08524987171165833,
+        2.8186192118527938e-25,
+        0.022618108482779894,
+        9.219353946985657e-09,
+        0.2564731566434677,
+        2.5195900690394466e-14,
+        2.336460580755815e-19,
+        0.0,
+        0.0,
+        0.20863427626857095,
+        0.0019859314652442756,
+        0.007407575703873391,
+        0.23197113908504308,
+        0.015911790514727353,
+        0.005633084607851863,
+        0.0,
+        20.849021014756172,
+        0.0,
+        0.04177904140253343,
+        1.0859229889508008e-14,
+        0.0,
+        0.4916572718819671,
+        0.0,
+        0.0
+      ],
+      "stage_costs_independently_measured": false,
+      "transport_counters_are_upper_bounds": true
+    }
+  },
+  "global_fallback": false,
+  "hardware": {
+    "aic_cores": 20,
+    "aiv_cores": 40,
+    "l1_bytes": 524288,
+    "l2_bytes": 201326592,
+    "soc": "Ascend910B3",
+    "ub_bytes": 196608
+  },
+  "inference_inputs": [
+    "B",
+    "N1",
+    "N2",
+    "S1",
+    "S2",
+    "D",
+    "DV",
+    "dtype",
+    "layout",
+    "has_drop_mask"
+  ],
+  "limitations": [
+    "Inter-core shared memory arbitration, address-dependent KV reuse and contention are not explicitly modeled.",
+    "Memory operation coefficients are effective costs constrained by whole-kernel timings; they are not identified standalone transfer times.",
+    "Calibrated on CANN 8.5.0 Ascend910B3 records; local Host tiling geometry checked with 8.5.2.",
+    "Instrumented phase active-cycle sums and native kernel wall latency are different targets."
+  ],
+  "minimum_version": "sameab_minimum_v1",
+  "prospective_pass": false,
+  "qualification": "development_cross_validation_only",
+  "scope": "FP16 BNSD SameAB NORMAL GM, no dropout; observed D=Dv=96. Other classes are rejected. Input ranges are descriptive and are not an accuracy guarantee.",
+  "source_files": [
+    "20261028_100603.txt",
+    "20261028_175018.txt",
+    "20261029_024431.txt",
+    "20261029_115147.txt"
+  ],
+  "source_sha256": "a8a61869ac26c4551329118004a640734cfda532ffadb26829a8b7483373a31a",
+  "target": "FlashAttentionScore kernel Task Duration(us)",
+  "validation": {
+    "all": {
+      "count": 31,
+      "mape_percent": 6.792972717419746,
+      "max_ape_percent": 24.977042036561905,
+      "median_ape_percent": 3.219265905462021,
+      "within_10_percent": 23
+    },
+    "all_shapes_within_10_percent": false,
+    "comparison_previous": {
+      "count": 31,
+      "mape_percent": 7.603772342329138,
+      "max_ape_percent": 25.83975503515591,
+      "median_ape_percent": 5.231190178022427,
+      "within_10_percent": 24
+    },
+    "development_model_selection": true,
+    "method": "Leave an entire (S1,S2) pair and every batch/head variant out; six folds. Source class and input-derived tiling checked for all 31 cases. No shapes removed.",
+    "prospective": false,
+    "stable_subset": {
+      "count": 19,
+      "mape_percent": 4.948448596495599,
+      "max_ape_percent": 19.486847781612738,
+      "median_ape_percent": 2.9940098493745904,
+      "within_10_percent": 16
+    },
+    "unstable_subset": {
+      "count": 12,
+      "mape_percent": 9.713469242216313,
+      "max_ape_percent": 24.977042036561905,
+      "median_ape_percent": 5.811432785242504,
+      "within_10_percent": 7
+    }
+  },
+  "version": "fa_source_pipeline_v5"
+}

@@ -1,0 +1,20 @@
+FA latency 最小方案（2026-10-29）
+
+範圍：FP16、BNSD、SameAB NORMAL GM、無 dropout，現有 Dqk=Dv=96 的 31 個 shape；不是全 FA/FAG。模型基於 Ascend910B3（20 AIC / 40 AIV）。
+方法：入參推導官方 schedule 與 Matmul geometry，計算 BMM1 → Vec1 → BMM2 → Vec2 的工作量、有限 buffer、引擎佇列與相依關係，再以共享的非負 operation rates 評估 critical path。模型包含 K 分塊與有限 L1/L0C buffer 重用；尚未完整建構跨核 KV 共用與全域搬移仲裁。預測不讀取目標 shape 的 latency、PMU、分段量測或 case 查表。
+修改：加入 Matmul.End 的 Cube/Fixpipe 與搬運資源釋放相依關係，保留其他引擎的預取。記憶體和 Scalar 的 PMU 活躍時間作軟上限，避免把等待重複計為獨立服務成本。分段成本仍未被唯一辨識，不能稱為精確的逐段時間模型。
+
+驗證：按完整 (S1,S2) 留出六組，所有 B/heads 變體跟著留出；沒有刪除任何 shape。31 筆的入參推導 schedule/geometry 均與記錄一致。此為已量測資料上的開發期交叉驗證；模型方案已看過這些結果，不是前瞻盲測。
+修正前：24/31 在 10% 內，平均誤差 7.6038%，最大 25.8398%。
+修正後：23/31 在 10% 內，平均誤差 6.7930%，最大 24.9770%。平均改善，但通過比例下降；不能宣稱全面改善或已達到所有 shape 誤差不超過 10% 的目標。
+不穩定量測仍列入總體結果；穩定子集單獨列在模型 JSON，不以此挑除不利案例。
+
+67.64 / 25.35 μs：兩者是 16 個 AIC 加總的 BMM2 Fixpipe 活躍計數，分別對應 K=1024 首窗與 K=258 尾窗，並非整個 kernel 的 wall latency。雖寫回量相同，量測不是獨立、相同系統狀態的搬移服務成本。保留兩筆並按每核 4 個任務還原後，與未打點控制版 Fixpipe 總計數相差 4.26%；將兩窗一律替成 25.35，誤差 10.84%；一律替成 67.64，誤差 19.35%。因此現有證據不支持把其中一筆直接判成系統異常刪除。精確的等待/仲裁因果無法只由現有 busy counters 唯一決定。
+證據層級：FA 的 IterateAll/End 與 taskIdMod2 在官方 v8.5.0 原碼可見；End 的 FIX_M 等待及 buffer 釋放細節核對的是本機 CANN 8.5.2 SDK。不是以本機版本冒充伺服器 SDK 逐行核對。
+
+執行：python3 fa_latency_model.py --shape 2,32,1,256,1282,96,96
+這是純預測；只用 CANN Host tiling API 取得 Matmul geometry，不執行 NPU，不啟動 CPU kernel 仿真，不編譯 FA kernel，不重新收集資料。CPU 輔助小程式初次需要 g++，之後使用快取。需要 numpy 與 CANN Host libraries；不需 scipy 即可推論。main.py 搜索流程未修改。
+輸出：控制台 JSON，包含 predicted_us、critical_path_phase_us、入參推導 schedule/geometry、校準範圍外欄位與交叉驗證結果。critical_path_phase_us 為模型 critical path 歸因，不是實測獨立階段時間；沒有誤差保證或校準過的預測區間。
+逐筆證據：output/fa_stage_profile/minimum_model_audit.csv，含 31 筆留出預測及 5 筆 Fixpipe 控制比較。
+
+明天可陳述：已完成入參驅動、按原碼相依關係分解的 SameAB latency 最小預測器；在上述 31 個 shape 的開發期整組留出驗證，平均絕對百分比誤差 6.79%，23/31 在 10% 內。跨核共享搬移與計數器等待仍有不可辨識部分，最大誤差 24.98%，尚未達成全面 10% 或新 shape 的先驗準確度保證。
