@@ -1,0 +1,1006 @@
+{
+  "calibration_cases": [
+    "fa_branch_same_ab_nz_12d4cd573d21",
+    "fa_branch_same_ab_nz_9265ddfd9e63"
+  ],
+  "components": {
+    "bmm1|cscalar": {
+      "active_features": 1,
+      "coefficients": {
+        "batch_entries": 0.0,
+        "commands": 0.2878109152549408,
+        "workers": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        1.0,
+        1.0,
+        136.0
+      ],
+      "features": [
+        "workers",
+        "batch_entries",
+        "commands"
+      ],
+      "maximum_replay_span_percent": 2.8005943806959728,
+      "minimum_possible_max_relative_error_percent": 6.178966205109737,
+      "observations": 3,
+      "phase": "bmm1",
+      "pipe": "cscalar",
+      "point_max_calibration_error_percent": 6.178966205109737,
+      "rank": 1,
+      "row_basis": [
+        [
+          0.0,
+          0.0,
+          -0.9999999999999998
+        ]
+      ],
+      "scalar_includes_waits": true,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "bmm1|cube": {
+      "active_features": 3,
+      "coefficients": {
+        "flops_m": 0.11817500622086072,
+        "output_tiles": 0.0,
+        "tiles": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        402.653184,
+        128.0,
+        128.0
+      ],
+      "features": [
+        "flops_m",
+        "tiles",
+        "output_tiles"
+      ],
+      "maximum_replay_span_percent": 9.027805335826056,
+      "minimum_possible_max_relative_error_percent": 16.105534124126386,
+      "observations": 3,
+      "phase": "bmm1",
+      "pipe": "cube",
+      "point_max_calibration_error_percent": 16.105534124126386,
+      "rank": 2,
+      "row_basis": [
+        [
+          -0.4890038877171096,
+          -0.6167962377469373,
+          -0.6167962377469373
+        ],
+        [
+          -0.8722816046424186,
+          0.34577796503135333,
+          0.34577796503135333
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "bmm1|fixpipe": {
+      "active_features": 4,
+      "coefficients": {
+        "calls": 0.0,
+        "nd_write_kb": 0.0026619891531807975,
+        "nz_write_kb": 0.0024262120535714204,
+        "stores": 0.337384428571429
+      },
+      "consistent_with_replay_intervals": true,
+      "feature_scales": [
+        8192.0,
+        5248.0,
+        128.0,
+        8.0
+      ],
+      "features": [
+        "nd_write_kb",
+        "nz_write_kb",
+        "stores",
+        "calls"
+      ],
+      "maximum_replay_span_percent": 2.763053177603125,
+      "minimum_possible_max_relative_error_percent": 0.0,
+      "observations": 3,
+      "phase": "bmm1",
+      "pipe": "fixpipe",
+      "point_max_calibration_error_percent": 2.220446049250313e-14,
+      "rank": 3,
+      "row_basis": [
+        [
+          0.07063161058904643,
+          0.4082654887698422,
+          0.4131489145913137,
+          0.8109490986721292
+        ],
+        [
+          -0.7771264902861317,
+          0.5135533225480844,
+          -0.36373980052243493,
+          -0.005546215942538901
+        ],
+        [
+          -0.1818490163721988,
+          -0.619958156491009,
+          -0.49563239364368167,
+          0.580457879450152
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "repeat_consistent"
+    },
+    "bmm1|mte1": {
+      "active_features": 2,
+      "coefficients": {
+        "l0_kb": 0.003867771397958459,
+        "tiles": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        6144.0,
+        128.0
+      ],
+      "features": [
+        "l0_kb",
+        "tiles"
+      ],
+      "maximum_replay_span_percent": 1.5900639558753475,
+      "minimum_possible_max_relative_error_percent": 4.239149551769974,
+      "observations": 3,
+      "phase": "bmm1",
+      "pipe": "mte1",
+      "point_max_calibration_error_percent": 4.239149551769971,
+      "rank": 2,
+      "row_basis": [
+        [
+          -0.6757988598066769,
+          -0.7370860879734438
+        ],
+        [
+          -0.7370860879734438,
+          0.6757988598066769
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "bmm1|mte2": {
+      "active_features": 2,
+      "coefficients": {
+        "address_gap_kb": 0.0,
+        "loads": 0.024241575854749006,
+        "read_kb": 0.011573186783935157
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        1920.0,
+        16.0,
+        1.0
+      ],
+      "features": [
+        "read_kb",
+        "loads",
+        "address_gap_kb"
+      ],
+      "maximum_replay_span_percent": 16.789785468018014,
+      "minimum_possible_max_relative_error_percent": 1.473886038392121,
+      "observations": 3,
+      "phase": "bmm1",
+      "pipe": "mte2",
+      "point_max_calibration_error_percent": 1.4738860383921137,
+      "rank": 2,
+      "row_basis": [
+        [
+          -0.48338604096679505,
+          -0.8754072968615512,
+          -0.0
+        ],
+        [
+          -0.8754072968615512,
+          0.48338604096679505,
+          0.0
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "bmm2|cscalar": {
+      "active_features": 1,
+      "coefficients": {
+        "batch_entries": 0.0,
+        "commands": 0.2910278597710781,
+        "workers": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        1.0,
+        1.0,
+        136.0
+      ],
+      "features": [
+        "workers",
+        "batch_entries",
+        "commands"
+      ],
+      "maximum_replay_span_percent": 1.0913317583996587,
+      "minimum_possible_max_relative_error_percent": 1.725536789775317,
+      "observations": 3,
+      "phase": "bmm2",
+      "pipe": "cscalar",
+      "point_max_calibration_error_percent": 1.725536789775317,
+      "rank": 1,
+      "row_basis": [
+        [
+          0.0,
+          0.0,
+          -1.0000000000000002
+        ]
+      ],
+      "scalar_includes_waits": true,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "bmm2|cube": {
+      "active_features": 3,
+      "coefficients": {
+        "flops_m": 0.07104469266198424,
+        "output_tiles": 0.0,
+        "tiles": 0.004763594071276189
+      },
+      "consistent_with_replay_intervals": true,
+      "feature_scales": [
+        402.653184,
+        128.0,
+        16.0
+      ],
+      "features": [
+        "flops_m",
+        "tiles",
+        "output_tiles"
+      ],
+      "maximum_replay_span_percent": 0.42523754730758956,
+      "minimum_possible_max_relative_error_percent": 0.08886728804390266,
+      "observations": 3,
+      "phase": "bmm2",
+      "pipe": "cube",
+      "point_max_calibration_error_percent": 0.15689917255296004,
+      "rank": 3,
+      "row_basis": [
+        [
+          -0.32746493482195094,
+          -0.41305503636085505,
+          -0.8497954185561301
+        ],
+        [
+          -0.6681826174331885,
+          -0.5346657434732855,
+          0.5173630567756957
+        ],
+        [
+          0.6680559154907532,
+          -0.7372367867199057,
+          0.10091191250154752
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "repeat_consistent"
+    },
+    "bmm2|fixpipe": {
+      "active_features": 3,
+      "coefficients": {
+        "calls": 0.0,
+        "nd_write_kb": 0.0,
+        "nz_write_kb": 0.023892804521866425,
+        "stores": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        1.0,
+        768.0,
+        16.0,
+        8.0
+      ],
+      "features": [
+        "nd_write_kb",
+        "nz_write_kb",
+        "stores",
+        "calls"
+      ],
+      "maximum_replay_span_percent": 18.55594778232532,
+      "minimum_possible_max_relative_error_percent": 28.734517015942696,
+      "observations": 3,
+      "phase": "bmm2",
+      "pipe": "fixpipe",
+      "point_max_calibration_error_percent": 28.734517015942696,
+      "rank": 1,
+      "row_basis": [
+        [
+          0.0,
+          0.5773502691896258,
+          0.5773502691896258,
+          0.5773502691896258
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "bmm2|mte1": {
+      "active_features": 2,
+      "coefficients": {
+        "l0_kb": 0.004166698176412842,
+        "tiles": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        7168.0,
+        128.0
+      ],
+      "features": [
+        "l0_kb",
+        "tiles"
+      ],
+      "maximum_replay_span_percent": 3.714346538892638,
+      "minimum_possible_max_relative_error_percent": 5.03167644764619,
+      "observations": 3,
+      "phase": "bmm2",
+      "pipe": "mte1",
+      "point_max_calibration_error_percent": 5.031676447646216,
+      "rank": 2,
+      "row_basis": [
+        [
+          -0.6341312103203344,
+          -0.7732254574816247
+        ],
+        [
+          -0.7732254574816247,
+          0.6341312103203344
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "bmm2|mte2": {
+      "active_features": 2,
+      "coefficients": {
+        "address_gap_kb": 0.0,
+        "loads": 0.32412985785512416,
+        "read_kb": 0.004268135420063038
+      },
+      "consistent_with_replay_intervals": true,
+      "feature_scales": [
+        5632.0,
+        40.0,
+        1.0
+      ],
+      "features": [
+        "read_kb",
+        "loads",
+        "address_gap_kb"
+      ],
+      "maximum_replay_span_percent": 22.074327776300745,
+      "minimum_possible_max_relative_error_percent": 1.1678413873973115,
+      "observations": 3,
+      "phase": "bmm2",
+      "pipe": "mte2",
+      "point_max_calibration_error_percent": 2.248285890921531,
+      "rank": 2,
+      "row_basis": [
+        [
+          -0.5628981327191124,
+          -0.8265262803936343,
+          -0.0
+        ],
+        [
+          -0.8265262803936343,
+          0.5628981327191124,
+          0.0
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "repeat_consistent"
+    },
+    "vec1|vector": {
+      "active_features": 7,
+      "coefficients": {
+        "cast_k": 0.0,
+        "chunks": 0.6798390093749993,
+        "drop_k": 0.0,
+        "nd2nz_k": 0.0,
+        "normalize_k": 0.0,
+        "nz2nd_k": 0.0,
+        "online_k": 1.3018057922363282,
+        "reduction_k": 0.0,
+        "rescale_k": 0.0,
+        "softmax_k": 0.011165188598632914,
+        "unpack_k": 0.0
+      },
+      "consistent_with_replay_intervals": true,
+      "feature_scales": [
+        2097.152000000001,
+        20.48,
+        2097.152000000001,
+        1441.7920000000001,
+        2097.152000000001,
+        16.384000000000007,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        256.0
+      ],
+      "features": [
+        "softmax_k",
+        "reduction_k",
+        "cast_k",
+        "nz2nd_k",
+        "nd2nz_k",
+        "online_k",
+        "rescale_k",
+        "normalize_k",
+        "drop_k",
+        "unpack_k",
+        "chunks"
+      ],
+      "maximum_replay_span_percent": 0.05288616978274546,
+      "minimum_possible_max_relative_error_percent": 0.0,
+      "observations": 3,
+      "phase": "vec1",
+      "pipe": "vector",
+      "point_max_calibration_error_percent": 1.1102230246251565e-14,
+      "rank": 3,
+      "row_basis": [
+        [
+          -0.31356553410885624,
+          -0.5758500931857709,
+          -0.3135655341088562,
+          -0.2940362033769661,
+          -0.31356553410885624,
+          -0.3825266736199468,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.3750235895352988
+        ],
+        [
+          -0.2883760014120523,
+          0.09780825943176227,
+          -0.2883760014120523,
+          0.10580968568301793,
+          -0.2883760014120522,
+          0.7927155254584866,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.31836739143394327
+        ],
+        [
+          0.19015170224021088,
+          0.03432335141284258,
+          0.1901517022402108,
+          -0.8947988322760406,
+          0.1901517022402108,
+          0.27791002588731456,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.11157941217799747
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "repeat_consistent"
+    },
+    "vec1|vmte2": {
+      "active_features": 3,
+      "coefficients": {
+        "alignment_read_kb": 0.03663042578124997,
+        "loads": 0.2385655625000002,
+        "read_kb": 0.0008688007812499937
+      },
+      "consistent_with_replay_intervals": true,
+      "feature_scales": [
+        8192.0,
+        384.0,
+        256.0
+      ],
+      "features": [
+        "read_kb",
+        "alignment_read_kb",
+        "loads"
+      ],
+      "maximum_replay_span_percent": 3.1481446406803877,
+      "minimum_possible_max_relative_error_percent": 0.0,
+      "observations": 3,
+      "phase": "vec1",
+      "pipe": "vmte2",
+      "point_max_calibration_error_percent": 0.0,
+      "rank": 3,
+      "row_basis": [
+        [
+          -0.4236787272423721,
+          -0.7201844358757234,
+          -0.5493912216304969
+        ],
+        [
+          -0.5413145638578244,
+          0.6876063806094148,
+          -0.483917356891271
+        ],
+        [
+          0.7262746581271419,
+          0.09236797966604349,
+          -0.6811705199835915
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "repeat_consistent"
+    },
+    "vec1|vmte3": {
+      "active_features": 2,
+      "coefficients": {
+        "address_gap_kb": 0.0,
+        "stores": 0.0,
+        "write_kb": 0.016487712793775883
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        4096.0,
+        272.0,
+        1.0
+      ],
+      "features": [
+        "write_kb",
+        "stores",
+        "address_gap_kb"
+      ],
+      "maximum_replay_span_percent": 4.347199027992776,
+      "minimum_possible_max_relative_error_percent": 2.0012360794417816,
+      "observations": 3,
+      "phase": "vec1",
+      "pipe": "vmte3",
+      "point_max_calibration_error_percent": 2.001236079441804,
+      "rank": 2,
+      "row_basis": [
+        [
+          -0.5953825678755411,
+          -0.8034423425921283,
+          -0.0
+        ],
+        [
+          -0.8034423425921283,
+          0.5953825678755411,
+          0.0
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "vec1|vscalar": {
+      "active_features": 1,
+      "coefficients": {
+        "adapter_workers": 0.0,
+        "batch_entries": 0.0,
+        "chunks": 0.5095330637347747,
+        "drop_chunks": 0.0,
+        "workers": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        1.0,
+        1.0,
+        256.0,
+        1.0,
+        1.0
+      ],
+      "features": [
+        "workers",
+        "batch_entries",
+        "chunks",
+        "drop_chunks",
+        "adapter_workers"
+      ],
+      "maximum_replay_span_percent": 0.5582469357299227,
+      "minimum_possible_max_relative_error_percent": 21.139006771875145,
+      "observations": 3,
+      "phase": "vec1",
+      "pipe": "vscalar",
+      "point_max_calibration_error_percent": 21.139006771875145,
+      "rank": 1,
+      "row_basis": [
+        [
+          0.0,
+          0.0,
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "scalar_includes_waits": true,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "vec2|vector": {
+      "active_features": 5,
+      "coefficients": {
+        "cast_k": 0.03628204345703127,
+        "chunks": 0.0,
+        "drop_k": 0.0,
+        "nd2nz_k": 0.0,
+        "normalize_k": 0.0,
+        "nz2nd_k": 0.02506960042317708,
+        "online_k": 0.0,
+        "reduction_k": 0.0,
+        "rescale_k": 0.015790028889973957,
+        "softmax_k": 0.0,
+        "unpack_k": 0.0
+      },
+      "consistent_with_replay_intervals": true,
+      "feature_scales": [
+        1.0,
+        1.0,
+        196.60800000000003,
+        196.60800000000003,
+        1.0,
+        1.0,
+        393.21600000000007,
+        196.60800000000003,
+        1.0,
+        1.0,
+        32.0
+      ],
+      "features": [
+        "softmax_k",
+        "reduction_k",
+        "cast_k",
+        "nz2nd_k",
+        "nd2nz_k",
+        "online_k",
+        "rescale_k",
+        "normalize_k",
+        "drop_k",
+        "unpack_k",
+        "chunks"
+      ],
+      "maximum_replay_span_percent": 0.574795430365163,
+      "minimum_possible_max_relative_error_percent": 0.0,
+      "observations": 3,
+      "phase": "vec2",
+      "pipe": "vector",
+      "point_max_calibration_error_percent": 2.220446049250313e-14,
+      "rank": 3,
+      "row_basis": [
+        [
+          0.0,
+          0.0,
+          -0.15774840436123433,
+          -0.6884205821383216,
+          0.0,
+          0.0,
+          -0.04883734247107974,
+          -0.15774840436123433,
+          0.0,
+          0.0,
+          -0.6884205821383216
+        ],
+        [
+          0.0,
+          0.0,
+          0.6683809346336689,
+          -0.1614305781116055,
+          0.0,
+          0.0,
+          0.23326849195198113,
+          0.6683809346336689,
+          0.0,
+          0.0,
+          -0.1614305781116055
+        ],
+        [
+          0.0,
+          0.0,
+          -0.16847067145265215,
+          0.004155783787331571,
+          0.0,
+          0.0,
+          0.9711852164457667,
+          -0.16847067145265215,
+          0.0,
+          0.0,
+          0.004155783787331571
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "repeat_consistent"
+    },
+    "vec2|vmte2": {
+      "active_features": 2,
+      "coefficients": {
+        "alignment_read_kb": 0.0,
+        "loads": 0.0,
+        "read_kb": 0.009229082002984548
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        1536.0,
+        1.0,
+        64.0
+      ],
+      "features": [
+        "read_kb",
+        "alignment_read_kb",
+        "loads"
+      ],
+      "maximum_replay_span_percent": 15.214773035653675,
+      "minimum_possible_max_relative_error_percent": 23.24461068598882,
+      "observations": 3,
+      "phase": "vec2",
+      "pipe": "vmte2",
+      "point_max_calibration_error_percent": 23.24461068598883,
+      "rank": 1,
+      "row_basis": [
+        [
+          -0.7071067811865476,
+          0.0,
+          -0.7071067811865474
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "vec2|vmte3": {
+      "active_features": 2,
+      "coefficients": {
+        "address_gap_kb": 0.0,
+        "stores": 0.03084017227918412,
+        "write_kb": 0.009808860512220607
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        768.0,
+        48.0,
+        1.0
+      ],
+      "features": [
+        "write_kb",
+        "stores",
+        "address_gap_kb"
+      ],
+      "maximum_replay_span_percent": 3.158533969010746,
+      "minimum_possible_max_relative_error_percent": 1.5505409573220108,
+      "observations": 3,
+      "phase": "vec2",
+      "pipe": "vmte3",
+      "point_max_calibration_error_percent": 1.5505409573220108,
+      "rank": 2,
+      "row_basis": [
+        [
+          -0.5784313183929468,
+          -0.8157310892090588,
+          -0.0
+        ],
+        [
+          -0.8157310892090588,
+          0.5784313183929468,
+          0.0
+        ]
+      ],
+      "scalar_includes_waits": false,
+      "status": "work_features_or_execution_context_incomplete"
+    },
+    "vec2|vscalar": {
+      "active_features": 1,
+      "coefficients": {
+        "adapter_workers": 0.0,
+        "batch_entries": 0.0,
+        "chunks": 0.24173427284982094,
+        "drop_chunks": 0.0,
+        "workers": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        1.0,
+        1.0,
+        32.0,
+        1.0,
+        1.0
+      ],
+      "features": [
+        "workers",
+        "batch_entries",
+        "chunks",
+        "drop_chunks",
+        "adapter_workers"
+      ],
+      "maximum_replay_span_percent": 3.971512232786402,
+      "minimum_possible_max_relative_error_percent": 21.003662588590522,
+      "observations": 3,
+      "phase": "vec2",
+      "pipe": "vscalar",
+      "point_max_calibration_error_percent": 21.003662588590522,
+      "rank": 1,
+      "row_basis": [
+        [
+          0.0,
+          0.0,
+          -1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "scalar_includes_waits": true,
+      "status": "work_features_or_execution_context_incomplete"
+    }
+  },
+  "data_sha256": "3595abfd10ebc071e3414a69f0b48af4427b6925b51c91d2fcb3b3168166c0d1",
+  "excluded_observations": [],
+  "execution_classes": [
+    "kernel=same_ab|dtype=FP16|layout=BNSD|matmul=NORMAL|operand_path=GM|softmax_reduce=8"
+  ],
+  "feature_source_sha256": "1e309a95c094cecc8a36a22cd7358f7cd827e9c287c63f4c0aa3a5f210790008",
+  "frozen_utc": "2026-10-29T17:01:40.529953+00:00",
+  "full_latency_qualified": false,
+  "hardware": {
+    "aic_cores": 20,
+    "aiv_cores": 40,
+    "l1_bytes": 524288,
+    "l2_bytes": 201326592,
+    "soc": "Ascend910B3",
+    "ub_bytes": 196608
+  },
+  "input_only_inference_validation_scope": "Input-only calculation verified; extrapolating one selected Q task per core across split_factor does not independently verify all Q tasks",
+  "input_only_inference_verified": true,
+  "other_engine_execution_stopped": false,
+  "parameter_sha256": "b3fc1fc94e0bcb088ba211093ad0109fc47c11edc4d9e333b398280ea6a18ea9",
+  "scope": "In-context gated engine active counters; phase costs are fitted independently and never adjusted to cancel total-latency error",
+  "standalone_phase_wall_times_measured": false,
+  "uses_holdout_targets_for_fit": false,
+  "uses_total_kernel_latency_for_stage_fit": false,
+  "validation": {
+    "bmm1|cscalar": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 9.801162162803312,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm1|cube": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 23.82604447052894,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm1|fixpipe": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": true,
+      "max_active_time_error_percent": 22.918303428695687,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm1|mte1": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 4.89175418303337,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm1|mte2": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 4.706147606445921,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm2|cscalar": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 9.899762382470211,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm2|cube": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": true,
+      "max_active_time_error_percent": 1.8727556931695588,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm2|fixpipe": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 45.742236706217234,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm2|mte1": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 4.105649376843912,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "bmm2|mte2": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": true,
+      "max_active_time_error_percent": 36.60623620940373,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "vec1|vector": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": true,
+      "max_active_time_error_percent": 0.12563910543217371,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "vec1|vmte2": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": true,
+      "max_active_time_error_percent": 47.59965740402294,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "vec1|vmte3": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 24.412007529750802,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "vec1|vscalar": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 23.56379499922634,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "vec2|vector": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": true,
+      "max_active_time_error_percent": 1.0017213114754897,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "vec2|vmte2": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 6.254581875237264,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "vec2|vmte3": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 14.663642642691821,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    },
+    "vec2|vscalar": {
+      "all_forecasts_identified": true,
+      "calibration_consistent": false,
+      "max_active_time_error_percent": 37.09346544255647,
+      "points": 2,
+      "prospective_blind_test": false,
+      "uses_holdout_for_fit": false
+    }
+  },
+  "version": "fa_independent_stage_v1"
+}

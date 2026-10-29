@@ -1757,3 +1757,219 @@ def report(path, model, forecasts, plan=()):
     cost.save_json(Path(path).parent / "source_model_report.json", summary)
     print(f"SOURCE MODEL: prospective={summary['prospective']}; retrospective={summary['retrospective']}; pending={summary['pending']}; qualified={summary['fresh_blind_pass']}", flush=True)
     return summary
+
+
+def stage_observations(rows, hardware):
+    columns = {'cube': 'aic_cube_sum_us', 'mte1': 'aic_mte1_sum_us', 'mte2': 'aic_mte2_sum_us',
+               'fixpipe': 'aic_fixpipe_sum_us', 'vector': 'aiv_vec_sum_us', 'vmte2': 'aiv_mte2_sum_us',
+               'vmte3': 'aiv_mte3_sum_us', 'cscalar': 'aic_scalar_sum_us', 'vscalar': 'aiv_scalar_sum_us'}
+    designs, result = {}, []
+    for row in rows:
+        phase = row.get('phase')
+        if phase not in ('bmm1', 'bmm2', 'vec1', 'vec2'):
+            continue
+        if row.get('status') != 'ok' or str(row.get('gating_verified')).lower() != 'true' or int(row.get('checked_elements') or 0) <= 0:
+            raise ValueError(f'unverified stage observation: {row.get("case")} {phase}')
+        inputs = cost.normalize({name: row[name] for name in cost.INPUT_FIELDS})
+        identity = cost.sha256(inputs)
+        if identity not in designs:
+            designs[identity] = workload(inputs, hardware)
+        design = designs[identity]
+        if row['query_task'] not in ('first', 'last') or row['key_window'] not in ('single', 'first', 'last'):
+            raise ValueError(f'unknown selected stage window: {row["case"]}')
+        mismatch = verify_class_trace(row, design)
+        if mismatch:
+            raise ValueError(f'stage template differs from source model: {row["case"]}: {mismatch}')
+        if any(int(row[name]) != int(design['schedule'][name]) for name in
+               ('s1_base', 's2_base', 'n_ratio', 'core_num', 'total_tasks', 'split_factor')):
+            raise ValueError(f'input-derived schedule differs from stage observation: {row["case"]}')
+        windows = cost.ceil_div(inputs['S2'], design['schedule']['s2_base'] * design['schedule']['n_ratio'])
+        stage = 0 if phase in ('bmm1', 'vec1') else 1
+        selected = []
+        for worker in design['workers']:
+            offset = 0 if row['query_task'] == 'first' else len(worker) - windows
+            selected.append(worker[offset + (windows - 1 if row['key_window'] == 'last' else 0)])
+        cube = phase.startswith('bmm')
+        jobs = [job['cube'][stage] for job in selected] if cube else [pair[stage] for job in selected for pair in job['vector']]
+        pipes = ('cube', 'mte1', 'mte2', 'fixpipe', 'cscalar') if cube else ('vector', 'vmte2', 'vmte3', 'vscalar')
+        features = {pipe: {field: sum(job.get(field, 0) for job in jobs) for field in PIPES[pipe][1]} for pipe in pipes}
+        targets, intervals = {}, {}
+        for pipe in pipes:
+            column = columns[pipe]
+            samples = [float(value) for value in json.loads(row[column.replace('_us', '_samples_us')])]
+            if not samples or any(not math.isfinite(value) or value <= 0 for value in samples):
+                raise ValueError(f'missing positive replay samples: {row["case"]} {phase} {pipe}')
+            targets[pipe] = statistics.median(samples)
+            intervals[pipe] = [min(samples), max(samples)]
+        read_kb = sum(job.get('read_kb', 0) + job.get('alignment_read_kb', 0) for job in jobs)
+        write_kb = sum(job.get('write_kb', 0) for job in jobs)
+        result.append({'case': row['case'], 'shape_identity': identity, 'inputs': inputs, 'phase': phase,
+                       'class_id': cost_group(design), 'window': row['key_window'], 'query_task': row['query_task'],
+                       'active_cube_cores': len(design['workers']), 'active_vector_cores': 2 * len(design['workers']),
+                       'features': features, 'targets': targets, 'replay_intervals': intervals,
+                       'read_source_kb': read_kb, 'write_source_kb': write_kb,
+                       'read_measured_kb': float(row['gm_to_l1_kb' if cube else 'gm_to_ub_kb']),
+                       'write_measured_kb': float(row['l0c_to_gm_kb' if cube else 'ub_to_gm_kb']),
+                       'other_engine_execution_stopped': False,
+                       'gated_core_elapsed_us': float(row['aic_own_table_time_max_us' if cube else 'aiv_own_table_time_max_us']),
+                       'runtime_bmm1_output': 'NZ' if design['schedule']['nz'] and selected[0]['columns'] % 64 else 'ND'})
+    return result
+
+
+def stage_model_signature():
+    return cost.sha256({'source': source_hash(), 'functions': [inspect.getsource(function) for function in
+                       (stage_observations, stage_model_signature, fit_stage_model, evaluate_stage_features, predict_stage_activity)]})
+
+
+def fit_stage_model(rows, hardware, calibration_cases):
+    from scipy.optimize import linprog
+    verified, excluded = [], []
+    for row in rows:
+        if row.get('phase') not in ('bmm1', 'bmm2', 'vec1', 'vec2'):
+            continue
+        if row.get('status') == 'ok' and str(row.get('gating_verified')).lower() == 'true' and int(row.get('checked_elements') or 0) > 0:
+            verified.append(row)
+        else:
+            excluded.append({'case': row.get('case'), 'phase': row.get('phase'),
+                             'reason': row.get('error') or 'gated counters or numerical verification unavailable'})
+    observations = stage_observations(verified, hardware)
+    calibration_cases = set(calibration_cases)
+    selected = [row for row in observations if row['case'] in calibration_cases]
+    if not calibration_cases or {row['case'] for row in selected} != calibration_cases:
+        raise ValueError('calibration case selection is missing stage observations')
+    classes = sorted({row['class_id'] for row in selected})
+    if len(classes) != 1:
+        raise ValueError('independent stage calibration requires one source execution class at a time')
+    components = {}
+    for phase, pipe in sorted({(row['phase'], pipe) for row in selected for pipe in row['features']}):
+        records = [row for row in selected if row['phase'] == phase and pipe in row['features']]
+        names = list(PIPES[pipe][1])
+        matrix = np.asarray([[row['features'][pipe][name] for name in names] for row in records], dtype=float)
+        targets = np.asarray([row['targets'][pipe] for row in records])
+        scales = np.maximum(np.max(abs(matrix), axis=0), 1.0)
+        normalized = matrix / scales / targets[:, None]
+        objective = np.append(np.zeros(len(names)), 1.0)
+        relative_constraints = np.vstack((np.column_stack((normalized, -np.ones(len(records)))),
+                                          np.column_stack((-normalized, -np.ones(len(records))))))
+        solution = linprog(objective, A_ub=relative_constraints,
+                           b_ub=np.concatenate((np.ones(len(records)), -np.ones(len(records)))),
+                           bounds=(0, None), method='highs')
+        if not solution.success:
+            raise RuntimeError(f'independent stage fit failed: {phase} {pipe}: {solution.message}')
+        intervals = np.asarray([row['replay_intervals'][pipe] for row in records])
+        feasibility = linprog(np.zeros(len(names)), A_ub=np.vstack((matrix / scales, -matrix / scales)),
+                              b_ub=np.concatenate((intervals[:, 1], -intervals[:, 0])), bounds=(0, None), method='highs')
+        if feasibility.status not in (0, 2):
+            raise RuntimeError(f'could not determine stage fit consistency: {phase} {pipe}: {feasibility.message}')
+        point = solution.x[:-1]
+        if feasibility.success:
+            identity = np.eye(len(names))
+            projection = linprog(np.concatenate((np.zeros(len(names)), np.ones(len(names)))),
+                A_ub=np.vstack((np.column_stack((matrix / scales, np.zeros_like(matrix))),
+                                np.column_stack((-matrix / scales, np.zeros_like(matrix))),
+                                np.column_stack((identity, -identity)), np.column_stack((-identity, -identity)))),
+                b_ub=np.concatenate((intervals[:, 1], -intervals[:, 0], point, -point)), bounds=(0, None), method='highs')
+            if not projection.success:
+                raise RuntimeError(f'could not select a repeat-consistent stage cost: {phase} {pipe}')
+            point = projection.x[:len(names)]
+        _, singular, vt = np.linalg.svd(normalized, full_matrices=False)
+        threshold = max(normalized.shape) * np.finfo(float).eps * singular[0] if len(singular) else 0
+        rank = int(np.sum(singular > threshold))
+        rates = point / scales
+        components[phase + '|' + pipe] = {'phase': phase, 'pipe': pipe, 'features': names,
+            'coefficients': {name: float(value) for name, value in zip(names, rates)},
+            'feature_scales': scales.tolist(), 'row_basis': vt[:rank].tolist(), 'rank': rank,
+            'active_features': int(np.sum(np.any(matrix != 0, axis=0))), 'observations': len(records),
+            'minimum_possible_max_relative_error_percent': float(solution.x[-1] * 100),
+            'point_max_calibration_error_percent': float(np.max(abs(matrix @ rates / targets - 1)) * 100),
+            'consistent_with_replay_intervals': bool(feasibility.success),
+            'status': 'repeat_consistent' if feasibility.success else 'work_features_or_execution_context_incomplete',
+            'scalar_includes_waits': pipe in ('cscalar', 'vscalar'),
+            'maximum_replay_span_percent': float(np.max((intervals[:, 1] - intervals[:, 0]) / targets) * 100)}
+    return {'version': 'fa_independent_stage_v1', 'feature_source_sha256': stage_model_signature(),
+            'hardware': hardware, 'execution_classes': classes, 'calibration_cases': sorted(calibration_cases),
+            'components': components, 'excluded_observations': excluded, 'frozen_utc': datetime.now(timezone.utc).isoformat(),
+            'uses_total_kernel_latency_for_stage_fit': False, 'uses_holdout_targets_for_fit': False,
+            'other_engine_execution_stopped': False, 'standalone_phase_wall_times_measured': False,
+            'full_latency_qualified': False,
+            'scope': 'In-context gated engine active counters; phase costs are fitted independently and never adjusted to cancel total-latency error'}
+
+
+def evaluate_stage_features(features, component):
+    names = component['features']
+    scaled = np.asarray([features.get(name, 0) / scale for name, scale in zip(names, component['feature_scales'])])
+    basis = np.asarray(component['row_basis'])
+    projected = scaled @ basis.T @ basis if basis.size else np.zeros(len(names))
+    unidentified = float(np.linalg.norm(scaled - projected) / max(np.linalg.norm(scaled), 1e-30))
+    prediction = sum(features.get(name, 0) * component['coefficients'][name] for name in names)
+    return {'predicted_active_sum_us': prediction, 'unidentified_feature_fraction': unidentified,
+            'feature_combination_identified': unidentified <= 1e-7,
+            'fit_consistent_with_repeats': component['consistent_with_replay_intervals'],
+            'scalar_includes_waits': component['scalar_includes_waits'],
+            'use_as_calibrated_cost': unidentified <= 1e-7 and component['consistent_with_replay_intervals']
+                                      and not component['scalar_includes_waits'],
+            'component_status': component['status']}
+
+
+def predict_stage_activity(inputs, model):
+    if model.get('version') != 'fa_independent_stage_v1' or model['feature_source_sha256'] != stage_model_signature():
+        raise RuntimeError('independent stage model and feature source differ')
+    design = workload(inputs, model['hardware'])
+    if cost_group(design) not in model['execution_classes']:
+        raise ValueError('execution class has no independent stage calibration')
+    return {'inputs': design['inputs'], 'schedule': design['schedule'],
+            'phases': {phase: {pipe: evaluate_stage_features(features, model['components'][phase + '|' + pipe])
+                      if phase + '|' + pipe in model['components'] else
+                      {'predicted_active_sum_us': None, 'component_status': 'missing_stage_calibration',
+                       'use_as_calibrated_cost': False}
+                      for pipe, features in pipes.items()} for phase, pipes in phase_features(design).items()
+                      if phase in ('bmm1', 'bmm2', 'vec1', 'vec2')},
+            'full_latency_qualified': False, 'total_latency_us': None,
+            'scope': 'Whole-kernel phase active sums inferred from inputs; no total latency is inferred from incomplete stage costs'}
+
+
+def audit_stage_model(rows, model, previous_model=None):
+    verified = [row for row in rows if row.get('status') == 'ok' and str(row.get('gating_verified')).lower() == 'true'
+                and int(row.get('checked_elements') or 0) > 0]
+    observations = stage_observations(verified, model['hardware'])
+    output = []
+    for row in observations:
+        split = 'calibration' if row['case'] in model['calibration_cases'] else 'holdout'
+        shared = {'case': row['case'], 'phase': row['phase'], 'split': split, 'key_window': row['window'],
+                  'query_task': row['query_task'], 'active_cube_cores': row['active_cube_cores'],
+                  'active_vector_cores': row['active_vector_cores'], 'runtime_bmm1_output': row['runtime_bmm1_output'],
+                  'other_engine_execution_stopped': False, 'full_latency_qualified': False}
+        for pipe, features in row['features'].items():
+            component = model['components'].get(row['phase'] + '|' + pipe)
+            if component is None:
+                output.append({**shared, 'record_type': 'independent_stage_activity', 'pipe': pipe,
+                               'component_status': 'missing_stage_calibration', 'actual_us': row['targets'][pipe]})
+                continue
+            forecast = evaluate_stage_features(features, component)
+            prediction, actual = forecast['predicted_active_sum_us'], row['targets'][pipe]
+            record = {**shared, 'record_type': 'independent_stage_activity', 'pipe': pipe,
+                      'actual_us': actual, 'candidate_us': prediction,
+                      'candidate_ape_percent': 100 * abs(prediction / actual - 1),
+                      'signed_error_percent': 100 * (prediction / actual - 1), 'error_us': prediction - actual,
+                      'replay_min_us': row['replay_intervals'][pipe][0], 'replay_max_us': row['replay_intervals'][pipe][1],
+                      'minimum_possible_calibration_error_percent': component['minimum_possible_max_relative_error_percent'],
+                      'fit_consistent_with_repeats': forecast['fit_consistent_with_repeats'],
+                      'rank': component['rank'], 'active_features': component['active_features'],
+                      'identified_feature_combination': forecast['feature_combination_identified'],
+                      'use_as_calibrated_cost': forecast['use_as_calibrated_cost'],
+                      'component_status': forecast['component_status'],
+                      'features_json': json.dumps(features, sort_keys=True, separators=(',', ':')),
+                      'validation_scope': 'selected_query_task_engine_active_sum; total_kernel_time_never_used_to_fit_stage_costs'}
+            if previous_model is not None:
+                previous = previous_model['classes'][row['class_id']]['pipes'][pipe]['coefficients']
+                value = sum(features.get(name, 0) * coefficient for name, coefficient in previous.items())
+                record.update(previous_us=value, previous_ape_percent=100 * abs(value / actual - 1))
+            output.append(record)
+        for direction in ('read', 'write'):
+            actual, predicted = row[direction + '_measured_kb'], row[direction + '_source_kb']
+            output.append({**shared, 'record_type': 'independent_stage_work_volume', 'pipe': direction,
+                           'actual_kb': actual, 'source_kb': predicted,
+                           'volume_error_percent': 100 * abs(predicted / actual - 1) if actual else None,
+                           'validation_scope': 'source_bytes_checked_against_gated_memory_counters'})
+    output.extend({'record_type': 'excluded_stage_observation', **row} for row in model['excluded_observations'])
+    return output
