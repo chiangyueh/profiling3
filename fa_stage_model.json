@@ -1,4 +1,6 @@
 {
+  "blind_validation_completed": false,
+  "bmm1_cube_partition_source": "FlashAttentionScoreS1s2Bn2gs1SameAB::Process and SetExtraInfo; bmm1Format NZ dispatches bmm1Nz when s2RealSize % 64 != 0, otherwise bmm1",
   "calibration_cases": [
     "fa_branch_same_ab_nz_12d4cd573d21",
     "fa_branch_same_ab_nz_9265ddfd9e63"
@@ -36,17 +38,18 @@
           -0.9999999999999998
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": true,
       "status": "work_features_or_execution_context_incomplete"
     },
-    "bmm1|cube": {
+    "bmm1|cube|ND": {
       "active_features": 3,
       "coefficients": {
-        "flops_m": 0.11817500622086072,
+        "flops_m": 0.14086150377988813,
         "output_tiles": 0.0,
         "tiles": 0.0
       },
-      "consistent_with_replay_intervals": false,
+      "consistent_with_replay_intervals": true,
       "feature_scales": [
         402.653184,
         128.0,
@@ -57,25 +60,62 @@
         "tiles",
         "output_tiles"
       ],
-      "maximum_replay_span_percent": 9.027805335826056,
-      "minimum_possible_max_relative_error_percent": 16.105534124126386,
-      "observations": 3,
+      "maximum_replay_span_percent": 1.2077188516806505,
+      "minimum_possible_max_relative_error_percent": 0.0,
+      "observations": 1,
       "phase": "bmm1",
       "pipe": "cube",
-      "point_max_calibration_error_percent": 16.105534124126386,
+      "point_max_calibration_error_percent": 1.1102230246251565e-14,
+      "rank": 1,
+      "row_basis": [
+        [
+          -0.5773502691896257,
+          -0.5773502691896258,
+          -0.5773502691896258
+        ]
+      ],
+      "runtime_output_format": "ND",
+      "scalar_includes_waits": false,
+      "status": "repeat_consistent"
+    },
+    "bmm1|cube|NZ": {
+      "active_features": 3,
+      "coefficients": {
+        "flops_m": 0.11582434944209764,
+        "output_tiles": 0.0,
+        "tiles": 0.0
+      },
+      "consistent_with_replay_intervals": false,
+      "feature_scales": [
+        257.9496960000001,
+        96.0,
+        96.0
+      ],
+      "features": [
+        "flops_m",
+        "tiles",
+        "output_tiles"
+      ],
+      "maximum_replay_span_percent": 9.027805335826056,
+      "minimum_possible_max_relative_error_percent": 13.796041875564867,
+      "observations": 2,
+      "phase": "bmm1",
+      "pipe": "cube",
+      "point_max_calibration_error_percent": 13.796041875564867,
       "rank": 2,
       "row_basis": [
         [
-          -0.4890038877171096,
-          -0.6167962377469373,
-          -0.6167962377469373
+          -0.5280857071448904,
+          -0.6004687693416206,
+          -0.6004687693416206
         ],
         [
-          -0.8722816046424186,
-          0.34577796503135333,
-          0.34577796503135333
+          -0.8491910773844017,
+          0.3734129845698452,
+          0.3734129845698452
         ]
       ],
+      "runtime_output_format": "NZ",
       "scalar_includes_waits": false,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -127,6 +167,7 @@
           0.580457879450152
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "repeat_consistent"
     },
@@ -162,6 +203,7 @@
           0.6757988598066769
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -202,6 +244,7 @@
           0.0
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -237,6 +280,7 @@
           -1.0000000000000002
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": true,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -282,6 +326,7 @@
           0.10091191250154752
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "repeat_consistent"
     },
@@ -321,6 +366,7 @@
           0.5773502691896258
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -356,6 +402,7 @@
           0.6341312103203344
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -396,6 +443,7 @@
           0.0
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "repeat_consistent"
     },
@@ -489,6 +537,7 @@
           -0.11157941217799747
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "repeat_consistent"
     },
@@ -534,6 +583,7 @@
           -0.6811705199835915
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "repeat_consistent"
     },
@@ -574,6 +624,7 @@
           0.0
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -617,6 +668,7 @@
           0.0
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": true,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -710,6 +762,7 @@
           0.004155783787331571
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "repeat_consistent"
     },
@@ -745,6 +798,7 @@
           -0.7071067811865474
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -785,6 +839,7 @@
           0.0
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": false,
       "status": "work_features_or_execution_context_incomplete"
     },
@@ -828,17 +883,18 @@
           0.0
         ]
       ],
+      "runtime_output_format": "shared",
       "scalar_includes_waits": true,
       "status": "work_features_or_execution_context_incomplete"
     }
   },
-  "data_sha256": "3595abfd10ebc071e3414a69f0b48af4427b6925b51c91d2fcb3b3168166c0d1",
+  "evaluation_status": "previously_observed_holdout_reused_for_structural_diagnosis_not_new_blind_test",
   "excluded_observations": [],
   "execution_classes": [
     "kernel=same_ab|dtype=FP16|layout=BNSD|matmul=NORMAL|operand_path=GM|softmax_reduce=8"
   ],
-  "feature_source_sha256": "1e309a95c094cecc8a36a22cd7358f7cd827e9c287c63f4c0aa3a5f210790008",
-  "frozen_utc": "2026-10-29T17:01:40.529953+00:00",
+  "feature_source_sha256": "586a5e6396406021cbae7d4bc26c6b4bf11bd2d22d6e5f526d78ca3528f3f1aa",
+  "frozen_utc": "2026-10-29T17:40:00.963689+00:00",
   "full_latency_qualified": false,
   "hardware": {
     "aic_cores": 20,
@@ -848,159 +904,19 @@
     "soc": "Ascend910B3",
     "ub_bytes": 196608
   },
-  "input_only_inference_validation_scope": "Input-only calculation verified; extrapolating one selected Q task per core across split_factor does not independently verify all Q tasks",
-  "input_only_inference_verified": true,
   "other_engine_execution_stopped": false,
-  "parameter_sha256": "b3fc1fc94e0bcb088ba211093ad0109fc47c11edc4d9e333b398280ea6a18ea9",
+  "remaining_structural_limitations": [
+    "No shared GM/L2 arbitration across workers in timing_graph",
+    "Calibration query tasks are first on eight Cube cores; held-out tasks are last on sixteen cores",
+    "Profiler output contains no direct wait/stall counters",
+    "Gated activity is not an independent unmodified phase wall time",
+    "Cube and Fixpipe active counters are not proven disjoint intrinsic service times"
+  ],
   "scope": "In-context gated engine active counters; phase costs are fitted independently and never adjusted to cancel total-latency error",
+  "source_measurement_file": "20261029_201736.txt",
+  "source_measurement_sha256": "9f6e46f58966295e4fc13972b11be70948555e9399a32efa8d8742f5be013136",
   "standalone_phase_wall_times_measured": false,
   "uses_holdout_targets_for_fit": false,
   "uses_total_kernel_latency_for_stage_fit": false,
-  "validation": {
-    "bmm1|cscalar": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 9.801162162803312,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm1|cube": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 23.82604447052894,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm1|fixpipe": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": true,
-      "max_active_time_error_percent": 22.918303428695687,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm1|mte1": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 4.89175418303337,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm1|mte2": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 4.706147606445921,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm2|cscalar": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 9.899762382470211,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm2|cube": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": true,
-      "max_active_time_error_percent": 1.8727556931695588,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm2|fixpipe": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 45.742236706217234,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm2|mte1": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 4.105649376843912,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "bmm2|mte2": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": true,
-      "max_active_time_error_percent": 36.60623620940373,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "vec1|vector": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": true,
-      "max_active_time_error_percent": 0.12563910543217371,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "vec1|vmte2": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": true,
-      "max_active_time_error_percent": 47.59965740402294,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "vec1|vmte3": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 24.412007529750802,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "vec1|vscalar": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 23.56379499922634,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "vec2|vector": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": true,
-      "max_active_time_error_percent": 1.0017213114754897,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "vec2|vmte2": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 6.254581875237264,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "vec2|vmte3": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 14.663642642691821,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    },
-    "vec2|vscalar": {
-      "all_forecasts_identified": true,
-      "calibration_consistent": false,
-      "max_active_time_error_percent": 37.09346544255647,
-      "points": 2,
-      "prospective_blind_test": false,
-      "uses_holdout_for_fit": false
-    }
-  },
-  "version": "fa_independent_stage_v1"
+  "version": "fa_independent_stage_v2"
 }

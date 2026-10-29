@@ -1818,7 +1818,26 @@ def stage_observations(rows, hardware):
 
 def stage_model_signature():
     return cost.sha256({'source': source_hash(), 'functions': [inspect.getsource(function) for function in
-                       (stage_observations, stage_model_signature, fit_stage_model, evaluate_stage_features, predict_stage_activity)]})
+                       (stage_observations, stage_component_key, stage_feature_groups, stage_model_signature,
+                        fit_stage_model, evaluate_stage_features, predict_stage_activity)]})
+
+
+def stage_component_key(phase, pipe, output_format=None):
+    key = phase + '|' + pipe
+    return key + '|' + output_format if phase == 'bmm1' and pipe == 'cube' and output_format is not None else key
+
+
+def stage_feature_groups(design):
+    groups = {phase: {pipe: {stage_component_key(phase, pipe): values} for pipe, values in pipes.items()}
+              for phase, pipes in phase_features(design).items() if phase in ('bmm1', 'bmm2', 'vec1', 'vec2')}
+    groups['bmm1']['cube'] = {}
+    units = zip(design['units'], design['unit_counts']) if 'units' in design else ((job, 1) for job in design['jobs'])
+    for job, count in units:
+        cube = job['cube'][0]
+        key = stage_component_key('bmm1', 'cube', 'NZ' if cube['nz_write_kb'] else 'ND')
+        values = groups['bmm1']['cube'].setdefault(key, Counter())
+        values.update({name: cube.get(name, 0) * count for name in PIPES['cube'][1]})
+    return groups
 
 
 def fit_stage_model(rows, hardware, calibration_cases):
@@ -1841,8 +1860,10 @@ def fit_stage_model(rows, hardware, calibration_cases):
     if len(classes) != 1:
         raise ValueError('independent stage calibration requires one source execution class at a time')
     components = {}
-    for phase, pipe in sorted({(row['phase'], pipe) for row in selected for pipe in row['features']}):
-        records = [row for row in selected if row['phase'] == phase and pipe in row['features']]
+    for phase, pipe, key in sorted({(row['phase'], pipe, stage_component_key(row['phase'], pipe, row['runtime_bmm1_output']))
+                                    for row in selected for pipe in row['features']}):
+        records = [row for row in selected if pipe in row['features'] and
+                   stage_component_key(row['phase'], pipe, row['runtime_bmm1_output']) == key]
         names = list(PIPES[pipe][1])
         matrix = np.asarray([[row['features'][pipe][name] for name in names] for row in records], dtype=float)
         targets = np.asarray([row['targets'][pipe] for row in records])
@@ -1876,7 +1897,8 @@ def fit_stage_model(rows, hardware, calibration_cases):
         threshold = max(normalized.shape) * np.finfo(float).eps * singular[0] if len(singular) else 0
         rank = int(np.sum(singular > threshold))
         rates = point / scales
-        components[phase + '|' + pipe] = {'phase': phase, 'pipe': pipe, 'features': names,
+        components[key] = {'phase': phase, 'pipe': pipe, 'features': names,
+            'runtime_output_format': key.rsplit('|', 1)[-1] if phase == 'bmm1' and pipe == 'cube' else 'shared',
             'coefficients': {name: float(value) for name, value in zip(names, rates)},
             'feature_scales': scales.tolist(), 'row_basis': vt[:rank].tolist(), 'rank': rank,
             'active_features': int(np.sum(np.any(matrix != 0, axis=0))), 'observations': len(records),
@@ -1886,7 +1908,7 @@ def fit_stage_model(rows, hardware, calibration_cases):
             'status': 'repeat_consistent' if feasibility.success else 'work_features_or_execution_context_incomplete',
             'scalar_includes_waits': pipe in ('cscalar', 'vscalar'),
             'maximum_replay_span_percent': float(np.max((intervals[:, 1] - intervals[:, 0]) / targets) * 100)}
-    return {'version': 'fa_independent_stage_v1', 'feature_source_sha256': stage_model_signature(),
+    return {'version': 'fa_independent_stage_v2', 'feature_source_sha256': stage_model_signature(),
             'hardware': hardware, 'execution_classes': classes, 'calibration_cases': sorted(calibration_cases),
             'components': components, 'excluded_observations': excluded, 'frozen_utc': datetime.now(timezone.utc).isoformat(),
             'uses_total_kernel_latency_for_stage_fit': False, 'uses_holdout_targets_for_fit': False,
@@ -1912,18 +1934,23 @@ def evaluate_stage_features(features, component):
 
 
 def predict_stage_activity(inputs, model):
-    if model.get('version') != 'fa_independent_stage_v1' or model['feature_source_sha256'] != stage_model_signature():
+    if model.get('version') != 'fa_independent_stage_v2' or model['feature_source_sha256'] != stage_model_signature():
         raise RuntimeError('independent stage model and feature source differ')
     design = workload(inputs, model['hardware'])
     if cost_group(design) not in model['execution_classes']:
         raise ValueError('execution class has no independent stage calibration')
-    return {'inputs': design['inputs'], 'schedule': design['schedule'],
-            'phases': {phase: {pipe: evaluate_stage_features(features, model['components'][phase + '|' + pipe])
-                      if phase + '|' + pipe in model['components'] else
-                      {'predicted_active_sum_us': None, 'component_status': 'missing_stage_calibration',
-                       'use_as_calibrated_cost': False}
-                      for pipe, features in pipes.items()} for phase, pipes in phase_features(design).items()
-                      if phase in ('bmm1', 'bmm2', 'vec1', 'vec2')},
+    phases = {}
+    for phase, pipes in stage_feature_groups(design).items():
+        phases[phase] = {}
+        for pipe, groups in pipes.items():
+            forecasts = {key: evaluate_stage_features(features, model['components'][key]) if key in model['components'] else
+                         {'predicted_active_sum_us': None, 'component_status': 'missing_stage_calibration',
+                          'use_as_calibrated_cost': False} for key, features in groups.items()}
+            complete = all(item['predicted_active_sum_us'] is not None for item in forecasts.values())
+            phases[phase][pipe] = {'components': forecasts,
+                'predicted_active_sum_us': sum(item['predicted_active_sum_us'] for item in forecasts.values()) if complete else None,
+                'use_as_calibrated_cost': all(item['use_as_calibrated_cost'] for item in forecasts.values())}
+    return {'inputs': design['inputs'], 'schedule': design['schedule'], 'phases': phases,
             'full_latency_qualified': False, 'total_latency_us': None,
             'scope': 'Whole-kernel phase active sums inferred from inputs; no total latency is inferred from incomplete stage costs'}
 
@@ -1938,9 +1965,11 @@ def audit_stage_model(rows, model, previous_model=None):
         shared = {'case': row['case'], 'phase': row['phase'], 'split': split, 'key_window': row['window'],
                   'query_task': row['query_task'], 'active_cube_cores': row['active_cube_cores'],
                   'active_vector_cores': row['active_vector_cores'], 'runtime_bmm1_output': row['runtime_bmm1_output'],
+                  'validation_is_new_blind_test': False,
                   'other_engine_execution_stopped': False, 'full_latency_qualified': False}
         for pipe, features in row['features'].items():
-            component = model['components'].get(row['phase'] + '|' + pipe)
+            component_key = stage_component_key(row['phase'], pipe, row['runtime_bmm1_output'])
+            component = model['components'].get(component_key)
             if component is None:
                 output.append({**shared, 'record_type': 'independent_stage_activity', 'pipe': pipe,
                                'component_status': 'missing_stage_calibration', 'actual_us': row['targets'][pipe]})
@@ -1948,6 +1977,7 @@ def audit_stage_model(rows, model, previous_model=None):
             forecast = evaluate_stage_features(features, component)
             prediction, actual = forecast['predicted_active_sum_us'], row['targets'][pipe]
             record = {**shared, 'record_type': 'independent_stage_activity', 'pipe': pipe,
+                      'component_key': component_key,
                       'actual_us': actual, 'candidate_us': prediction,
                       'candidate_ape_percent': 100 * abs(prediction / actual - 1),
                       'signed_error_percent': 100 * (prediction / actual - 1), 'error_us': prediction - actual,
@@ -1972,4 +2002,46 @@ def audit_stage_model(rows, model, previous_model=None):
                            'volume_error_percent': 100 * abs(predicted / actual - 1) if actual else None,
                            'validation_scope': 'source_bytes_checked_against_gated_memory_counters'})
     output.extend({'record_type': 'excluded_stage_observation', **row} for row in model['excluded_observations'])
+    return output
+
+
+def audit_stage_counters(rows, model):
+    observations = stage_observations(rows, model['hardware'])
+    raw = {(row['case'], row['phase'], row['key_window']): row for row in rows}
+    metric_columns = {name for saved in rows for columns in json.loads(saved.get('raw_metric_column_names') or '{}').values()
+                      for name in columns}
+    calibration = [row for row in observations if row['case'] in model['calibration_cases']]
+    output = []
+    for row in observations:
+        if row['phase'] not in ('bmm1', 'bmm2'):
+            continue
+        saved = raw[row['case'], row['phase'], row['window']]
+        counters = json.loads(saved.get('counter_diagnostics_json') or '{}').get('ArithmeticUtilization/aic', {})
+        issued = counters.get('aic_cube_total_instr_number', {}).get('core_sum')
+        pmu_fops = counters.get('aic_cube_fops', {}).get('core_sum')
+        design = workload(row['inputs'], model['hardware'])
+        peers = [peer for peer in calibration if peer['phase'] == row['phase']]
+        write_features = row['features']['fixpipe']
+        equal_writes = [peer for peer in peers if peer['features']['fixpipe'] == write_features]
+        intervals = [peer['replay_intervals']['fixpipe'] for peer in equal_writes]
+        medians = [peer['targets']['fixpipe'] for peer in equal_writes]
+        repeat_overlap = max(pair[0] for pair in intervals) <= min(pair[1] for pair in intervals) if intervals else None
+        output.append({'record_type': 'source_counter_diagnosis', 'case': row['case'], 'phase': row['phase'],
+            'split': 'calibration' if row['case'] in model['calibration_cases'] else 'holdout',
+            'key_window': row['window'], 'query_task': row['query_task'],
+            'runtime_bmm1_output': row['runtime_bmm1_output'], 'active_cube_cores': row['active_cube_cores'],
+            'source_mmad_instructions': row['features']['cube']['tiles'], 'pmu_mmad_instructions': issued,
+            'mmad_instruction_count_matches': issued == row['features']['cube']['tiles'] if issued is not None else None,
+            'source_flops': row['features']['cube']['flops_m'] * 1e6, 'pmu_fops_field': pmu_fops,
+            'source_to_pmu_fops_ratio': row['features']['cube']['flops_m'] * 1e6 / pmu_fops if pmu_fops else None,
+            'matmul_geometry_json': json.dumps(design['matmul'][0 if row['phase'] == 'bmm1' else 1], sort_keys=True, separators=(',', ':')),
+            'calibration_query_tasks_json': json.dumps(sorted({peer['query_task'] for peer in peers})),
+            'calibration_active_cube_cores_json': json.dumps(sorted({peer['active_cube_cores'] for peer in peers})),
+            'query_position_seen_in_calibration': any(peer['query_task'] == row['query_task'] for peer in peers),
+            'active_core_count_seen_in_calibration': any(peer['active_cube_cores'] == row['active_cube_cores'] for peer in peers),
+            'equal_write_feature_observations': len(equal_writes), 'equal_write_repeat_intervals_overlap': repeat_overlap,
+            'equal_write_minimum_max_error_percent': 100 * (max(medians) - min(medians)) / (max(medians) + min(medians)) if medians else None,
+            'direct_wait_stall_counter_present': any(re.search(r'wait|stall|conflict|cflt', name, re.I) for name in metric_columns) if metric_columns else None,
+            'shared_global_memory_queue_in_timing_graph': False,
+            'validation_scope': 'source_work_and_counter_consistency; no cost or holdout target is fitted'})
     return output
