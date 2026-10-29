@@ -1,0 +1,144 @@
+diff --git a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
+index d9b920d..a8f6115 100644
+--- a/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
++++ b/attention/flash_attention_score/op_host/arch32/flash_attention_score_tiling_general.cpp
+@@ -63,6 +63,7 @@ static void TraceFaCandidate(const char *name, int64_t bmmPreset, uint32_t block
+         const auto &transpose = data.transposeTilingData;
+         output << "FINAL\t" << name
+                << "\tFA_BMM_PRESET=" << bmmPreset
++               << "\tFA_STAGE_PROFILE_ID=" << data.stageProfile
+                << "\tFA_BLOCK_DIM=" << blockDim
+                << "\tFA_WORKSPACE_BYTES=" << workspace
+                << "\tFA_CORE_NUM=" << multi.get_coreNum()
+@@ -2160,6 +2161,13 @@ ge::graphStatus FlashAttentionScoreTilingBase::PostTiling()
+               templateName, workspaces[0], pseAlibiBaseS1, pseAlibiBaseS2);
+     OP_LOGD(opName, "[%s] tiling data:%s", templateName, GetTilingDataDebugStr().c_str());
+ 
++    int64_t stageProfile = 0;
++    ReadFaCandidate("FA_STAGE_PROFILE_ID", stageProfile);
++    const int64_t phase = stageProfile & 255;
++    if (stageProfile != 0 && (phase < 1 || phase > 4 || stageProfile > 772)) {
++        return ge::GRAPH_FAILED;
++    }
++    tilingData->stageProfile = static_cast<uint64_t>(stageProfile);
+     int64_t bmmPreset = 0;
+     ReadFaCandidate("FA_BMM_PRESET", bmmPreset);
+     TraceFaCandidate(templateName, bmmPreset, blockDim, workspaces[0], *tilingData);
+diff --git a/attention/flash_attention_score/op_kernel/arch32/flash_attention_score_s1s2_bn2gs1_sab.h b/attention/flash_attention_score/op_kernel/arch32/flash_attention_score_s1s2_bn2gs1_sab.h
+index 5ca4c90..07e02ea 100644
+--- a/attention/flash_attention_score/op_kernel/arch32/flash_attention_score_s1s2_bn2gs1_sab.h
++++ b/attention/flash_attention_score/op_kernel/arch32/flash_attention_score_s1s2_bn2gs1_sab.h
+@@ -121,6 +121,35 @@ public:
+                                 __gm__ uint8_t *softmaxOut, __gm__ uint8_t *attentionOut, __gm__ uint8_t *workspace,
+                                 const FlashAttentionScoreGeneralTilingData *__restrict tiling, TPipe *tPipe);
+     __aicore__ inline void Process();
++    __aicore__ inline bool StageProfileBegin(uint32_t phase, const SplitSameABExtraInfo &info)
++    {
++        const uint64_t selected = this->tilingData->stageProfile;
++        if (this->stageProfileDone || selected == 0 || (selected & 255) != phase) {
++            return false;
++        }
++        if (((selected & 256) != 0 && info.s2LoopCount != info.s2LoopLimit) ||
++            ((selected & 256) == 0 && info.s2LoopCount != 0)) {
++            return false;
++        }
++        const int64_t firstTask = this->cubeBlockIdx * this->tilingData->multiCoreParams.splitFactorSize;
++        const int64_t endTask = Min(firstTask + this->tilingData->multiCoreParams.splitFactorSize,
++                                   this->tilingData->multiCoreParams.totalSize);
++        const int64_t targetTask = (selected & 512) != 0 ? endTask - 1 : firstTask;
++        if (info.multiCoreInnerIdx != targetTask) {
++            return false;
++        }
++        AscendC::PipeBarrier<PIPE_ALL>();
++        AscendC::MetricsProfStart();
++        return true;
++    }
++    __aicore__ inline void StageProfileEnd(bool active)
++    {
++        if (active) {
++            AscendC::PipeBarrier<PIPE_ALL>();
++            AscendC::MetricsProfStop();
++            this->stageProfileDone = true;
++        }
++    }
+ 
+     static constexpr MatmulConfig CFG_CUSTOM_EXCEED = (mmPolicyType == MmPolicyType::UNSPLITK) ? CFG_DIS_UNIT_FLAG_EXCEED : CFG_EXCEED;
+ 
+@@ -366,6 +395,7 @@ protected:
+     int32_t cubeBlockIdx;
+     int32_t cubeSubIdx;
+     const FlashAttentionScoreGeneralTilingData *__restrict tilingData;
++    bool stageProfileDone = false;
+ 
+     int64_t boIdx;
+     int64_t n2oIdx;
+@@ -809,6 +839,9 @@ template <ImplModeEnum implMode, LayOutTypeEnum layOutType, bool hasPse, bool ha
+ __aicore__ inline void FlashAttentionScoreS1s2Bn2gs1SameAB<implMode, layOutType, hasPse, hasAtten, hasDrop, INPUT_T, T,
+                                                         bmm1Format, mmPolicyType, hasRope>::Process()
+ {
++    if (this->tilingData->stageProfile != 0) {
++        AscendC::MetricsProfStop();
++    }
+     // 确定核内切分起点
+     int64_t multiCoreInnerOffset = this->cubeBlockIdx * this->tilingData->multiCoreParams.splitFactorSize;
+     int64_t multiCoreInnerLimit = multiCoreInnerOffset + this->tilingData->multiCoreParams.splitFactorSize;
+@@ -856,6 +889,7 @@ __aicore__ inline void FlashAttentionScoreS1s2Bn2gs1SameAB<implMode, layOutType,
+             if (notLastTwoLoop) {
+                 this->SetExtraInfo(extraInfo[taskId % 3], taskId, s2LoopCount, s2LoopLimit, multiCoreInnerIdx);
+                 if ASCEND_IS_AIC {
++                    const bool stageActive = this->StageProfileBegin(1, extraInfo[taskId % 3]);
+                     if constexpr (bmm1Format == CubeFormat::NZ) {
+                         if (extraInfo[taskId % 3].needNz2Nd == 1) {
+                             this->IterateBmm1(extraInfo[taskId % 3], this->bmm1Nz);
+@@ -865,13 +899,16 @@ __aicore__ inline void FlashAttentionScoreS1s2Bn2gs1SameAB<implMode, layOutType,
+                     } else {
+                         this->IterateBmm1(extraInfo[taskId % 3], this->bmm1);
+                     }
++                    this->StageProfileEnd(stageActive);
+                     CrossCoreSetFlag<2, PIPE_FIX>(SYNC_C1_V1_FLAG[taskId % 3]);
+                 }
+             }
+ 
+             if (taskId > 0 && notLast) {
+                 if ASCEND_IS_AIV {
++                    const bool stageActive = this->StageProfileBegin(2, extraInfo[(taskId + 2) % 3]);
+                     this->ProcessVec1(extraInfo[(taskId + 2) % 3]);
++                    this->StageProfileEnd(stageActive);
+                     AscendC::SetFlag<HardEvent::MTE3_MTE2>(eventIdMte3ToMte2);                
+                     CrossCoreSetFlag<2, PIPE_MTE3>(SYNC_V1_C2_FLAG[(taskId + 2) % 3]);
+                 }
+@@ -890,14 +927,18 @@ __aicore__ inline void FlashAttentionScoreS1s2Bn2gs1SameAB<implMode, layOutType,
+                 }
+                 if ASCEND_IS_AIC {
+                     CrossCoreWaitFlag(SYNC_V1_C2_FLAG[(taskId + 2) % 3]);
++                    const bool stageActive = this->StageProfileBegin(3, extraInfo[(taskId + 2) % 3]);
+                     this->IterateBmm2(extraInfo[(taskId + 2) % 3], this->bmm2);
++                    this->StageProfileEnd(stageActive);
+                     CrossCoreSetFlag<2, PIPE_FIX>(SYNC_C2_V2_FLAG[(taskId + 2) % 3]);
+                 }     
+             }
+ 
+             if (taskId > 1) {
+                 if ASCEND_IS_AIV {
++                    const bool stageActive = this->StageProfileBegin(4, extraInfo[(taskId + 1) % 3]);
+                     this->ProcessVec2(extraInfo[(taskId + 1) % 3]);
++                    this->StageProfileEnd(stageActive);
+                 }
+             }
+             taskId++;
+diff --git a/attention/flash_attention_score/op_kernel/arch32/flash_attention_score_tiling.h b/attention/flash_attention_score/op_kernel/arch32/flash_attention_score_tiling.h
+index df8b513..8c54440 100644
+--- a/attention/flash_attention_score/op_kernel/arch32/flash_attention_score_tiling.h
++++ b/attention/flash_attention_score/op_kernel/arch32/flash_attention_score_tiling.h
+@@ -1569,8 +1569,11 @@ public:
+     CopyTransposeTiling transposeTilingDataTailCore; // 64
+     DropmaskParams dropmaskParams;  // 2 * 4byte + 2 * 8byte = 24
+ 
++    uint64_t stageProfile = 0;
++
+     void reset()
+     {
++        stageProfile = 0;
+         inputParams.reset();
+         multiCoreParams.reset();
+         coreParams.reset();
