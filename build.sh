@@ -85,6 +85,7 @@ reset_kernel_target() {
     local binary_root="${OPS_ROOT}/build/binary/${SOC_UNIT}"
     local generated="${binary_root}/gen"
     local kernels="${binary_root}/bin/flash_attention_score"
+    rm -f -- "${binary_root}/src/flash_attention_score/flash_attention_score_${SOC_UNIT}_src_copy.done"
     if [[ -d "${generated}" ]]; then
         find "${generated}" -maxdepth 1 -type f \
             -name 'flash_attention_score_*.done' -delete
@@ -147,6 +148,9 @@ PACKAGE_FINGERPRINT=$(printf '%s\n' \
     "tiling_key=${TILING_KEY:-none}" \
     "dtype_kind=${DTYPE_KIND:-none}" \
     "patch=${PATCH_SHA256}")
+if [[ -n "${FA_KERNEL_SOURCE_SHA256:-}" ]]; then
+    PACKAGE_FINGERPRINT=$(printf '%s\n' "${PACKAGE_FINGERPRINT}" "kernel_source=${FA_KERNEL_SOURCE_SHA256}")
+fi
 FULL_FINGERPRINT=$(printf '%s\n' "${PACKAGE_FINGERPRINT}" "launcher=${LAUNCHER_SHA256}")
 CACHED_CUSTOM_ROOT=$(find "${INSTALL_ROOT}/vendors" -mindepth 1 -maxdepth 1 -type d \
     -name '*_transformer' -print 2>/dev/null | head -n 1 || true)
@@ -165,7 +169,7 @@ CACHED_PACKAGE_FINGERPRINT=""
 if [[ -f "${CACHE_MANIFEST}" ]]; then
     CACHED_PACKAGE_FINGERPRINT=$(grep -v '^launcher=' "${CACHE_MANIFEST}" || true)
 fi
-if [[ -z "${CACHED_PACKAGE_FINGERPRINT}" && -n "${CACHED_CUSTOM_ROOT}" && \
+if [[ -z "${FA_KERNEL_SOURCE_SHA256:-}" && -z "${CACHED_PACKAGE_FINGERPRINT}" && -n "${CACHED_CUSTOM_ROOT}" && \
       -f "${BUILD_LOG}" && -f "${INSTALL_LOG}" ]] && \
       kernel_cache_valid "${CACHED_CUSTOM_ROOT}"; then
     CACHED_PACKAGE_FINGERPRINT="${PACKAGE_FINGERPRINT}"
