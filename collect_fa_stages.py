@@ -207,6 +207,39 @@ def save_csv(path, rows):
     temporary.replace(path)
 
 
+def raw_counter_diagnostics(groups):
+    selected_columns = re.compile(r'fops|flops|instr|mac|fp16|fp32|wait|stall|conflict|cflt|total_cycles', re.I)
+    result = {}
+    for kind in ('ArithmeticUtilization', 'PipeUtilization'):
+        for engine, prefix in (('aic', 'cube'), ('aiv', 'vector')):
+            values = {}
+            for (table_kind, _), records in groups.items():
+                if table_kind != kind:
+                    continue
+                cores = [row for row in records if row.get('sub_block_id', '').startswith(prefix)]
+                for name in sorted({name for row in cores for name in row if selected_columns.search(name)}):
+                    if name.startswith(('aic_', 'aiv_')) and not name.startswith(engine + '_'):
+                        continue
+                    numbers = [finite(row.get(name)) for row in cores]
+                    numbers = [number for number in numbers if number is not None]
+                    if numbers:
+                        values.setdefault(name, []).append((sum(numbers), statistics.mean(numbers), max(numbers)))
+            diagnostics = {}
+            for name, replays in values.items():
+                if not any(any(value != 0 for value in replay) for replay in replays):
+                    continue
+                item = {'core_mean': statistics.median(replay[1] for replay in replays),
+                        'core_max': statistics.median(replay[2] for replay in replays),
+                        'replay_core_max_min': min(replay[2] for replay in replays),
+                        'replay_core_max_max': max(replay[2] for replay in replays), 'replays': len(replays)}
+                if not re.search(r'ratio|rate|\(\%\)', name, re.I):
+                    item['core_sum'] = statistics.median(replay[0] for replay in replays)
+                diagnostics[name] = item
+            if diagnostics:
+                result[kind + '/' + engine] = diagnostics
+    return result
+
+
 def parse_metrics(folder, phase, allow_partial=False):
     target_engine = None if phase not in PHASES else 'aic' if phase in ('bmm1', 'bmm2') else 'aiv'
     groups = {}
@@ -232,6 +265,7 @@ def parse_metrics(folder, phase, allow_partial=False):
               'pipe_stamps': json.dumps(sorted(stamp for kind, stamp in groups if kind == 'PipeUtilization')),
               'memory_stamps': json.dumps(sorted(stamp for kind, stamp in groups if kind == 'Memory')),
               'profile_pids': json.dumps(sorted({row.get('Pid', '') for row in basic})),
+              'counter_diagnostics_json': json.dumps(raw_counter_diagnostics(groups), separators=(',', ':')),
               'raw_metric_table_counts': json.dumps({kind: sum(item == kind for item, _ in groups) for kind in ('OpBasicInfo', 'PipeUtilization', 'Memory', 'ArithmeticUtilization')})}
     freq = [float(row['Current Freq']) for row in basic if finite(row.get('Current Freq'))]
     result.update(freq_min_mhz=min(freq) if freq else '', freq_max_mhz=max(freq) if freq else '')
