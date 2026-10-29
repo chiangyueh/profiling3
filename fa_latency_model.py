@@ -24,17 +24,17 @@ import fa_latency_inputs as cost
 import fit_fa_latency as legacy
 
 
-VERSION = "fa_source_pipeline_v4"
+VERSION = "fa_source_pipeline_v5"
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT / "fa_source_model.json"
 SOURCE = "attention/flash_attention_score/"
 PIPES = {
-    "cube": ("aic_cube_active_sum_us", ("flops_m", "tiles")),
+    "cube": ("aic_cube_active_sum_us", ("flops_m", "tiles", "output_tiles")),
     "mte1": ("aic_mte1_active_sum_us", ("l0_kb", "tiles")),
     "mte2": ("aic_mte2_active_sum_us", ("read_kb", "loads", "address_gap_kb")),
-    "fixpipe": ("aic_fixpipe_active_sum_us", ("nd_write_kb", "nz_write_kb", "stores")),
-    "vector": ("aiv_vec_active_sum_us", ("softmax_k", "reduction_k", "cast_k", "nz2nd_k", "nd2nz_k", "online_k", "drop_k", "unpack_k", "chunks")),
-    "vmte2": ("aiv_mte2_active_sum_us", ("read_kb", "loads")),
+    "fixpipe": ("aic_fixpipe_active_sum_us", ("nd_write_kb", "nz_write_kb", "stores", "calls")),
+    "vector": ("aiv_vec_active_sum_us", ("softmax_k", "reduction_k", "cast_k", "nz2nd_k", "nd2nz_k", "online_k", "rescale_k", "normalize_k", "drop_k", "unpack_k", "chunks")),
+    "vmte2": ("aiv_mte2_active_sum_us", ("read_kb", "alignment_read_kb", "loads")),
     "vmte3": ("aiv_mte3_active_sum_us", ("write_kb", "stores", "address_gap_kb")),
     "cscalar": ("aic_scalar_active_sum_us", ("workers", "batch_entries", "commands")),
     "vscalar": ("aiv_scalar_active_sum_us", ("workers", "batch_entries", "chunks", "drop_chunks", "adapter_workers")),
@@ -245,10 +245,13 @@ def vector_job(p, s, rows, columns, first, last):
               "loads": c1 * (1 + int(bool(p["has_drop_mask"]))), "stores": c1 + int(last) if windowed else c1 * 3,
               "vec1_calls": c1, "softmax_initial_calls": c1 if first else 0, "softmax_update_calls": 0 if first else c1}
     stage1.update(nz2nd_k=rows * padded * int(nz1) / 1000, nd2nz_k=rows * padded * int(probability_nz) / 1000,
-                  drop_chunks=c1 if p["has_drop_mask"] else 0)
+                  drop_chunks=c1 if p["has_drop_mask"] else 0,
+                  alignment_read_kb=4 * rows * (padded - align(columns)) / 1024 if nz1 else 0)
     output_elements = rows * width
     stage2 = {"softmax_k": 0, "reduction_k": 0, "cast_k": output_elements / 1000 if last else 0,
-              "format_k": output_elements / 1000 if nz2 else 0, "online_k": output_elements * (int(not first) * 2 + int(last)) / 1000,
+              "format_k": output_elements / 1000 if nz2 else 0, "online_k": 0,
+              "rescale_k": output_elements * int(not first) * 2 / 1000,
+              "normalize_k": output_elements * int(last) / 1000,
               "drop_k": 0, "chunks": c2, "calls": 1,
               "read_kb": (4 * output_elements + (0 if windowed else stats) + (0 if first else 4 * output_elements)) / 1024,
               "write_kb": ((2 * rows * p["DV"] if last else 4 * output_elements) + (stats if windowed and last else 0)) / 1024,
@@ -297,13 +300,18 @@ def cube_job(p, s, geometry, stage, rows, columns, heads, kv_heads, shared, carr
             a_bytes *= nloops
             calls = nloops * (len(parts) + 1)
             loads = (heads + kv_heads) * nloops * len(parts)
+    k_parts = [align(min(bk, k - start)) for start in range(0, k, bk)] if s['policy'] == 'NORMAL' else []
     return {"flops_m": 2 * heads * align(m) * align(n) * align(k) / 1e6, "tiles": tiles,
+            "output_tiles": heads * mt * nt,
             "l0_kb": heads * 2 * (align(m) * align(k) * nt + align(n) * align(k) * mt) / 1024,
             "read_kb": (a_bytes + b_bytes) / 1024,
             "address_gap_kb": gap / 1024,
             "write_kb": write_kb, "nd_write_kb": 0 if nz else write_kb, "nz_write_kb": write_kb if nz else 0,
             "loads": loads, "stores": heads * mt * nt, "calls": calls, "commands": calls + tiles,
             "k_slices": k_slices,
+            "pipeline_k_slices": [part / sum(k_parts) for part in k_parts] if len(k_parts) > 1 else [],
+            "pipeline_k_buffers": min(max(1, geometry['depth_a1'] // max(1, geometry.get('step_m', 1))),
+                                      max(1, geometry['depth_b1'] // max(1, geometry.get('step_n', 1)))),
             "query_rows": heads * rows}
 
 
@@ -689,19 +697,21 @@ def timing_graph(design, finite_buffers=True):
         encoded = {pipe: template(pipe, job, count, phase) for pipe in pipes}
         fixed = []
         for chunk in range(count):
-            if job.get("k_slices"):
+            slices = job.get("k_slices") or (job.get('pipeline_k_slices') if design.get('pipeline_k_streaming') else [])
+            if slices:
+                buffers = 2 if job.get('k_slices') else job['pipeline_k_buffers']
                 partials = []
-                for part, fraction in enumerate(job["k_slices"]):
+                for part, fraction in enumerate(slices):
                     previous = launch
                     for pipe in pipes[:-1]:
                         dependencies = [previous, tails.get(pipe, -1)]
-                        if pipe == "mte2" and part >= 2:
-                            dependencies.append(partials[part - 2])
+                        if pipe == "mte2" and part >= buffers:
+                            dependencies.append(partials[part - buffers])
                         if pipe == "cube" and depth and chunk >= depth and part == 0:
                             dependencies.append(fixed[chunk - depth])
                         current = {name: job.get(name, 0) * fraction / count for name in PIPES[pipe][1]}
                         if pipe == "mte2":
-                            current["loads"] = job["loads"] / count / len(job["k_slices"])
+                            current["loads"] = job["loads"] / count / len(slices)
                         previous = node(dependencies, template(pipe, current, phase=phase))
                         tails[pipe] = previous
                     partials.append(previous)
@@ -720,7 +730,7 @@ def timing_graph(design, finite_buffers=True):
         return fixed[-1]
 
     finished, seen = [], set()
-    init = {"workers": 1, "batch_entries": design["inputs"]["B"] if design["inputs"]["layout"] == "TND" else 0,
+    init = {"workers": 0 if design.get('isolated_phase') else 1, "batch_entries": design["inputs"]["B"] if design["inputs"]["layout"] == "TND" else 0,
             "adapter_workers": int(design["schedule"]["drop_adapter"])}
     prefix = node()
     if design["adapter_jobs"]:
@@ -1000,7 +1010,7 @@ def predict_design(design, model, geometry_origin="cpu_matmul_tiler"):
         raise RuntimeError("source primitive dimensions differ from the calibrated model")
     rates = {"hardware": model["hardware"], "pipes": entry["pipes"], "strict_classes": True, "class_id": group}
     active = {phase: {pipe: service(job, pipe, rates) for pipe, job in pipes.items()} for phase, pipes in phase_features(design).items()}
-    graph = timing_graph(design)
+    graph = timing_graph({**design, 'pipeline_k_streaming': bool(entry.get('pipeline_k_streaming'))})
     value = graph_time(graph, entry["rates"])
     if not math.isfinite(value) or value <= 0:
         raise RuntimeError("invalid source-model latency")
@@ -1248,7 +1258,7 @@ def pipeline_samples(corpus, hardware, graph_store=None):
     return samples, excluded
 
 
-def fit_pipeline_group(samples, hardware):
+def fit_pipeline_group(samples, hardware, phase_targets=(), phase_graph_targets=()):
     from scipy.optimize import least_squares, nnls
     names = parameter_names()
     position = {pair: index for index, pair in enumerate(names)}
@@ -1279,6 +1289,14 @@ def fit_pipeline_group(samples, hardware):
             prior_values.append(value)
             prior_weights.append(math.sqrt(0.25 * row["pmu_weight"]))
             prior_scalar.append(pipe in ("cscalar", "vscalar"))
+    phase_replicas = Counter(row.get('case', '') for row in phase_targets)
+    for row in phase_targets:
+        vector = np.zeros(dimensions)
+        for name in PIPES[row['pipe']][1]:
+            vector[position[row['pipe'], name]] = row['features'].get(name, 0)
+        prior_rows.append(vector / row['target_us'])
+        prior_weights.append(1 / math.sqrt(phase_replicas[row.get('case', '')]))
+        prior_scalar.append(row['pipe'] in ('cscalar', 'vscalar'))
     prior = np.asarray(prior_rows).reshape((-1, dimensions))
     confidence = np.asarray(prior_weights)
     upper = np.asarray(prior_scalar, dtype=bool)
@@ -1287,13 +1305,25 @@ def fit_pipeline_group(samples, hardware):
     event = np.asarray([row["timing_protocol"] == "aclrtEventElapsedTime" for row in samples], dtype=float)
     event_parameter = bool(np.any(event))
     start = initial[active] / scales[active]
+    limits = np.full(len(active), np.inf)
+    for row in phase_targets:
+        if row.get('phase') != 'startup':
+            continue
+        for at, index in enumerate(active):
+            pipe, field = names[index]
+            count = row['features'].get(field, 0) if pipe == row['pipe'] else 0
+            if count > 0:
+                limits[at] = min(limits[at], row.get('target_high_us', row['target_us']) / count / scales[index])
+    start = np.minimum(start, limits * 0.95)
     if event_parameter:
         start = np.append(start, 0.0)
+        limits = np.append(limits, np.inf)
     target = np.asarray([row["duration_us"] for row in samples])
     weights = np.sqrt(np.asarray([row["timing_weight"] for row in samples]))
     replicas = Counter(row["shape_identity"] for row in samples)
     weights /= np.sqrt(np.asarray([replicas[row["shape_identity"]] for row in samples]))
     last = {}
+    phase_graph_replicas = Counter(row['case'] for row in phase_graph_targets)
 
     def residual(parameters):
         if "parameters" in last and np.array_equal(parameters, last["parameters"]):
@@ -1312,6 +1342,14 @@ def fit_pipeline_group(samples, hardware):
             jacobian = np.column_stack((jacobian, event))
         times = (prediction / target - 1) * weights
         time_jacobian = jacobian / target[:, None] * weights[:, None]
+        for row in phase_graph_targets:
+            value, derivative = graph_time(row['graph'], rates, True)
+            weight = 1 / math.sqrt(phase_graph_replicas[row['case']])
+            times = np.append(times, (value / row['target_us'] - 1) * weight)
+            current = derivative[active] * scales[active] / row['target_us'] * weight
+            if event_parameter:
+                current = np.append(current, 0.0)
+            time_jacobian = np.vstack((time_jacobian, current))
         counter = prior @ rates - 1
         counter_jacobian = prior[:, active] * scales[active]
         disabled = upper & (counter <= 0)
@@ -1324,7 +1362,7 @@ def fit_pipeline_group(samples, hardware):
         last.update(parameters=parameters.copy(), residual=values, jacobian=matrix)
         return values
 
-    optimum = least_squares(residual, start, jac=lambda x: (residual(x), last["jacobian"])[1], bounds=(0, np.inf),
+    optimum = least_squares(residual, start, jac=lambda x: (residual(x), last["jacobian"])[1], bounds=(0, limits),
                             loss="soft_l1", f_scale=0.03, max_nfev=160, ftol=1e-9, xtol=1e-9, gtol=1e-9)
     rates = np.zeros(dimensions)
     rates[active] = optimum.x[:len(active)] * scales[active]
