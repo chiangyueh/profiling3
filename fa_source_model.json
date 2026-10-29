@@ -1,56 +1,419 @@
 {
-  "additional_file_audit": {
-    "additional_stable_inputs": 75,
-    "additional_successful_inputs": 94,
-    "already_present": 103,
-    "data_sha256": "1d8d7d5092a9e1d33a418878a68cf2227fcef0db98639a10e89717349e3b74e9",
-    "header_schema_sha256": "7eb7c7aeb49d0589edae1bac9fc7ed0ce27e425c4482c53c6ba8e06ad5a926af",
-    "host_trace_mismatches": 0,
-    "inputs_of_current_modeled_path": 0,
-    "name": "20261029_024431.txt",
-    "status_counts": {
-      "covered": 4,
-      "failed": 20,
-      "ok": 197
-    },
-    "successful_unique": 197,
-    "use": "classification only; not calibration or blind validation of the scoped SameAB predictor"
-  },
+  "accuracy_interpretation": "Report signed error, absolute microseconds, median, tail quantiles and bands by actual source implementation. The 10% column is a reference target, not a reason to remove a measured point.",
   "assessment": {
-    "classification_only_shapes": 419,
-    "classified_successful_shapes": 432,
-    "csv_sha256": "24a5fade847efbd1979f871f1f8315f9bd2f6637e6a582e8d2d07e0c1b1e10c5",
-    "evaluation": "development_leave_one_complete_sequence_pair_out; all B/head variants of a sequence pair are held together",
-    "execution_combinations": 43,
-    "geometry_mismatches": 0,
-    "host_api_profile": "/usr/local/Ascend/cann-8.5.2",
-    "host_api_sha256": "ec8d470be7eb384f11b4a3a6e5216efa20fb66811b21dbdac0f46a35c969c83a",
-    "host_trace_mismatches": 0,
-    "input_only": {
-      "all_pass": true,
-      "count": 13,
-      "fail_10_percent_including_unavailable": 0,
-      "mape_percent": 1.9168592171719983,
-      "max_ape_percent": 5.421098185437145,
-      "pass_10_percent": 13,
-      "predicted": 13,
+    "all_configurations": {
+      "all_pass": false,
+      "count": 299,
+      "error_bands": {
+        "10_to_15": 47,
+        "15_to_20": 24,
+        "20_to_30": 23,
+        "above_30": 10,
+        "at_most_10": 195
+      },
+      "fail_10_percent_including_unavailable": 104,
+      "mape_percent": 9.18104230409088,
+      "max_ape_percent": 83.00761504187723,
+      "mean_signed_error_percent": -0.553576013796043,
+      "median_absolute_error_us": 232.37068578100752,
+      "median_ape_percent": 6.427744605650387,
+      "p90_absolute_error_us": 4165.515618807209,
+      "p90_ape_percent": 21.197519735446594,
+      "p95_ape_percent": 26.373541349002743,
+      "pass_10_percent": 195,
+      "predicted": 299,
       "unavailable": 0
     },
-    "measured_shapes": 13,
-    "new_measurements_required_for_blind_validation": true,
-    "non_successful_inputs": 36,
+    "by_class": {
+      "kernel=same_ab|dtype=BF16|layout=BNSD|matmul=NORMAL|operand_path=GM|softmax_reduce=8": {
+        "all": {
+          "all_pass": false,
+          "count": 20,
+          "error_bands": {
+            "10_to_15": 3,
+            "15_to_20": 0,
+            "20_to_30": 0,
+            "above_30": 1,
+            "at_most_10": 16
+          },
+          "fail_10_percent_including_unavailable": 4,
+          "mape_percent": 10.666405058877972,
+          "max_ape_percent": 83.00761504187723,
+          "mean_signed_error_percent": -1.6520111484726243,
+          "median_absolute_error_us": 40.784825612710335,
+          "median_ape_percent": 6.926656697725953,
+          "p90_absolute_error_us": 338.5411721031905,
+          "p90_ape_percent": 13.024894806274112,
+          "p95_ape_percent": 17.370038972230688,
+          "pass_10_percent": 16,
+          "predicted": 20,
+          "unavailable": 0
+        },
+        "official": {
+          "all_pass": false,
+          "count": 20,
+          "error_bands": {
+            "10_to_15": 3,
+            "15_to_20": 0,
+            "20_to_30": 0,
+            "above_30": 1,
+            "at_most_10": 16
+          },
+          "fail_10_percent_including_unavailable": 4,
+          "mape_percent": 10.666405058877972,
+          "max_ape_percent": 83.00761504187723,
+          "mean_signed_error_percent": -1.6520111484726243,
+          "median_absolute_error_us": 40.784825612710335,
+          "median_ape_percent": 6.926656697725953,
+          "p90_absolute_error_us": 338.5411721031905,
+          "p90_ape_percent": 13.024894806274112,
+          "p95_ape_percent": 17.370038972230688,
+          "pass_10_percent": 16,
+          "predicted": 20,
+          "unavailable": 0
+        }
+      },
+      "kernel=same_ab|dtype=BF16|layout=BNSD|matmul=UNSPLITK|operand_path=TSCM|softmax_reduce=8": {
+        "all": {
+          "all_pass": false,
+          "count": 109,
+          "error_bands": {
+            "10_to_15": 6,
+            "15_to_20": 1,
+            "20_to_30": 1,
+            "above_30": 0,
+            "at_most_10": 101
+          },
+          "fail_10_percent_including_unavailable": 8,
+          "mape_percent": 4.113513320399763,
+          "max_ape_percent": 26.519706540549027,
+          "mean_signed_error_percent": -1.8073046458506588,
+          "median_absolute_error_us": 71.10926810424826,
+          "median_ape_percent": 2.7502813386122593,
+          "p90_absolute_error_us": 569.8745976307351,
+          "p90_ape_percent": 9.23444221151647,
+          "p95_ape_percent": 10.330277076830393,
+          "pass_10_percent": 101,
+          "predicted": 109,
+          "unavailable": 0
+        },
+        "official": {
+          "all_pass": false,
+          "count": 41,
+          "error_bands": {
+            "10_to_15": 2,
+            "15_to_20": 1,
+            "20_to_30": 1,
+            "above_30": 0,
+            "at_most_10": 37
+          },
+          "fail_10_percent_including_unavailable": 4,
+          "mape_percent": 4.014314418285812,
+          "max_ape_percent": 26.519706540549027,
+          "mean_signed_error_percent": -1.5572909636708852,
+          "median_absolute_error_us": 15.149369308899281,
+          "median_ape_percent": 2.1993188696917354,
+          "p90_absolute_error_us": 126.12329914819293,
+          "p90_ape_percent": 8.197267089929806,
+          "p95_ape_percent": 12.219124932363478,
+          "pass_10_percent": 37,
+          "predicted": 41,
+          "unavailable": 0
+        }
+      },
+      "kernel=same_ab|dtype=BF16|layout=SBH|matmul=NORMAL|operand_path=GM|softmax_reduce=8": {
+        "all": {
+          "all_pass": false,
+          "count": 127,
+          "error_bands": {
+            "10_to_15": 28,
+            "15_to_20": 21,
+            "20_to_30": 19,
+            "above_30": 6,
+            "at_most_10": 53
+          },
+          "fail_10_percent_including_unavailable": 74,
+          "mape_percent": 12.589852095956697,
+          "max_ape_percent": 34.17048727955281,
+          "mean_signed_error_percent": 0.9239570760676854,
+          "median_absolute_error_us": 978.2360850033474,
+          "median_ape_percent": 11.972385233031568,
+          "p90_absolute_error_us": 10128.78963957563,
+          "p90_ape_percent": 25.161102288628783,
+          "p95_ape_percent": 29.164786121634986,
+          "pass_10_percent": 53,
+          "predicted": 127,
+          "unavailable": 0
+        },
+        "official": {
+          "all_pass": false,
+          "count": 22,
+          "error_bands": {
+            "10_to_15": 9,
+            "15_to_20": 5,
+            "20_to_30": 0,
+            "above_30": 0,
+            "at_most_10": 8
+          },
+          "fail_10_percent_including_unavailable": 14,
+          "mape_percent": 10.959582155948041,
+          "max_ape_percent": 19.020764339628737,
+          "mean_signed_error_percent": 3.9626141921879556,
+          "median_absolute_error_us": 264.4290712498706,
+          "median_ape_percent": 11.515878697491555,
+          "p90_absolute_error_us": 1148.1557755114322,
+          "p90_ape_percent": 17.400189129124197,
+          "p95_ape_percent": 17.59209641325963,
+          "pass_10_percent": 8,
+          "predicted": 22,
+          "unavailable": 0
+        }
+      },
+      "kernel=same_ab|dtype=FP16|layout=BNSD|matmul=NORMAL|operand_path=GM|softmax_reduce=8": {
+        "all": {
+          "all_pass": false,
+          "count": 22,
+          "error_bands": {
+            "10_to_15": 3,
+            "15_to_20": 2,
+            "20_to_30": 3,
+            "above_30": 3,
+            "at_most_10": 11
+          },
+          "fail_10_percent_including_unavailable": 11,
+          "mape_percent": 14.022438210027978,
+          "max_ape_percent": 45.7570622178303,
+          "mean_signed_error_percent": -9.710956850932503,
+          "median_absolute_error_us": 13.998736730155947,
+          "median_ape_percent": 9.82374564650355,
+          "p90_absolute_error_us": 41.21379462524139,
+          "p90_ape_percent": 31.81527523810734,
+          "p95_ape_percent": 39.39441242556069,
+          "pass_10_percent": 11,
+          "predicted": 22,
+          "unavailable": 0
+        },
+        "official": {
+          "all_pass": false,
+          "count": 22,
+          "error_bands": {
+            "10_to_15": 3,
+            "15_to_20": 2,
+            "20_to_30": 3,
+            "above_30": 3,
+            "at_most_10": 11
+          },
+          "fail_10_percent_including_unavailable": 11,
+          "mape_percent": 14.022438210027978,
+          "max_ape_percent": 45.7570622178303,
+          "mean_signed_error_percent": -9.710956850932503,
+          "median_absolute_error_us": 13.998736730155947,
+          "median_ape_percent": 9.82374564650355,
+          "p90_absolute_error_us": 41.21379462524139,
+          "p90_ape_percent": 31.81527523810734,
+          "p95_ape_percent": 39.39441242556069,
+          "pass_10_percent": 11,
+          "predicted": 22,
+          "unavailable": 0
+        }
+      },
+      "kernel=tnd_same_ab|dtype=FP16|layout=TND|matmul=NORMAL|operand_path=L1_CARRY|softmax_reduce=8": {
+        "all": {
+          "all_pass": false,
+          "count": 21,
+          "error_bands": {
+            "10_to_15": 7,
+            "15_to_20": 0,
+            "20_to_30": 0,
+            "above_30": 0,
+            "at_most_10": 14
+          },
+          "fail_10_percent_including_unavailable": 7,
+          "mape_percent": 8.382178048329674,
+          "max_ape_percent": 14.015519942253096,
+          "mean_signed_error_percent": 7.657890633432212,
+          "median_absolute_error_us": 258.14885086235313,
+          "median_ape_percent": 8.306444700569738,
+          "p90_absolute_error_us": 1050.0366728096851,
+          "p90_ape_percent": 12.97515800727831,
+          "p95_ape_percent": 13.125212312390211,
+          "pass_10_percent": 14,
+          "predicted": 21,
+          "unavailable": 0
+        },
+        "official": {
+          "all_pass": false,
+          "count": 21,
+          "error_bands": {
+            "10_to_15": 7,
+            "15_to_20": 0,
+            "20_to_30": 0,
+            "above_30": 0,
+            "at_most_10": 14
+          },
+          "fail_10_percent_including_unavailable": 7,
+          "mape_percent": 8.382178048329674,
+          "max_ape_percent": 14.015519942253096,
+          "mean_signed_error_percent": 7.657890633432212,
+          "median_absolute_error_us": 258.14885086235313,
+          "median_ape_percent": 8.306444700569738,
+          "p90_absolute_error_us": 1050.0366728096851,
+          "p90_ape_percent": 12.97515800727831,
+          "p95_ape_percent": 13.125212312390211,
+          "pass_10_percent": 14,
+          "predicted": 21,
+          "unavailable": 0
+        }
+      }
+    },
+    "classified_successful_shapes": 471,
+    "configurations": 299,
+    "evaluation": "development_sequence_grouped_5_fold_cross_validation",
+    "excluded_missing_or_inconsistent_metadata": [
+      {
+        "case": "same_ab_bnsd_b1_n32_nk32_s2048_s2048_d192_v128_drop0",
+        "reason": "actual tiling schedule is missing",
+        "shape_identity": "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+        "sources": [
+          "20261027_150837_partial.txt"
+        ]
+      }
+    ],
+    "measured_shapes": 125,
+    "official_event_bracket": {
+      "all_pass": false,
+      "count": 9,
+      "error_bands": {
+        "10_to_15": 0,
+        "15_to_20": 1,
+        "20_to_30": 0,
+        "above_30": 0,
+        "at_most_10": 8
+      },
+      "fail_10_percent_including_unavailable": 1,
+      "mape_percent": 5.0811822364908465,
+      "max_ape_percent": 17.60218327563998,
+      "mean_signed_error_percent": -4.631785142682329,
+      "median_absolute_error_us": 250.5574223548847,
+      "median_ape_percent": 2.885002545876103,
+      "p90_absolute_error_us": 2846.837474389382,
+      "p90_ape_percent": 10.838787436675208,
+      "p95_ape_percent": 14.22048535615759,
+      "pass_10_percent": 8,
+      "predicted": 9,
+      "unavailable": 0
+    },
+    "official_input_only": {
+      "all_pass": false,
+      "count": 126,
+      "error_bands": {
+        "10_to_15": 24,
+        "15_to_20": 8,
+        "20_to_30": 4,
+        "above_30": 4,
+        "at_most_10": 86
+      },
+      "fail_10_percent_including_unavailable": 40,
+      "mape_percent": 8.758295074552963,
+      "max_ape_percent": 83.00761504187723,
+      "mean_signed_error_percent": -0.4963252989703362,
+      "median_absolute_error_us": 46.1419557216077,
+      "median_ape_percent": 6.458672581374114,
+      "p90_absolute_error_us": 595.3805331123281,
+      "p90_ape_percent": 17.399161533489284,
+      "p95_ape_percent": 25.607747496164958,
+      "pass_10_percent": 86,
+      "predicted": 126,
+      "unavailable": 0
+    },
+    "official_msprof_kernel_duration": {
+      "all_pass": false,
+      "count": 117,
+      "error_bands": {
+        "10_to_15": 24,
+        "15_to_20": 7,
+        "20_to_30": 4,
+        "above_30": 4,
+        "at_most_10": 78
+      },
+      "fail_10_percent_including_unavailable": 39,
+      "mape_percent": 9.041149908250048,
+      "max_ape_percent": 83.00761504187723,
+      "mean_signed_error_percent": -0.17821300330018294,
+      "median_absolute_error_us": 37.39783841224164,
+      "median_ape_percent": 7.026361741783694,
+      "p90_absolute_error_us": 530.1822523939193,
+      "p90_ape_percent": 17.398904634580553,
+      "p95_ape_percent": 26.22154116892455,
+      "pass_10_percent": 78,
+      "predicted": 117,
+      "unavailable": 0
+    },
     "prospective_pass": false,
-    "sequence_groups": 5
+    "source_classes": 5,
+    "stable_official": {
+      "all_pass": false,
+      "count": 113,
+      "error_bands": {
+        "10_to_15": 23,
+        "15_to_20": 8,
+        "20_to_30": 2,
+        "above_30": 1,
+        "at_most_10": 79
+      },
+      "fail_10_percent_including_unavailable": 34,
+      "mape_percent": 7.513099700491581,
+      "max_ape_percent": 45.7570622178303,
+      "mean_signed_error_percent": 1.5441913472498863,
+      "median_absolute_error_us": 51.74340703105662,
+      "median_ape_percent": 6.2742309404305585,
+      "p90_absolute_error_us": 709.8353307465555,
+      "p90_ape_percent": 14.198705201192059,
+      "p95_ape_percent": 18.16961570123547,
+      "pass_10_percent": 79,
+      "predicted": 113,
+      "unavailable": 0
+    }
   },
-  "calibration": "Class-specific PMU only; all supplied stable development measurements; no FA latency target is fitted",
-  "calibration_source_sha256": "d1d46e90876c5cbc57a4fabc02eb120ad96b847f2e82c7f23f782e661ad77e1b",
+  "calibration": "Nonnegative primitive costs fitted jointly to measured kernel latency and PMU constraints; costs are shared within actual source implementations. Actual latency is a training target, never a prediction input.",
+  "calibration_host_api": {
+    "actual_recorded_geometry_checked_separately": true,
+    "path": "/usr/local/Ascend/cann-8.5.2",
+    "sha256": "ec8d470be7eb384f11b4a3a6e5216efa20fb66811b21dbdac0f46a35c969c83a"
+  },
   "classes": {
-    "same_ab_bf16_bnsd_unsplitk": {
-      "all_stage_costs_identified": false,
+    "kernel=same_ab|dtype=BF16|layout=BNSD|matmul=NORMAL|operand_path=GM|softmax_reduce=8": {
+      "calibration": "Shared nonnegative source-operation rates within this implementation, fitted jointly to kernel times and PMU constraints. Scalar active time is an upper bound, since wait/control is already represented in the graph. Entire shapes and all their tilings must stay in the same validation fold.",
+      "calibration_mape_percent": 9.463167175074428,
+      "calibration_max_ape_percent": 83.09419085507747,
+      "calibration_shapes": [
+        "01d1cebe4b3dc814f44f4fba0acb24d58f1b85315ecbe5cf5f985b85c2cb962a",
+        "067816b6f7876c38a806c2ef22a5c7c971e7e0c18818983be68426922ed2aff3",
+        "0c8c4ab31b1d7872782c50f11b59ce1c377b2c258afe9050aa52a97cb641ccf4",
+        "119cfde424ec6c3a988aab0e27ab29f9a892c032da99a33f96121704c7422711",
+        "11e4e9a75456b9673990b1e90be89d3a05a1f8591d1e3580a52a559daedb2c67",
+        "1794ab56cb41d719c3aac9b02931f46b1075712757b91805e54c9a09c52fda3e",
+        "1c3ded89532f18777e7a0a5ce07532a6b1651f49a239c3a85b142689d6cca39e",
+        "1e49cb17d334c2b6d4c58da85f16b057415b5f1326f2219e6881cc78e88d152b",
+        "2020882235a7c149d28a04b3f02db41b61b8e924ccb65f55de45d3d43b9082e3",
+        "21c32fae499b15557630b2523d4ed9ee07b48b61847e64c1169d0ba3b64cca44",
+        "29d3d9eaf428b10ef3eb68732a6d7104689e8b36fe2d9cdc785296ce0a46bab0",
+        "2cf7164ac07cbca41331cb1b86b02d7b2bee8c6df48c94ff2f9c19a9f9493b05",
+        "2f8675d435663d53532132cc7a7a84f6391a9677d3042cde9717091e07c221f2",
+        "30756f76243cc0ff5878a1be493886221abc5c2ae093b81250b89175d495587b",
+        "3254510aec1a48885ad42b9c846dde9f63084eb8a15545dec1217401c0d55003",
+        "33ff2f249dd8a57d722de66957b08fe868eeadf0c1899ac369c27af74f66b367",
+        "3ae66943914d356a3a5cb3e4ba45bc044b152baf845712b671fc997290a7415c",
+        "3f21975a9de24833ec62b1dc91397a3215862f8490729c1b2c86e3330630d9fd",
+        "438b65c9105993934afe797f36ff9ac7e4a117e844746d5e4b269ace0d47380b",
+        "fea49c254a73c5454e2fa60797c3c710333ded4c9d85b42e95ed3e22508815f4"
+      ],
+      "configurations": 20,
+      "event_bracket_overhead_us": 0,
       "input_ranges": {
         "B": [
           1,
-          1
+          8
         ],
         "D": [
           192,
@@ -62,22 +425,528 @@
         ],
         "N1": [
           8,
-          96
+          64
         ],
         "N2": [
-          8,
-          96
+          2,
+          4
         ],
         "S1": [
-          2048,
+          256,
+          1024
+        ],
+        "S2": [
+          1537,
+          4114
+        ]
+      },
+      "measured_shapes": 20,
+      "optimization_evaluations": 44,
+      "optimization_success": true,
+      "parameter_names": [
+        [
+          "cube",
+          "flops_m"
+        ],
+        [
+          "cube",
+          "tiles"
+        ],
+        [
+          "mte1",
+          "l0_kb"
+        ],
+        [
+          "mte1",
+          "tiles"
+        ],
+        [
+          "mte2",
+          "read_kb"
+        ],
+        [
+          "mte2",
+          "loads"
+        ],
+        [
+          "mte2",
+          "address_gap_kb"
+        ],
+        [
+          "fixpipe",
+          "nd_write_kb"
+        ],
+        [
+          "fixpipe",
+          "nz_write_kb"
+        ],
+        [
+          "fixpipe",
+          "stores"
+        ],
+        [
+          "vector",
+          "softmax_k"
+        ],
+        [
+          "vector",
+          "reduction_k"
+        ],
+        [
+          "vector",
+          "cast_k"
+        ],
+        [
+          "vector",
+          "nz2nd_k"
+        ],
+        [
+          "vector",
+          "nd2nz_k"
+        ],
+        [
+          "vector",
+          "online_k"
+        ],
+        [
+          "vector",
+          "drop_k"
+        ],
+        [
+          "vector",
+          "unpack_k"
+        ],
+        [
+          "vector",
+          "chunks"
+        ],
+        [
+          "vmte2",
+          "read_kb"
+        ],
+        [
+          "vmte2",
+          "loads"
+        ],
+        [
+          "vmte3",
+          "write_kb"
+        ],
+        [
+          "vmte3",
+          "stores"
+        ],
+        [
+          "vmte3",
+          "address_gap_kb"
+        ],
+        [
+          "cscalar",
+          "workers"
+        ],
+        [
+          "cscalar",
+          "batch_entries"
+        ],
+        [
+          "cscalar",
+          "commands"
+        ],
+        [
+          "vscalar",
+          "workers"
+        ],
+        [
+          "vscalar",
+          "batch_entries"
+        ],
+        [
+          "vscalar",
+          "chunks"
+        ],
+        [
+          "vscalar",
+          "drop_chunks"
+        ],
+        [
+          "vscalar",
+          "adapter_workers"
+        ]
+      ],
+      "path": {
+        "d_tail": false,
+        "drop_mask": "BYTE_ADAPTER",
+        "dtype": "BF16",
+        "dv_tail": false,
+        "k_tail_mask": true,
+        "kernel": "same_ab",
+        "layout": "BNSD",
+        "matmul": "NORMAL",
+        "mm1_template": "NZ",
+        "mm1_windows": "ND+NZ",
+        "mm2_output": "NZ",
+        "online_update": true,
+        "operand_path": "GM",
+        "probability_format": "NZ",
+        "q_tail": false,
+        "reuse_fake_peer": false,
+        "softmax_reduce": 8,
+        "softmax_row_padding": false,
+        "tiny_k": false
+      },
+      "pipes": {
+        "cscalar": {
+          "coefficients": {
+            "batch_entries": 0.0,
+            "commands": 1.0715876530306034e-07,
+            "workers": 0.14018330021094452
+          },
+          "inactive_feature_rates": [
+            "batch_entries"
+          ],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        },
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.07833151352091768,
+            "tiles": 0.019474519562708428
+          },
+          "inactive_feature_rates": [],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        },
+        "fixpipe": {
+          "coefficients": {
+            "nd_write_kb": 0.005769354615793996,
+            "nz_write_kb": 0.015801260070274808,
+            "stores": 1.2097033192988966
+          },
+          "inactive_feature_rates": [],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte1": {
+          "coefficients": {
+            "l0_kb": 0.0032764191075879945,
+            "tiles": 0.0523463865634919
+          },
+          "inactive_feature_rates": [],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte2": {
+          "coefficients": {
+            "address_gap_kb": 0.0,
+            "loads": 0.046342976405832875,
+            "read_kb": 0.01649395675566541
+          },
+          "inactive_feature_rates": [
+            "address_gap_kb"
+          ],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        },
+        "vector": {
+          "coefficients": {
+            "cast_k": 0.00873185146884725,
+            "chunks": 0.4489084644742185,
+            "drop_k": 0.009037901628970307,
+            "nd2nz_k": 0.009037901628970346,
+            "nz2nd_k": 0.01671599849299317,
+            "online_k": 0.11293038922940238,
+            "reduction_k": 1.0899082061944705,
+            "softmax_k": 0.00903790162897041,
+            "unpack_k": 0.0011268976490844006
+          },
+          "inactive_feature_rates": [],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte2": {
+          "coefficients": {
+            "loads": 0.0930925728614373,
+            "read_kb": 0.015272494954374131
+          },
+          "inactive_feature_rates": [],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte3": {
+          "coefficients": {
+            "address_gap_kb": 0.0,
+            "stores": 0.123275678174687,
+            "write_kb": 0.011329968118989652
+          },
+          "inactive_feature_rates": [
+            "address_gap_kb"
+          ],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        },
+        "vscalar": {
+          "coefficients": {
+            "adapter_workers": 4.5231979267443254e-11,
+            "batch_entries": 0.0,
+            "chunks": 0.0002157400107227805,
+            "drop_chunks": 3.314031327232887e-05,
+            "workers": 0.5305641178373351
+          },
+          "inactive_feature_rates": [
+            "batch_entries"
+          ],
+          "samples": 19,
+          "status": "joint_pipeline_calibration"
+        }
+      },
+      "rates": [
+        0.07833151352091768,
+        0.019474519562708428,
+        0.0032764191075879945,
+        0.0523463865634919,
+        0.01649395675566541,
+        0.046342976405832875,
+        0.0,
+        0.005769354615793996,
+        0.015801260070274808,
+        1.2097033192988966,
+        0.00903790162897041,
+        1.0899082061944705,
+        0.00873185146884725,
+        0.01671599849299317,
+        0.009037901628970346,
+        0.11293038922940238,
+        0.009037901628970307,
+        0.0011268976490844006,
+        0.4489084644742185,
+        0.015272494954374131,
+        0.0930925728614373,
+        0.011329968118989652,
+        0.123275678174687,
+        0.0,
+        0.14018330021094452,
+        0.0,
+        1.0715876530306034e-07,
+        0.5305641178373351,
+        0.0,
+        0.0002157400107227805,
+        3.314031327232887e-05,
+        4.5231979267443254e-11
+      ],
+      "stage_costs_independently_measured": false
+    },
+    "kernel=same_ab|dtype=BF16|layout=BNSD|matmul=UNSPLITK|operand_path=TSCM|softmax_reduce=8": {
+      "calibration": "Shared nonnegative source-operation rates within this implementation, fitted jointly to kernel times and PMU constraints. Scalar active time is an upper bound, since wait/control is already represented in the graph. Entire shapes and all their tilings must stay in the same validation fold.",
+      "calibration_mape_percent": 3.34499754569513,
+      "calibration_max_ape_percent": 14.778645954624647,
+      "calibration_shapes": [
+        "00685a929b794c189667a09b4770a3ffbe2f2ed3184f402470f467598f95e6c1",
+        "01f2605d049eb1b5533eee3813e7b67c64f515d120dbc5f767468a116bd13c2a",
+        "05c080beb7c1c6a6d281275cba5e9f9aa7619dceb90571cd58f3d92ef72c40c5",
+        "0ae148cde56ca2ae434100c488d82fd12463401a78e0d350bda6775e0312e540",
+        "0bb6fe9bb2d04b994f94ab8a27cc12bc059a0fbb97ba8e673203faaeee3582c9",
+        "0ced81f792636a7b534b270d558c222f9d272b7852387299e7a3c55222f02cdf",
+        "0d4975e5fc7b5869f8c4ab9aa6d114898534498e0ef35b238363a87a3d0eb693",
+        "0d967486cee8199254a777fba58175024734f2318d3b8500a5d3bf8912eacab8",
+        "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+        "11c9f27ac887cb2774b2518b8ca8d77e7947cf48fb1c12153a7672b90b8400b2",
+        "13d5e9b632a10eea2081cf8d187688f0c93bfb97443b3cc9f89312517c9085da",
+        "17e7caa23b579b89ea571b634d24636689abbfce904b62e7fb98460a9eb298e7",
+        "193ed9a36d85792bcd6c1cce73a6d7e6eda34f100e3d72a51a03528c76873009",
+        "200ccecf9fceb903358e6c049419425cd4794c320186566984b8ba9d66f1a1ad",
+        "232f769f516f236087a0f54cc5a51e5fa93d2047fc93ab4ee3c3d3b796971e5c",
+        "26bf7b1944dee0a3a447c528bf7eaebaab96daed2e921731d96e866bc8f4c7bd",
+        "28c1437a910844b392a7df12667b8a5d811712933c53df8c34935edff33841e3",
+        "28c7a6d6dcb363ca3f358455d4f32a0790d65eab1437c4d25728a0073b4d16bd",
+        "2aa0a1877a96b67ca9303269681e40049a75b1e39e427d9b66519829269f0720",
+        "2b964727c463c9c0626c997fa31549f2566606fb6a9c14d5630065630edd8faf",
+        "2bb761dd74941eff99953b3bbbe12942e3418d3bd94e8569e096821462fadf97",
+        "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
+        "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+        "30d7d0e49e71bc23e93b7ba9505850ea92e6438aaabcd8bb08e815c138e571c7",
+        "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+        "37424210869e91e4f9483f3158f03913b5e95b65ec43cb561d68b34fc85a8bdd",
+        "5c2752afcb75b7e17f96da26acdae7fbae0068a650280f99a7f11dd80b2caf1b",
+        "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+        "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+        "710e0456408bb5c98c5bffddf111bf27fdfe3812de622383da9cdd9f892599ee",
+        "91e468ae4fdede5093d86db9455fde98ce001988dfcba1fa5d7c2d0ae271316d",
+        "94a061a3a1014f58dde625d89eed7d745238e95836d63f400adc88ae0366bd9e",
+        "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+        "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
+        "af6d88c9b9bc7b09628dbdad51f641b775688ab7f6355d298c66b911d94c69e6",
+        "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
+        "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+        "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+        "e28431a47c10cff1249c8bf405ec1742c66a18ebb2a8f13e97262425bebbda82",
+        "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+        "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
+      ],
+      "configurations": 109,
+      "event_bracket_overhead_us": 5.741972810944443,
+      "input_ranges": {
+        "B": [
+          1,
+          8
+        ],
+        "D": [
+          192,
+          192
+        ],
+        "DV": [
+          128,
+          128
+        ],
+        "N1": [
+          8,
+          128
+        ],
+        "N2": [
+          2,
+          128
+        ],
+        "S1": [
+          256,
           8192
         ],
         "S2": [
-          2048,
+          1536,
           8192
         ]
       },
-      "measured_shapes": 13,
+      "measured_shapes": 41,
+      "optimization_evaluations": 38,
+      "optimization_success": true,
+      "parameter_names": [
+        [
+          "cube",
+          "flops_m"
+        ],
+        [
+          "cube",
+          "tiles"
+        ],
+        [
+          "mte1",
+          "l0_kb"
+        ],
+        [
+          "mte1",
+          "tiles"
+        ],
+        [
+          "mte2",
+          "read_kb"
+        ],
+        [
+          "mte2",
+          "loads"
+        ],
+        [
+          "mte2",
+          "address_gap_kb"
+        ],
+        [
+          "fixpipe",
+          "nd_write_kb"
+        ],
+        [
+          "fixpipe",
+          "nz_write_kb"
+        ],
+        [
+          "fixpipe",
+          "stores"
+        ],
+        [
+          "vector",
+          "softmax_k"
+        ],
+        [
+          "vector",
+          "reduction_k"
+        ],
+        [
+          "vector",
+          "cast_k"
+        ],
+        [
+          "vector",
+          "nz2nd_k"
+        ],
+        [
+          "vector",
+          "nd2nz_k"
+        ],
+        [
+          "vector",
+          "online_k"
+        ],
+        [
+          "vector",
+          "drop_k"
+        ],
+        [
+          "vector",
+          "unpack_k"
+        ],
+        [
+          "vector",
+          "chunks"
+        ],
+        [
+          "vmte2",
+          "read_kb"
+        ],
+        [
+          "vmte2",
+          "loads"
+        ],
+        [
+          "vmte3",
+          "write_kb"
+        ],
+        [
+          "vmte3",
+          "stores"
+        ],
+        [
+          "vmte3",
+          "address_gap_kb"
+        ],
+        [
+          "cscalar",
+          "workers"
+        ],
+        [
+          "cscalar",
+          "batch_entries"
+        ],
+        [
+          "cscalar",
+          "commands"
+        ],
+        [
+          "vscalar",
+          "workers"
+        ],
+        [
+          "vscalar",
+          "batch_entries"
+        ],
+        [
+          "vscalar",
+          "chunks"
+        ],
+        [
+          "vscalar",
+          "drop_chunks"
+        ],
+        [
+          "vscalar",
+          "adapter_workers"
+        ]
+      ],
       "path": {
         "d_tail": false,
         "drop_mask": "NONE",
@@ -99,645 +968,1712 @@
         "softmax_row_padding": false,
         "tiny_k": false
       },
-      "pipeline_control_modeled": true,
       "pipes": {
         "cscalar": {
-          "atomic_jobs": 5,
-          "calibration_mape_percent": 1.0672246086059494,
-          "calibration_max_ape_percent": 2.9163148424741547,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
-          ],
           "coefficients": {
             "batch_entries": 0.0,
-            "commands": 0.3407232141122032,
-            "workers": 17.095330095303048
+            "commands": 0.3253601768004276,
+            "workers": 22.203126114946425
           },
-          "feasible_rate_vertices": [
-            [
-              17.09533009530384,
-              0.0,
-              0.34072321411220313
-            ]
-          ],
-          "feature_count": 3,
-          "feature_scales": [
-            20.0,
-            1.0,
-            1228800.0
-          ],
-          "identified_feature_rates": [
-            "workers",
-            "commands"
-          ],
           "inactive_feature_rates": [
             "batch_entries"
           ],
-          "rank": 2,
-          "row_basis": [
-            [
-              -0.98168524268066,
-              0.0,
-              -0.1905100635216243
-            ],
-            [
-              -0.1905100635216243,
-              0.0,
-              0.98168524268066
-            ]
-          ],
-          "samples": 13,
-          "sequence_pairs": 5,
-          "status": "identified_stage_costs",
-          "unidentified_atomic_jobs": 0,
-          "unresolved_feature_rates": []
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
         },
         "cube": {
-          "atomic_jobs": 4,
-          "calibration_mape_percent": 0.05456851845928931,
-          "calibration_max_ape_percent": 0.21009245333361015,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
-          ],
           "coefficients": {
-            "flops_m": 0.0,
-            "tiles": 0.2473594142477233
+            "flops_m": 0.06939433115465105,
+            "tiles": 0.004623567311334367
           },
-          "feasible_rate_vertices": [
-            [
-              0.07077009608676596,
-              0.0
-            ],
-            [
-              0.0,
-              0.2473594142477233
-            ]
-          ],
-          "feature_count": 2,
-          "feature_scales": [
-            4123168.6041628756,
-            1179648.0
-          ],
-          "identified_feature_rates": [],
           "inactive_feature_rates": [],
-          "rank": 1,
-          "row_basis": [
-            [
-              -0.7071067811864928,
-              -0.7071067811866021
-            ]
-          ],
-          "samples": 13,
-          "sequence_pairs": 5,
-          "status": "joint_counter_only",
-          "unidentified_atomic_jobs": 4,
-          "unresolved_feature_rates": [
-            "flops_m",
-            "tiles"
-          ]
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
         },
         "fixpipe": {
-          "atomic_jobs": 3,
-          "calibration_mape_percent": 1.343069519361553,
-          "calibration_max_ape_percent": 5.835695857449319,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
-          ],
           "coefficients": {
-            "stores": 0.0,
-            "write_kb": 0.010157301276759614
+            "nd_write_kb": 0.011043838763625934,
+            "nz_write_kb": 0.0001594711724812199,
+            "stores": 1.0416009512452424e-06
           },
-          "feasible_rate_vertices": [
-            [
-              0.010157301276759614,
-              0.0
-            ],
-            [
-              0.0,
-              0.6500672817126153
-            ]
-          ],
-          "feature_count": 2,
-          "feature_scales": [
-            28311552.0,
-            442368.0
-          ],
-          "identified_feature_rates": [],
           "inactive_feature_rates": [],
-          "rank": 1,
-          "row_basis": [
-            [
-              -0.7071067811865475,
-              -0.7071067811865475
-            ]
-          ],
-          "samples": 13,
-          "sequence_pairs": 5,
-          "status": "identified_stage_costs",
-          "unidentified_atomic_jobs": 0,
-          "unresolved_feature_rates": [
-            "write_kb",
-            "stores"
-          ]
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
         },
         "mte1": {
-          "atomic_jobs": 4,
-          "calibration_mape_percent": 0.23932294315395913,
-          "calibration_max_ape_percent": 0.5992964576938542,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
-          ],
           "coefficients": {
-            "l0_kb": 0.003963622411587871,
-            "tiles": 0.0
+            "l0_kb": 0.003938865224928187,
+            "tiles": 0.0015294410498081696
           },
-          "feasible_rate_vertices": [
-            [
-              0.003963622411587871,
-              0.0
-            ],
-            [
-              0.0,
-              0.21139319528468647
-            ]
-          ],
-          "feature_count": 2,
-          "feature_scales": [
-            62914560.0,
-            1179648.0
-          ],
-          "identified_feature_rates": [],
           "inactive_feature_rates": [],
-          "rank": 1,
-          "row_basis": [
-            [
-              -0.7071067811865475,
-              -0.7071067811865475
-            ]
-          ],
-          "samples": 13,
-          "sequence_pairs": 5,
-          "status": "joint_counter_only",
-          "unidentified_atomic_jobs": 4,
-          "unresolved_feature_rates": [
-            "l0_kb",
-            "tiles"
-          ]
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
         },
         "mte2": {
-          "atomic_jobs": 4,
-          "calibration_mape_percent": 1.5310794648848034,
-          "calibration_max_ape_percent": 3.7406147502004883,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
-          ],
           "coefficients": {
-            "loads": 0.0,
-            "read_kb": 0.012917796707569507
+            "address_gap_kb": 0.0,
+            "loads": 0.7203612444891331,
+            "read_kb": 0.004191743469517337
           },
-          "feasible_rate_vertices": [
-            [
-              0.012917796707569507,
-              0.0
-            ]
+          "inactive_feature_rates": [
+            "address_gap_kb"
           ],
-          "feature_count": 2,
-          "feature_scales": [
-            30670848.0,
-            368640.0
-          ],
-          "identified_feature_rates": [
-            "read_kb",
-            "loads"
-          ],
-          "inactive_feature_rates": [],
-          "rank": 2,
-          "row_basis": [
-            [
-              -0.7069886335735794,
-              -0.7072249090620062
-            ],
-            [
-              0.7072249090620062,
-              -0.7069886335735794
-            ]
-          ],
-          "samples": 13,
-          "sequence_pairs": 5,
-          "status": "identified_stage_costs",
-          "unidentified_atomic_jobs": 0,
-          "unresolved_feature_rates": []
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
         },
         "vector": {
-          "atomic_jobs": 6,
-          "calibration_mape_percent": 0.006172486483586763,
-          "calibration_max_ape_percent": 0.01540485058049157,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
-          ],
           "coefficients": {
-            "cast_k": 0.0,
-            "chunks": 0.35184500352800546,
-            "drop_k": 0.0,
-            "format_k": 0.0,
-            "online_k": 0.03567354177949359,
-            "reduction_k": 0.0,
-            "softmax_k": 0.049417046647866426
+            "cast_k": 1.937224617041619e-05,
+            "chunks": 0.15617177431052165,
+            "drop_k": 0.021332566954696687,
+            "nd2nz_k": 0.0870714876841073,
+            "nz2nd_k": 3.5264036283914546e-05,
+            "online_k": 0.0013754768145338968,
+            "reduction_k": 0.136863349893165,
+            "softmax_k": 3.745939146073599e-07,
+            "unpack_k": 0.0
           },
-          "feasible_rate_vertices": [
-            [
-              0.049417046648416584,
-              5.497578180032343,
-              0.0,
-              0.0,
-              0.03567354178108699,
-              0.0,
-              0.0
-            ],
-            [
-              0.04941704664786644,
-              0.0,
-              0.0,
-              0.0,
-              0.03567354177949361,
-              0.0,
-              0.3518450035280055
-            ],
-            [
-              0.0,
-              4.269709915062018,
-              0.04941704664846666,
-              0.0,
-              0.08218370333284587,
-              0.0,
-              0.0
-            ],
-            [
-              0.0,
-              4.865039982794261,
-              0.0,
-              0.049417046649195516,
-              0.03567354178324875,
-              0.0,
-              0.0
-            ],
-            [
-              0.0,
-              0.0,
-              0.049417046648039406,
-              0.0,
-              0.08218370333120621,
-              0.0,
-              0.27326143456925855
-            ],
-            [
-              0.0,
-              0.0,
-              0.0,
-              0.049417046648708655,
-              0.03567354178183869,
-              0.0,
-              0.31136255890448433
-            ]
-          ],
-          "feature_count": 7,
-          "feature_scales": [
-            6442450.943996874,
-            62914.55999996134,
-            6543114.239996052,
-            7247757.311989093,
-            1553989.6319986656,
-            1.0,
-            983040.0
-          ],
-          "identified_feature_rates": [],
           "inactive_feature_rates": [
-            "drop_k"
+            "unpack_k"
           ],
-          "rank": 3,
-          "row_basis": [
-            [
-              -0.4079891572521393,
-              -0.4091124469728865,
-              -0.40857143288490244,
-              -0.4081139672212173,
-              -0.4065848411067366,
-              0.0,
-              -0.4091124469728249
-            ],
-            [
-              -0.1351028416908933,
-              -0.12824554679182718,
-              -0.36343489384819505,
-              -0.1343409200449582,
-              0.8937119092638646,
-              0.0,
-              -0.1282455467845713
-            ],
-            [
-              -0.4368105572246673,
-              0.5560596777801972,
-              -0.28158553662478736,
-              -0.32649164220515114,
-              -0.07003284758814216,
-              0.0,
-              0.5560596777654974
-            ]
-          ],
-          "samples": 13,
-          "sequence_pairs": 5,
-          "status": "joint_counter_only",
-          "unidentified_atomic_jobs": 6,
-          "unresolved_feature_rates": [
-            "softmax_k",
-            "reduction_k",
-            "cast_k",
-            "format_k",
-            "online_k",
-            "chunks"
-          ]
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
         },
         "vmte2": {
-          "atomic_jobs": 4,
-          "calibration_mape_percent": 1.8346932281621429,
-          "calibration_max_ape_percent": 3.2986428156892678,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
-          ],
           "coefficients": {
-            "loads": 0.0,
-            "read_kb": 0.014651686426704297
+            "loads": 0.19709225739536984,
+            "read_kb": 0.007283185888616997
           },
-          "feasible_rate_vertices": [
-            [
-              0.014651686426704297,
-              0.0
-            ]
-          ],
-          "feature_count": 2,
-          "feature_scales": [
-            31064064.0,
-            1155072.0
-          ],
-          "identified_feature_rates": [
-            "read_kb",
-            "loads"
-          ],
           "inactive_feature_rates": [],
-          "rank": 2,
-          "row_basis": [
-            [
-              -0.706590164022944,
-              -0.7076230211814969
-            ],
-            [
-              0.7076230211814969,
-              -0.706590164022944
-            ]
-          ],
-          "samples": 13,
-          "sequence_pairs": 5,
-          "status": "identified_stage_costs",
-          "unidentified_atomic_jobs": 0,
-          "unresolved_feature_rates": []
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
         },
         "vmte3": {
-          "atomic_jobs": 5,
-          "calibration_mape_percent": 3.0678501748042324,
-          "calibration_max_ape_percent": 6.8282388907857205,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
-          ],
           "coefficients": {
-            "stores": 0.0,
-            "write_kb": 0.02611992189147235
+            "address_gap_kb": 0.0,
+            "stores": 3.577661195891197e-17,
+            "write_kb": 0.023835017397232223
           },
-          "feasible_rate_vertices": [
-            [
-              0.026119921891472355,
-              0.0
-            ]
+          "inactive_feature_rates": [
+            "address_gap_kb"
           ],
-          "feature_count": 2,
-          "feature_scales": [
-            15581184.0,
-            995328.0
-          ],
-          "identified_feature_rates": [
-            "write_kb",
-            "stores"
-          ],
-          "inactive_feature_rates": [],
-          "rank": 2,
-          "row_basis": [
-            [
-              -0.7056137159356478,
-              -0.708596700446373
-            ],
-            [
-              0.708596700446373,
-              -0.7056137159356478
-            ]
-          ],
-          "samples": 13,
-          "sequence_pairs": 5,
-          "status": "identified_stage_costs",
-          "unidentified_atomic_jobs": 0,
-          "unresolved_feature_rates": []
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
         },
         "vscalar": {
-          "atomic_jobs": 3,
-          "calibration_mape_percent": 1.5932511840326111,
-          "calibration_max_ape_percent": 4.095508686691951,
-          "calibration_shapes": [
-            "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
-            "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
-            "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
-            "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
-            "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
-            "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
-            "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
-            "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
-            "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
-            "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
-            "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
-            "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-            "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
+          "coefficients": {
+            "adapter_workers": 0.0,
+            "batch_entries": 0.0,
+            "chunks": 0.12888261705932386,
+            "drop_chunks": 0.006374450738469404,
+            "workers": 19.659765483968517
+          },
+          "inactive_feature_rates": [
+            "batch_entries",
+            "adapter_workers"
           ],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        }
+      },
+      "rates": [
+        0.06939433115465105,
+        0.004623567311334367,
+        0.003938865224928187,
+        0.0015294410498081696,
+        0.004191743469517337,
+        0.7203612444891331,
+        0.0,
+        0.011043838763625934,
+        0.0001594711724812199,
+        1.0416009512452424e-06,
+        3.745939146073599e-07,
+        0.136863349893165,
+        1.937224617041619e-05,
+        3.5264036283914546e-05,
+        0.0870714876841073,
+        0.0013754768145338968,
+        0.021332566954696687,
+        0.0,
+        0.15617177431052165,
+        0.007283185888616997,
+        0.19709225739536984,
+        0.023835017397232223,
+        3.577661195891197e-17,
+        0.0,
+        22.203126114946425,
+        0.0,
+        0.3253601768004276,
+        19.659765483968517,
+        0.0,
+        0.12888261705932386,
+        0.006374450738469404,
+        0.0
+      ],
+      "stage_costs_independently_measured": false
+    },
+    "kernel=same_ab|dtype=BF16|layout=SBH|matmul=NORMAL|operand_path=GM|softmax_reduce=8": {
+      "calibration": "Shared nonnegative source-operation rates within this implementation, fitted jointly to kernel times and PMU constraints. Scalar active time is an upper bound, since wait/control is already represented in the graph. Entire shapes and all their tilings must stay in the same validation fold.",
+      "calibration_mape_percent": 9.477111806252365,
+      "calibration_max_ape_percent": 26.327913289355177,
+      "calibration_shapes": [
+        "0b9beb25c48fe6b518cd41c36d286671d447f2b826e204d8614bbf38906c8fce",
+        "0dcf8e6664daefb98aecb0e4a2522ac13f777d09332f4e0f4ded74568ba5642d",
+        "185d65fef26889d228696eadc6839968c33ab6530baa94ff6b3defb6e6404b60",
+        "198593330a7304e96e8c183a3d583c6d4c4db002f7c647b2421fb86103a29a0f",
+        "26ec1f80ce039fc74d705ebcc4645b1b39548494ae9a3386d88433d9bdeaaec6",
+        "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+        "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+        "5953c8bceb907f7c1487302e4b3b0b937c057ae78192d469c73c3c508d21d16a",
+        "596cd87e2f6e8f6bd50940873ffae4828641a7f4969db3da377ff1424dac93bd",
+        "6e74b201333b0993ea98913f1d67caaccb13152aedd4cdde6573db77a82f7d65",
+        "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
+        "85c9e8e5cb49f896165254f0b6d25c6bfea7031b7282c0a1dfd74c204e17967d",
+        "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+        "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+        "c0fec943f94a4f4822a4d89007ef27495179cda83d308dafa01736865f7fd261",
+        "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+        "d5b2913b415cf4251477154c2f51d085e15091c9fc6054881d22afdc12082673",
+        "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+        "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+        "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+        "f9a0120fb943c6125fef77fed191d4ec0d7ed7fbe78f73510eeffdb797dac943"
+      ],
+      "configurations": 127,
+      "event_bracket_overhead_us": 1.7485541527243133e-11,
+      "input_ranges": {
+        "B": [
+          1,
+          1
+        ],
+        "D": [
+          192,
+          192
+        ],
+        "DV": [
+          128,
+          128
+        ],
+        "N1": [
+          8,
+          128
+        ],
+        "N2": [
+          8,
+          128
+        ],
+        "S1": [
+          2048,
+          10240
+        ],
+        "S2": [
+          2048,
+          10240
+        ]
+      },
+      "measured_shapes": 21,
+      "optimization_evaluations": 42,
+      "optimization_success": true,
+      "parameter_names": [
+        [
+          "cube",
+          "flops_m"
+        ],
+        [
+          "cube",
+          "tiles"
+        ],
+        [
+          "mte1",
+          "l0_kb"
+        ],
+        [
+          "mte1",
+          "tiles"
+        ],
+        [
+          "mte2",
+          "read_kb"
+        ],
+        [
+          "mte2",
+          "loads"
+        ],
+        [
+          "mte2",
+          "address_gap_kb"
+        ],
+        [
+          "fixpipe",
+          "nd_write_kb"
+        ],
+        [
+          "fixpipe",
+          "nz_write_kb"
+        ],
+        [
+          "fixpipe",
+          "stores"
+        ],
+        [
+          "vector",
+          "softmax_k"
+        ],
+        [
+          "vector",
+          "reduction_k"
+        ],
+        [
+          "vector",
+          "cast_k"
+        ],
+        [
+          "vector",
+          "nz2nd_k"
+        ],
+        [
+          "vector",
+          "nd2nz_k"
+        ],
+        [
+          "vector",
+          "online_k"
+        ],
+        [
+          "vector",
+          "drop_k"
+        ],
+        [
+          "vector",
+          "unpack_k"
+        ],
+        [
+          "vector",
+          "chunks"
+        ],
+        [
+          "vmte2",
+          "read_kb"
+        ],
+        [
+          "vmte2",
+          "loads"
+        ],
+        [
+          "vmte3",
+          "write_kb"
+        ],
+        [
+          "vmte3",
+          "stores"
+        ],
+        [
+          "vmte3",
+          "address_gap_kb"
+        ],
+        [
+          "cscalar",
+          "workers"
+        ],
+        [
+          "cscalar",
+          "batch_entries"
+        ],
+        [
+          "cscalar",
+          "commands"
+        ],
+        [
+          "vscalar",
+          "workers"
+        ],
+        [
+          "vscalar",
+          "batch_entries"
+        ],
+        [
+          "vscalar",
+          "chunks"
+        ],
+        [
+          "vscalar",
+          "drop_chunks"
+        ],
+        [
+          "vscalar",
+          "adapter_workers"
+        ]
+      ],
+      "path": {
+        "d_tail": false,
+        "drop_mask": "NONE",
+        "dtype": "BF16",
+        "dv_tail": false,
+        "k_tail_mask": false,
+        "kernel": "same_ab",
+        "layout": "SBH",
+        "matmul": "NORMAL",
+        "mm1_template": "ND",
+        "mm1_windows": "ND",
+        "mm2_output": "NZ",
+        "online_update": true,
+        "operand_path": "GM",
+        "probability_format": "NZ",
+        "q_tail": false,
+        "reuse_fake_peer": false,
+        "softmax_reduce": 8,
+        "softmax_row_padding": false,
+        "tiny_k": false
+      },
+      "pipes": {
+        "cscalar": {
           "coefficients": {
             "batch_entries": 0.0,
-            "chunks": 0.41786645478060264,
-            "workers": 8.626537189666543
+            "commands": 0.005513847041029405,
+            "workers": 0.0032518447553409
           },
-          "feasible_rate_vertices": [
-            [
-              8.62653718966637,
-              0.0,
-              0.41786645478060264
-            ]
-          ],
-          "feature_count": 3,
-          "feature_scales": [
-            40.0,
-            1.0,
-            983040.0
-          ],
-          "identified_feature_rates": [
-            "workers",
-            "chunks"
-          ],
           "inactive_feature_rates": [
             "batch_entries"
           ],
-          "rank": 2,
-          "row_basis": [
-            [
-              -0.9813731758616892,
-              0.0,
-              -0.19211113892521237
-            ],
-            [
-              -0.1921111389252124,
-              0.0,
-              0.981373175861689
-            ]
+          "samples": 13,
+          "status": "joint_pipeline_calibration"
+        },
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.048868386071078324,
+            "tiles": 0.1412343066577027
+          },
+          "inactive_feature_rates": [],
+          "samples": 13,
+          "status": "joint_pipeline_calibration"
+        },
+        "fixpipe": {
+          "coefficients": {
+            "nd_write_kb": 0.013349234135390273,
+            "nz_write_kb": 0.015894590540437126,
+            "stores": 0.22397060325169768
+          },
+          "inactive_feature_rates": [],
+          "samples": 13,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte1": {
+          "coefficients": {
+            "l0_kb": 0.0035826426759851195,
+            "tiles": 0.03835934325742396
+          },
+          "inactive_feature_rates": [],
+          "samples": 13,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte2": {
+          "coefficients": {
+            "address_gap_kb": 7.708936061751074e-05,
+            "loads": 0.12625654486704538,
+            "read_kb": 0.013095054471378584
+          },
+          "inactive_feature_rates": [],
+          "samples": 13,
+          "status": "joint_pipeline_calibration"
+        },
+        "vector": {
+          "coefficients": {
+            "cast_k": 0.08650050225590082,
+            "chunks": 0.0034712871513105,
+            "drop_k": 0.0,
+            "nd2nz_k": 0.00025001555410389696,
+            "nz2nd_k": 0.1596097000994573,
+            "online_k": 8.042099173118344e-05,
+            "reduction_k": 4.246600456969949e-14,
+            "softmax_k": 0.0002500155541038756,
+            "unpack_k": 0.0
+          },
+          "inactive_feature_rates": [
+            "drop_k",
+            "unpack_k"
           ],
           "samples": 13,
-          "sequence_pairs": 5,
-          "status": "identified_stage_costs",
-          "unidentified_atomic_jobs": 0,
-          "unresolved_feature_rates": []
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte2": {
+          "coefficients": {
+            "loads": 0.24896105878466818,
+            "read_kb": 0.004999040639553661
+          },
+          "inactive_feature_rates": [],
+          "samples": 13,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte3": {
+          "coefficients": {
+            "address_gap_kb": 1.1924567262105183e-06,
+            "stores": 0.009805955774786941,
+            "write_kb": 0.022649812734169918
+          },
+          "inactive_feature_rates": [],
+          "samples": 13,
+          "status": "joint_pipeline_calibration"
+        },
+        "vscalar": {
+          "coefficients": {
+            "adapter_workers": 0.0,
+            "batch_entries": 0.0,
+            "chunks": 0.0017606112743843883,
+            "drop_chunks": 0.0,
+            "workers": 0.003271466009183161
+          },
+          "inactive_feature_rates": [
+            "batch_entries",
+            "drop_chunks",
+            "adapter_workers"
+          ],
+          "samples": 13,
+          "status": "joint_pipeline_calibration"
         }
       },
-      "sequence_pairs": 5,
-      "stable_shapes": 13
-    }
-  },
-  "classification": "One SameAB BF16 BNSD UNSPLITK implementation; source tail conditions change counted work. Other kernel paths are classified for diagnostics and have no fitted latency model here.",
-  "data_status_counts": {
-    "20261027_203143.txt": {
-      "ok": 26
+      "rates": [
+        0.048868386071078324,
+        0.1412343066577027,
+        0.0035826426759851195,
+        0.03835934325742396,
+        0.013095054471378584,
+        0.12625654486704538,
+        7.708936061751074e-05,
+        0.013349234135390273,
+        0.015894590540437126,
+        0.22397060325169768,
+        0.0002500155541038756,
+        4.246600456969949e-14,
+        0.08650050225590082,
+        0.1596097000994573,
+        0.00025001555410389696,
+        8.042099173118344e-05,
+        0.0,
+        0.0,
+        0.0034712871513105,
+        0.004999040639553661,
+        0.24896105878466818,
+        0.022649812734169918,
+        0.009805955774786941,
+        1.1924567262105183e-06,
+        0.0032518447553409,
+        0.0,
+        0.005513847041029405,
+        0.003271466009183161,
+        0.0,
+        0.0017606112743843883,
+        0.0,
+        0.0
+      ],
+      "stage_costs_independently_measured": false
     },
-    "20261028_175018.txt": {
-      "covered": 12,
-      "failed": 22,
-      "not_hit": 5,
-      "ok": 312
+    "kernel=same_ab|dtype=FP16|layout=BNSD|matmul=NORMAL|operand_path=GM|softmax_reduce=8": {
+      "calibration": "Shared nonnegative source-operation rates within this implementation, fitted jointly to kernel times and PMU constraints. Scalar active time is an upper bound, since wait/control is already represented in the graph. Entire shapes and all their tilings must stay in the same validation fold.",
+      "calibration_mape_percent": 5.950458315040923,
+      "calibration_max_ape_percent": 21.761885010004868,
+      "calibration_shapes": [
+        "061c692873777cf4538606721df525c715f6fdeee325b9a94c8df6419003eb86",
+        "12d4cd573d21236cc2925558ede5041e90608ce2770cfe981cac0af9894b74a1",
+        "191c744a15606affd43c68eb562c83591979196a2cda3766a27951c017a09c59",
+        "1db935b07515710e487cb6e0777e27d7994d937021eb46329d18f0d0ddabf617",
+        "1de48bbfe5644cf174576af029caca9c480acdedcc0ab6cf9ec4cb796ff8c98e",
+        "226f0ee787a6a99629e307c52b475a7af0018a95c33697f2854e6da4f102a0b4",
+        "2323db57916354d83f81e56d28ec8859e166bd31cb63800acb0a0ffb794b4475",
+        "23f30fef891f0b484f0e275566541ba6f936a3a558eb47341498466ea1d60ef0",
+        "256cd41d681edc8f36d93b97e7f8cdc2e4b2e38b89a1bf192247f25a64226dd2",
+        "2b561bf0e7d45d6e7427c9cfd7e812ecfc3600bbfdf868742691c33b92080acc",
+        "2da768cf41d763c96a668fe651a3a0f4a39ea8ae3dcde5e8374ceeab166b10cb",
+        "2eeb25b975bf7a60131baa78b72b6bfdc8437c56ad56f9d201ebf4a26323ff0a",
+        "2f13c9a48d9390b294bf9ad26b91fd551c6459318a5bd284f6ce7ea9f7b8344c",
+        "377d9e4a062a96dc806a4aa1014d35d2806a6e95aed1088b3fb677041f794c8e",
+        "39c1bb6947d338935d6e91a2cd389aeee2f30fea9d55a2de595b438b99e05c48",
+        "3bda2d8550631797bb6474a5d8e65985d1e8830dc95fec756afd4d1372a25324",
+        "4506ad4ab829c7f0289d26f4d359924d71d9ffd1d31ae0312af6d77dc74a7645",
+        "461b357f942a94522bbb91eaf118ceca1adfef74fd0db4c5369843d54b818d4f",
+        "47a342214c705d8f4b2fc1316d5a73b855e1c9020c629f290e5e5238ca0ccc3c",
+        "9265ddfd9e63260fe17f5829b5e458c13e3682970095d8a6df55256cb3122f03",
+        "9c13f76eebaa8f851713c8e0832db056c1a43f2695e8f3171e0132c1e7780198",
+        "e95ca56572b5f58883702c69a24fbe2d81bd2e3b220630ed1b181f6e926ec942"
+      ],
+      "configurations": 22,
+      "event_bracket_overhead_us": 0,
+      "input_ranges": {
+        "B": [
+          1,
+          16
+        ],
+        "D": [
+          96,
+          96
+        ],
+        "DV": [
+          96,
+          96
+        ],
+        "N1": [
+          8,
+          32
+        ],
+        "N2": [
+          1,
+          1
+        ],
+        "S1": [
+          128,
+          1280
+        ],
+        "S2": [
+          512,
+          3074
+        ]
+      },
+      "measured_shapes": 22,
+      "optimization_evaluations": 52,
+      "optimization_success": true,
+      "parameter_names": [
+        [
+          "cube",
+          "flops_m"
+        ],
+        [
+          "cube",
+          "tiles"
+        ],
+        [
+          "mte1",
+          "l0_kb"
+        ],
+        [
+          "mte1",
+          "tiles"
+        ],
+        [
+          "mte2",
+          "read_kb"
+        ],
+        [
+          "mte2",
+          "loads"
+        ],
+        [
+          "mte2",
+          "address_gap_kb"
+        ],
+        [
+          "fixpipe",
+          "nd_write_kb"
+        ],
+        [
+          "fixpipe",
+          "nz_write_kb"
+        ],
+        [
+          "fixpipe",
+          "stores"
+        ],
+        [
+          "vector",
+          "softmax_k"
+        ],
+        [
+          "vector",
+          "reduction_k"
+        ],
+        [
+          "vector",
+          "cast_k"
+        ],
+        [
+          "vector",
+          "nz2nd_k"
+        ],
+        [
+          "vector",
+          "nd2nz_k"
+        ],
+        [
+          "vector",
+          "online_k"
+        ],
+        [
+          "vector",
+          "drop_k"
+        ],
+        [
+          "vector",
+          "unpack_k"
+        ],
+        [
+          "vector",
+          "chunks"
+        ],
+        [
+          "vmte2",
+          "read_kb"
+        ],
+        [
+          "vmte2",
+          "loads"
+        ],
+        [
+          "vmte3",
+          "write_kb"
+        ],
+        [
+          "vmte3",
+          "stores"
+        ],
+        [
+          "vmte3",
+          "address_gap_kb"
+        ],
+        [
+          "cscalar",
+          "workers"
+        ],
+        [
+          "cscalar",
+          "batch_entries"
+        ],
+        [
+          "cscalar",
+          "commands"
+        ],
+        [
+          "vscalar",
+          "workers"
+        ],
+        [
+          "vscalar",
+          "batch_entries"
+        ],
+        [
+          "vscalar",
+          "chunks"
+        ],
+        [
+          "vscalar",
+          "drop_chunks"
+        ],
+        [
+          "vscalar",
+          "adapter_workers"
+        ]
+      ],
+      "path": {
+        "d_tail": false,
+        "drop_mask": "NONE",
+        "dtype": "FP16",
+        "dv_tail": false,
+        "k_tail_mask": true,
+        "kernel": "same_ab",
+        "layout": "BNSD",
+        "matmul": "NORMAL",
+        "mm1_template": "NZ",
+        "mm1_windows": "NZ",
+        "mm2_output": "NZ",
+        "online_update": false,
+        "operand_path": "GM",
+        "probability_format": "NZ",
+        "q_tail": false,
+        "reuse_fake_peer": false,
+        "softmax_reduce": 8,
+        "softmax_row_padding": false,
+        "tiny_k": false
+      },
+      "pipes": {
+        "cscalar": {
+          "coefficients": {
+            "batch_entries": 0.0,
+            "commands": 3.5090519200931803e-19,
+            "workers": 20.681850387707414
+          },
+          "inactive_feature_rates": [
+            "batch_entries"
+          ],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.052081031096345376,
+            "tiles": 0.16163560997102802
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "fixpipe": {
+          "coefficients": {
+            "nd_write_kb": 0.004556304515989882,
+            "nz_write_kb": 0.005953289577619075,
+            "stores": 0.3280707970653203
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte1": {
+          "coefficients": {
+            "l0_kb": 0.003944047469625879,
+            "tiles": 0.012402910952425756
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte2": {
+          "coefficients": {
+            "address_gap_kb": 0.0,
+            "loads": 0.8670859525999768,
+            "read_kb": 2.8639005827145926e-13
+          },
+          "inactive_feature_rates": [
+            "address_gap_kb"
+          ],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "vector": {
+          "coefficients": {
+            "cast_k": 4.122333323054688e-08,
+            "chunks": 0.1899140210360626,
+            "drop_k": 0.0,
+            "nd2nz_k": 4.8523139402139994e-08,
+            "nz2nd_k": 0.04332933157825831,
+            "online_k": 0.1961905431889455,
+            "reduction_k": 1.879111823127215,
+            "softmax_k": 0.00028341072020584835,
+            "unpack_k": 0.0
+          },
+          "inactive_feature_rates": [
+            "drop_k",
+            "unpack_k"
+          ],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte2": {
+          "coefficients": {
+            "loads": 0.3254860812105937,
+            "read_kb": 3.757069324455786e-22
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte3": {
+          "coefficients": {
+            "address_gap_kb": 0.0,
+            "stores": 2.2762827105522317e-11,
+            "write_kb": 0.021410337697887052
+          },
+          "inactive_feature_rates": [
+            "address_gap_kb"
+          ],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "vscalar": {
+          "coefficients": {
+            "adapter_workers": 0.0,
+            "batch_entries": 0.0,
+            "chunks": 1.1009226049052262e-13,
+            "drop_chunks": 0.0,
+            "workers": 8.191941643177977
+          },
+          "inactive_feature_rates": [
+            "batch_entries",
+            "drop_chunks",
+            "adapter_workers"
+          ],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        }
+      },
+      "rates": [
+        0.052081031096345376,
+        0.16163560997102802,
+        0.003944047469625879,
+        0.012402910952425756,
+        2.8639005827145926e-13,
+        0.8670859525999768,
+        0.0,
+        0.004556304515989882,
+        0.005953289577619075,
+        0.3280707970653203,
+        0.00028341072020584835,
+        1.879111823127215,
+        4.122333323054688e-08,
+        0.04332933157825831,
+        4.8523139402139994e-08,
+        0.1961905431889455,
+        0.0,
+        0.0,
+        0.1899140210360626,
+        3.757069324455786e-22,
+        0.3254860812105937,
+        0.021410337697887052,
+        2.2762827105522317e-11,
+        0.0,
+        20.681850387707414,
+        0.0,
+        3.5090519200931803e-19,
+        8.191941643177977,
+        0.0,
+        1.1009226049052262e-13,
+        0.0,
+        0.0
+      ],
+      "stage_costs_independently_measured": false
     },
-    "20261029_024431.txt": {
-      "covered": 4,
-      "failed": 20,
-      "ok": 197
+    "kernel=tnd_same_ab|dtype=FP16|layout=TND|matmul=NORMAL|operand_path=L1_CARRY|softmax_reduce=8": {
+      "calibration": "Shared nonnegative source-operation rates within this implementation, fitted jointly to kernel times and PMU constraints. Scalar active time is an upper bound, since wait/control is already represented in the graph. Entire shapes and all their tilings must stay in the same validation fold.",
+      "calibration_mape_percent": 4.544078606071525,
+      "calibration_max_ape_percent": 7.146749863685886,
+      "calibration_shapes": [
+        "06dd7ed00558a9b44fdd70d59583f5b0f6a747c9a392d8625b92a384275dd4fb",
+        "06fa65a891b04652d61511680fd4e7c7bbb38aac22fd0d9deb73edb7c0ed93ff",
+        "0c932a653eacee39d03c096683ba55a468f702d7a68067de4996300346346955",
+        "0d3ac2d1435a52469c498141fd2d89aa2efb48a49ba53ba05e7510d3985065d1",
+        "141dc41ad214b3937f50a0f7adf2da13fd2a612a456ae14cdb0ea5229a067eab",
+        "14480d68a007b4ae8f099ec3e8a77937a9213874623fede1633097995d4ab1a3",
+        "151d4c7c006cdfe90c6d9142abd2418461e443611107e18b61ee8b8402695aee",
+        "16655e99ae0f9d749b46176e2da40cac02da1ae8ad074ac650bc8c498c605253",
+        "2d15ae4cc637ee66fe7a7e9e018163e8efeeade8c9afe6d2f1c0f5a3dff6711b",
+        "352230ee0473ec15bf88e7e65b61d7dca022839b3abcba999c4b2128f67e26da",
+        "3f81c30ab89ea1bfb455ee43bab4d9ea9a2d43a1e6af4a7a5200f676f4b287f5",
+        "48b89deef120df7315da6835d31103816d87f31df8038b47c743c590dce080b8",
+        "4d730760473c86bc65348ccd17ee547d5cd79353e717152a0b691bdaac0c4f46",
+        "4e74d650b0e8691307c12a22d62adc470e0fd0360dc04595bf84de2b99e1b495",
+        "4fc54ca47586dd5f669378e56b6fd1c858c56403996d20fa1412953c021c4c1e",
+        "514269726c53afe7628f766b44c160cb8af9acfb93d06db3eb06cf256c3f3a26",
+        "5342e50b5c329b00dd95a12587e6bb343463a8cf24ebc15dc30f76ccfb29ff3f",
+        "5a878cd01f92bc3fe99d0a447408923e36d1a7bf5d5987ebd4a0e3358c3051ef",
+        "5cecb9d181b810a6f1952772adb7f92b0eec35bffea213e3053c0f53481229f7",
+        "d3a4eda034b813e5cd7489dc974e3112ee1de4e726530569911ef69326b95514",
+        "e1e1ff2f59a2fade91e1e3c6803e293df0efd1b1080f70a9b6d6f6a4d231c9db"
+      ],
+      "configurations": 21,
+      "event_bracket_overhead_us": 0,
+      "input_ranges": {
+        "B": [
+          4,
+          32
+        ],
+        "D": [
+          128,
+          128
+        ],
+        "DV": [
+          128,
+          128
+        ],
+        "N1": [
+          4,
+          32
+        ],
+        "N2": [
+          1,
+          2
+        ],
+        "S1": [
+          2048,
+          6144
+        ],
+        "S2": [
+          2048,
+          4096
+        ]
+      },
+      "measured_shapes": 21,
+      "optimization_evaluations": 60,
+      "optimization_success": true,
+      "parameter_names": [
+        [
+          "cube",
+          "flops_m"
+        ],
+        [
+          "cube",
+          "tiles"
+        ],
+        [
+          "mte1",
+          "l0_kb"
+        ],
+        [
+          "mte1",
+          "tiles"
+        ],
+        [
+          "mte2",
+          "read_kb"
+        ],
+        [
+          "mte2",
+          "loads"
+        ],
+        [
+          "mte2",
+          "address_gap_kb"
+        ],
+        [
+          "fixpipe",
+          "nd_write_kb"
+        ],
+        [
+          "fixpipe",
+          "nz_write_kb"
+        ],
+        [
+          "fixpipe",
+          "stores"
+        ],
+        [
+          "vector",
+          "softmax_k"
+        ],
+        [
+          "vector",
+          "reduction_k"
+        ],
+        [
+          "vector",
+          "cast_k"
+        ],
+        [
+          "vector",
+          "nz2nd_k"
+        ],
+        [
+          "vector",
+          "nd2nz_k"
+        ],
+        [
+          "vector",
+          "online_k"
+        ],
+        [
+          "vector",
+          "drop_k"
+        ],
+        [
+          "vector",
+          "unpack_k"
+        ],
+        [
+          "vector",
+          "chunks"
+        ],
+        [
+          "vmte2",
+          "read_kb"
+        ],
+        [
+          "vmte2",
+          "loads"
+        ],
+        [
+          "vmte3",
+          "write_kb"
+        ],
+        [
+          "vmte3",
+          "stores"
+        ],
+        [
+          "vmte3",
+          "address_gap_kb"
+        ],
+        [
+          "cscalar",
+          "workers"
+        ],
+        [
+          "cscalar",
+          "batch_entries"
+        ],
+        [
+          "cscalar",
+          "commands"
+        ],
+        [
+          "vscalar",
+          "workers"
+        ],
+        [
+          "vscalar",
+          "batch_entries"
+        ],
+        [
+          "vscalar",
+          "chunks"
+        ],
+        [
+          "vscalar",
+          "drop_chunks"
+        ],
+        [
+          "vscalar",
+          "adapter_workers"
+        ]
+      ],
+      "path": {
+        "d_tail": false,
+        "drop_mask": "NONE",
+        "dtype": "FP16",
+        "dv_tail": false,
+        "k_tail_mask": false,
+        "kernel": "tnd_same_ab",
+        "layout": "TND",
+        "matmul": "NORMAL",
+        "mm1_template": "NZ",
+        "mm1_windows": "ND",
+        "mm2_output": "NZ",
+        "online_update": true,
+        "operand_path": "L1_CARRY",
+        "probability_format": "NZ",
+        "q_tail": false,
+        "reuse_fake_peer": false,
+        "softmax_reduce": 8,
+        "softmax_row_padding": false,
+        "tiny_k": false
+      },
+      "pipes": {
+        "cscalar": {
+          "coefficients": {
+            "batch_entries": 0.012424346147323915,
+            "commands": 0.24202140574363035,
+            "workers": 0.6113296991654238
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.0866064280465099,
+            "tiles": 7.031644943838812e-06
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "fixpipe": {
+          "coefficients": {
+            "nd_write_kb": 0.008866321137996644,
+            "nz_write_kb": 0.007588420347395486,
+            "stores": 0.009310234427251504
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte1": {
+          "coefficients": {
+            "l0_kb": 0.004212774329863072,
+            "tiles": 1.5789305121344875e-05
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte2": {
+          "coefficients": {
+            "address_gap_kb": 0.004675175834631432,
+            "loads": 0.4175425417812129,
+            "read_kb": 3.5248574670237685e-06
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "vector": {
+          "coefficients": {
+            "cast_k": 0.052180445875022165,
+            "chunks": 4.0431542998453255e-05,
+            "drop_k": 0.0,
+            "nd2nz_k": 8.897994973648503e-06,
+            "nz2nd_k": 0.257773256902399,
+            "online_k": 0.08784490305312459,
+            "reduction_k": 0.0009111546853018328,
+            "softmax_k": 8.897994973649549e-06,
+            "unpack_k": 0.0
+          },
+          "inactive_feature_rates": [
+            "drop_k",
+            "unpack_k"
+          ],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte2": {
+          "coefficients": {
+            "loads": 1.3375893714842316e-06,
+            "read_kb": 0.01174209915248821
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte3": {
+          "coefficients": {
+            "address_gap_kb": 0.00040932554368097333,
+            "stores": 0.4407287246853293,
+            "write_kb": 2.481219873855902e-10
+          },
+          "inactive_feature_rates": [],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        },
+        "vscalar": {
+          "coefficients": {
+            "adapter_workers": 0.0,
+            "batch_entries": 0.031229069417593455,
+            "chunks": 0.45598123059004,
+            "drop_chunks": 0.0,
+            "workers": 0.39386689485669096
+          },
+          "inactive_feature_rates": [
+            "drop_chunks",
+            "adapter_workers"
+          ],
+          "samples": 20,
+          "status": "joint_pipeline_calibration"
+        }
+      },
+      "rates": [
+        0.0866064280465099,
+        7.031644943838812e-06,
+        0.004212774329863072,
+        1.5789305121344875e-05,
+        3.5248574670237685e-06,
+        0.4175425417812129,
+        0.004675175834631432,
+        0.008866321137996644,
+        0.007588420347395486,
+        0.009310234427251504,
+        8.897994973649549e-06,
+        0.0009111546853018328,
+        0.052180445875022165,
+        0.257773256902399,
+        8.897994973648503e-06,
+        0.08784490305312459,
+        0.0,
+        0.0,
+        4.0431542998453255e-05,
+        0.01174209915248821,
+        1.3375893714842316e-06,
+        2.481219873855902e-10,
+        0.4407287246853293,
+        0.00040932554368097333,
+        0.6113296991654238,
+        0.012424346147323915,
+        0.24202140574363035,
+        0.39386689485669096,
+        0.031229069417593455,
+        0.45598123059004,
+        0.0,
+        0.0
+      ],
+      "stage_costs_independently_measured": false
     }
   },
   "development_data": [
     {
+      "accepted": 26,
       "name": "20261027_203143.txt",
-      "sha256": "7d5da4e5ae43159c5ac86692212901c4b10b5f52a2860a2519246a4864d223de"
+      "non_successful_shapes": [],
+      "rejected": {},
+      "rows": 26,
+      "sha256": "7d5da4e5ae43159c5ac86692212901c4b10b5f52a2860a2519246a4864d223de",
+      "statuses": {
+        "ok": 26
+      }
     },
     {
+      "accepted": 312,
       "name": "20261028_175018.txt",
-      "sha256": "007282f9054456421d05421327f0512f563235be8f743d17ab3a4fe626de9762"
+      "non_successful_shapes": [
+        "022b940f85587e63a96cccd1f4fce3aef1e63ffb40ccd6d65be86a60481f7a57",
+        "0411fe4de3b0bbe4163422817187f1521a84066108eeefd769c82f758707e5b8",
+        "0624d6bfb9f02c190cbbb931f1dd7ded7b19d7291fb9c487c059a4aad7db9f3d",
+        "0a9a5499c146ebd23a5d57ad96f7aedfcbf796bc11151c45854c3a0edc93192c",
+        "0f8157e551000200e7e778a606d3619ac3b80730d957eb3b7f136b7da9e0348a",
+        "1024e3d58069f54bace20e34752f188d67e1a3b1c3278ac35e142fa9fb12310f",
+        "11c61ac7e77dfcfadb8efd136c48eb2ee711816d68692c6cfce3c33739d968a2",
+        "11e9695c084edd6b92aa05be1c5e0e21bde2b8fa4891da46b207b7b6de8f4d91",
+        "1522146640582c58d4407a9eafca5326e90c883839057f986b42484f0593dbb1",
+        "15788d12209247b85e493b37afd22e92351365997b6e83400e7c62d61c7d7163",
+        "158becd460c63c1f74971fcc44155143d16a38817fda48238566e5d758597ea9",
+        "175a485d6cd4aa25cfac768df729161f6cf283074dad85887f678023545c3201",
+        "175bd2d1e11ec331c32e60a72015e46eb68a4299bd4df01bac92701577d41d6d",
+        "1ae421babc2cb85fda7c2a6fed9d8803c88e99dcffccf8fbc136c0808a1e8e11",
+        "1d14dd3830e9c6a4b568f9fdcdc1752a24531e3d6041c16ac45e17e614f6598e",
+        "279136076acd8ce3249227126f3213bb2d02fac19ff0895bf4281975877948a0",
+        "281bbd56b59f9ad464e4ed2fe54d948d4440cc8ebb7411591a5b35dde504273e",
+        "3045c03575904d6b6bcf48f6d12d9a9d4cc3177001ce36b1af759fc2885deaee",
+        "321dd009753ebe7ce89fd55ba78b5f78933d0c3a2bde35bf5d28ca1711858fb7",
+        "324b0d1a1efc45e2860f9f02be91b0909d7b327897c170062e9236382d3c2e4d",
+        "32c296c020f60ebe877f2c1b90847fb21efeda432875258bd5bb57da778de105",
+        "3c0ba0dc2bc5953cc3067432838d15e910116e65eaab248e6b20d3ca2ccb3efa",
+        "46a47284167a68be81a0ea0f95a7d33d014a5ceff335167a1389e931bd632093",
+        "49f9e15a3be976b8e28ec145f866941e074b2b472b5e114ddd36a4f6748380a4",
+        "59724ab1e8bb3687e822a2e1bf82a5e11be178841b6261fc660dda58e58cea5c",
+        "6088e2c78edf62fccc0d544a4176f7177d81dabc7f0f249be0561d44bce2cd29",
+        "61d1a74da29eeef68024e292b759207b382c36a34bb8e2f2e8a642525a637038",
+        "64cde1a2c79d0176754481e439d02cd20201db7e255036dee95120c7cd61e3bf",
+        "73493ad3733eb015ad2a4b7a09d6d1493d26d641b22afd01c1fa5b43279d78d4",
+        "9ab602f20c8559a911f993d8c9dd4efca0e633b29558fe171abee3110268fb98",
+        "9ed4574f4b3732c3d829f194a70a727633f93a4d22f46a6337b5b7eab2d1cba5",
+        "b8d8b9b7ec0be3894e867be041f3cbc18ce673b4e09952443e7f7eb1dedcae69",
+        "c10cb9edfca54f229a40d3b2bb34dd15edabf056058eeb8460b4b036fe778940",
+        "c3a85c57c74bed4931b14f4bf0bf0a06ec62a3ab5feaedd75cf0176a6507af17",
+        "ca14929f9c2a726f2502c2929fca74690e6d875fd7d396392e97bc2eed0a6d05",
+        "d125ed8b566f356f6f7a6a439f6db107fcea328387c92fef7544428dbdc45d49",
+        "d4fd61f6fcf286d630a2a12db5c730d5b257b69f6a43fb61df051eb461e4bfa2",
+        "d6263a3e775626e50e6506eb76a033f11e1547330828473ae0b0ce9c52c4ce8d",
+        "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad"
+      ],
+      "rejected": {
+        "non_successful_status": 39
+      },
+      "rows": 351,
+      "sha256": "007282f9054456421d05421327f0512f563235be8f743d17ab3a4fe626de9762",
+      "statuses": {
+        "covered": 12,
+        "failed": 22,
+        "not_hit": 5,
+        "ok": 312
+      }
     },
     {
+      "accepted": 197,
       "name": "20261029_024431.txt",
-      "sha256": "1d8d7d5092a9e1d33a418878a68cf2227fcef0db98639a10e89717349e3b74e9"
+      "non_successful_shapes": [
+        "0411fe4de3b0bbe4163422817187f1521a84066108eeefd769c82f758707e5b8",
+        "0a9a5499c146ebd23a5d57ad96f7aedfcbf796bc11151c45854c3a0edc93192c",
+        "15788d12209247b85e493b37afd22e92351365997b6e83400e7c62d61c7d7163",
+        "158becd460c63c1f74971fcc44155143d16a38817fda48238566e5d758597ea9",
+        "279136076acd8ce3249227126f3213bb2d02fac19ff0895bf4281975877948a0",
+        "281bbd56b59f9ad464e4ed2fe54d948d4440cc8ebb7411591a5b35dde504273e",
+        "3045c03575904d6b6bcf48f6d12d9a9d4cc3177001ce36b1af759fc2885deaee",
+        "324b0d1a1efc45e2860f9f02be91b0909d7b327897c170062e9236382d3c2e4d",
+        "32c296c020f60ebe877f2c1b90847fb21efeda432875258bd5bb57da778de105",
+        "392d99f23a8ff53f8bf67806e6926059505d41e0abdb33389e3711c920537acb",
+        "3c7af106a357661f55d6913fbbfbc909f413f2cd973b69765f3a9e75f7c51dbe",
+        "4063f438279718523b8041e9d72c5dabfbc60bf2d31422847f2490c070085d7d",
+        "4435431dda2393fbac8cd0c6725393585d17abaf19a8595ae5cac8fc7ae6ccc5",
+        "464dfbc3c398e1aa9251b3223a16b233bab13993c3a2b62ffbdbdd5a16114421",
+        "48ae5489b45b7ca1572f35853a420997372e5a0ae2ba8398f2df7d57c54fb3d6",
+        "4c3434de96290d5c7de8d8395c52516d21f4c8ca38293150628133e95f2f76e5",
+        "4c9ff1e452f9a53bb036fbf32f72fd3a326eba642b887e1f5cdd1defeb2565f6",
+        "4f5182c7c738e6cf1cdc907e42069284c71556d28346ddae3ee688e812e580b4",
+        "59724ab1e8bb3687e822a2e1bf82a5e11be178841b6261fc660dda58e58cea5c",
+        "61d1a74da29eeef68024e292b759207b382c36a34bb8e2f2e8a642525a637038",
+        "9ab602f20c8559a911f993d8c9dd4efca0e633b29558fe171abee3110268fb98",
+        "b8d8b9b7ec0be3894e867be041f3cbc18ce673b4e09952443e7f7eb1dedcae69",
+        "d4fd61f6fcf286d630a2a12db5c730d5b257b69f6a43fb61df051eb461e4bfa2",
+        "d6263a3e775626e50e6506eb76a033f11e1547330828473ae0b0ce9c52c4ce8d"
+      ],
+      "rejected": {
+        "non_successful_status": 24
+      },
+      "rows": 221,
+      "sha256": "1d8d7d5092a9e1d33a418878a68cf2227fcef0db98639a10e89717349e3b74e9",
+      "statuses": {
+        "covered": 4,
+        "failed": 20,
+        "ok": 197
+      }
+    },
+    {
+      "accepted": 90,
+      "name": "20261027_154809.txt",
+      "non_successful_shapes": [],
+      "rejected": {},
+      "rows": 90,
+      "sha256": "ddc484267594fc797bd25012ed752d763de38cdb663fc19245a66a42aa47807e",
+      "statuses": {
+        "ok": 90
+      }
+    },
+    {
+      "accepted": 94,
+      "name": "20261027_232931.txt",
+      "non_successful_shapes": [],
+      "rejected": {},
+      "rows": 94,
+      "sha256": "387ad22f77dd45a1a8204cbd167139ea3dd5625d3c2b88b11a1c5838525651b0",
+      "statuses": {
+        "ok": 94
+      }
+    },
+    {
+      "accepted": 164,
+      "name": "20261028_100603.txt",
+      "non_successful_shapes": [
+        "0018905d43ae000d961e7ee83a33305bf7236a7027f0a5c10fb6551224fc4f66",
+        "005bc60592dd5603fffa53360b3defd1b77c732b5e1509c5aa6c3a7b59b8f71b",
+        "022b940f85587e63a96cccd1f4fce3aef1e63ffb40ccd6d65be86a60481f7a57",
+        "0315c3391fa412c806503d5837a23831834e5a8e0e18bda5116a4f147b3cced7",
+        "0411fe4de3b0bbe4163422817187f1521a84066108eeefd769c82f758707e5b8",
+        "0a9a5499c146ebd23a5d57ad96f7aedfcbf796bc11151c45854c3a0edc93192c",
+        "0f8157e551000200e7e778a606d3619ac3b80730d957eb3b7f136b7da9e0348a",
+        "1024e3d58069f54bace20e34752f188d67e1a3b1c3278ac35e142fa9fb12310f",
+        "11c61ac7e77dfcfadb8efd136c48eb2ee711816d68692c6cfce3c33739d968a2",
+        "175a485d6cd4aa25cfac768df729161f6cf283074dad85887f678023545c3201",
+        "1d14dd3830e9c6a4b568f9fdcdc1752a24531e3d6041c16ac45e17e614f6598e",
+        "2b4c78b79652fdd9fa0e76f2f93e907805eca925181ce009f6bd2d32d6ee45c2",
+        "31111d1a3523030549cea4bb1ad27770df3e16911b565708f54cbb40bd155634",
+        "59724ab1e8bb3687e822a2e1bf82a5e11be178841b6261fc660dda58e58cea5c",
+        "5c2752afcb75b7e17f96da26acdae7fbae0068a650280f99a7f11dd80b2caf1b",
+        "61d1a74da29eeef68024e292b759207b382c36a34bb8e2f2e8a642525a637038",
+        "73493ad3733eb015ad2a4b7a09d6d1493d26d641b22afd01c1fa5b43279d78d4",
+        "81295cd4314aebd98b52931996d9f6a1f216ebe882cfffea817296f347bd76a4",
+        "8501089f32dc649595b6d6a2c3b6f88ae8eb1943dad274b9980d1a566deacd4f",
+        "9ab602f20c8559a911f993d8c9dd4efca0e633b29558fe171abee3110268fb98",
+        "9c988de922d5c06403e481b105f4e1e487eeb082a21d237c87df26a0ad187420",
+        "9ed4574f4b3732c3d829f194a70a727633f93a4d22f46a6337b5b7eab2d1cba5",
+        "ac1a99938789a9292294d5884485a44432a23ad544df9af66240559aacb32dc0",
+        "b8d8b9b7ec0be3894e867be041f3cbc18ce673b4e09952443e7f7eb1dedcae69",
+        "c10cb9edfca54f229a40d3b2bb34dd15edabf056058eeb8460b4b036fe778940",
+        "c3a85c57c74bed4931b14f4bf0bf0a06ec62a3ab5feaedd75cf0176a6507af17",
+        "c894dc3a0e4128de75295b55f4dfa7d77be54c55aeb75d5ba91795d07f0d916d",
+        "ca14929f9c2a726f2502c2929fca74690e6d875fd7d396392e97bc2eed0a6d05",
+        "d125ed8b566f356f6f7a6a439f6db107fcea328387c92fef7544428dbdc45d49",
+        "d4fd61f6fcf286d630a2a12db5c730d5b257b69f6a43fb61df051eb461e4bfa2",
+        "d6263a3e775626e50e6506eb76a033f11e1547330828473ae0b0ce9c52c4ce8d",
+        "e1e1ff2f59a2fade91e1e3c6803e293df0efd1b1080f70a9b6d6f6a4d231c9db",
+        "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad",
+        "e787bcead416f07322ce88429ba5156aebbe145fe9a86c1b501da17aefe69de2",
+        "e95ca56572b5f58883702c69a24fbe2d81bd2e3b220630ed1b181f6e926ec942",
+        "ebcbc08a4fa15677db0c2726e5c50dddfe0d977a0485af8fec3bbdbdf627fcd4",
+        "ec4cf7c224412be083b512585c447095336c0d84dedc396bdb86df9d5156aebd",
+        "edece15bf7d7173e4645b91d3b723564741a05a86ccbff73242982a72e276f31",
+        "fea49c254a73c5454e2fa60797c3c710333ded4c9d85b42e95ed3e22508815f4"
+      ],
+      "rejected": {
+        "non_successful_status": 39
+      },
+      "rows": 203,
+      "sha256": "9dcaad15a98f7388ce608432714c08fad735ad36891c6b83157bf3b2be4b4592",
+      "statuses": {
+        "covered": 12,
+        "failed": 26,
+        "not_hit": 1,
+        "ok": 164
+      }
+    },
+    {
+      "accepted": 90,
+      "name": "1245.txt",
+      "non_successful_shapes": [
+        "05548df28bf8875da93c6c1e0e255337464e779cc7cffdc5e7700e9b553975a9",
+        "07c8b6d4f50dee0f63fad029bb87ae1fc2da1ce1d7bc6a5aef4f635c1794d83f",
+        "0b2a36789a70fadb261faed1b69b86c0bef15d1cfd774f9e0edb4d16291d3f30",
+        "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+        "11c61ac7e77dfcfadb8efd136c48eb2ee711816d68692c6cfce3c33739d968a2",
+        "11c667f99e803232d2b0e237254a7382197009d31853cb93c06dd8266d6a6e06",
+        "1424d4e084bd1c742fd82f22525501450e206b582f696e31044ee819f634c433",
+        "17817cd8b768bb7b82923daccd6476ac595fb3561f423f1787fa0906e5ac7fb2",
+        "1a877cea600fedb62773b90c1e778bccd3abbf50d79079908134defb9415539c",
+        "1c295259c90f5c20880a44b20805dc0056c52e631c65ad9a21e53778dd0b9b63",
+        "1d14dd3830e9c6a4b568f9fdcdc1752a24531e3d6041c16ac45e17e614f6598e",
+        "1e08cf62088c9de734e3714bcc937caa1a471cfaac572b5b461d533ce369ef09",
+        "1fd4907554e11b340b12df1376b5158007a65a1ac6bf19cf4e7576afc660e51f",
+        "20497c73ebc3454ed3874b8eb591c4408dd68b6047b9ec41ec19a59cdf627aed",
+        "20d0153d9060f4187ca08b831f344cdb7b25282ce06c4faec8c71b70afb83241",
+        "276765d94c10c71792700d0c12a284472d40f21763b594af41aaa323824b0925",
+        "27fa821312b4e23508f60dfc285fe00549b82fbcb6641c6c2a2932a33e191d36",
+        "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+        "31ce528d4c3c9bf25d202e3d7e26b658a0ab817243fb8db5890a51f230423d61",
+        "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+        "336f944215410c9c108802394354c072ff7786ae24992ee3e27178a053322caf",
+        "373c2292a5daa32a22b8dbdf0f5f7b1f1a172601bd9cb8c95c028ab7e0791194",
+        "3a916667091c49adffe47a4e6c739e637d903d466ee81e1a7a87c614b1a13642",
+        "3ace462367850f14b2feff9118013b0924c3d602b2e7a19b7de3c645b62266c9",
+        "40c15087092709fabe049c3cc01ea375723c5b44769fc5b08ca55cd433d1ca87",
+        "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+        "4d5353b6776d39e727bdf8f80885c63c06533027a75d2a8f8327b75c09aa22a6",
+        "5265b7e1ad010a4be98d4762b7e50631ba7c81d1af3b6d727f8ac67ab293406b",
+        "56e3ab09c77250ba53b32febabf73e1a5e920a5bb844489759cd4f2376f238df",
+        "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+        "58f7c4204ecf73d84fdecbfbc7c49dfca8f6c89cf93e7917dfc7927c56bd6679",
+        "59b63a4898eafc0fd1a526c41635a754735fc5bf6aca75a9c73e36ba274b36da",
+        "63796a95a8104402d467efdfb51a93925b5c31ab93f7267298d4d5d26070883c",
+        "65cda8819eca9e225449a45fdb0da32767dea97440cd7106ca3234f3fa8a952c",
+        "665c33a05304942cd7c546cf2c1717405dc408c49979d563132112f380af096a",
+        "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+        "681083c901ff4315babd0d269a078e046c508b209019c6b6618c3103cd14a885",
+        "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+        "7ae66174f75dcf1d85005c802963e6b7a7f57ff396d45d3c602c2fe210a4139d",
+        "7bb813bc0052a996972bf1a97c11b44294be8ea87e37b6cd7a8d4dc9b1ab5ca2",
+        "7dc4c405f7d76a4ea4348b1420eaf792ae401ccfacbbda7873a76200255a2b8d",
+        "815e5472cb2ec088eeca26f7a517128416c8ebbd178affd13449a9d027d98aef",
+        "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
+        "84c925822d1e25c1e3de45f6aab47d8c4fdf30008715cf8b6ee5fdea83e79481",
+        "86a3fd0f033fa44f71a75d9f45c38f2fca2aca0598055a828f57f8a5819436d4",
+        "8ee92dffbbe776d928e07fd63f69fd28d0827cdf44114c040d67a82c4c3beab3",
+        "8f6e9b9761955cf40c6dced0e04a4e3e5c3e941e12f3085874f798088e695f01",
+        "8ffb3e2024ec0bafb79b3307206223d100484bfb08d3289e4b3c5219fd70d993",
+        "9148059d9eb60b28e7ab8852790bb383baa352554094257ac45596e1c1402efa",
+        "964511fa4f522b925b0343301f4758dc700231edb88a2d2093ba9642c30eadda",
+        "96cef8bcd563b9f1680cacc39b4f8b105f6cb52c98cff41accff771e328644e5",
+        "989ea011c0731bc31342b0778cdc926c7208e983642f9fa9f97610e5136b318f",
+        "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+        "9b8494195fcaacebffc86fee0d48f83988699dab294a2dd719b6b91c1c6c94c3",
+        "9df02549b3ea974732d773b45582df2e545d5d856448b7279ba31c6290c7ace6",
+        "a386782a29e79bcade8a8aa450d365f03ffef41a207d2787c0fff012f732064e",
+        "a66d16ac8ceb2106c8322f33185dc44f11d688a582a0b35defb5693057c56459",
+        "a8777ca4b54afa60010fc48dd125f47e05e123992121b4fdcd34cb43e884f6a7",
+        "aad226e94ab15c0daef0bdf004ac7cd023c7d1c2408466fa8da0ef3f1d2b9966",
+        "ab096c26ee0109d8f266790c0fda142681d6ac0273a780849d33d8f11e7741f1",
+        "b04d807419a0746dd9199260a0a98756a2128efc0028baebbda2544c154b67b4",
+        "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+        "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+        "ba72d40a7a4f2fc2f12727e95a7ec4421c8d87558163981d9548e8b439099507",
+        "bffa8b6c6514d9f6a2c22894f86950b59d1b9013be5b3d3042485acd48ac3db7",
+        "c10cb9edfca54f229a40d3b2bb34dd15edabf056058eeb8460b4b036fe778940",
+        "c3a85c57c74bed4931b14f4bf0bf0a06ec62a3ab5feaedd75cf0176a6507af17",
+        "c400cd3c3f5311b26ed620105cf1bfb28d20e57fb7fc6152d1bad4777fbb2798",
+        "c57c155f6b01e64bc046953d6ff5e1e3c97c7bb50e23ae7cd789f7c0ee9521da",
+        "ca14929f9c2a726f2502c2929fca74690e6d875fd7d396392e97bc2eed0a6d05",
+        "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+        "d0ed7be88d19877aa4f97f2562551ff6abb645a006447495d7360f3027d14733",
+        "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+        "d96302085bf560f64719b688c4f1468ffb4189f9ec6a0674e454aecf6dfbafdc",
+        "d9a4be59b49021c7ed2ca5221af13c965aa746ac7d12223178a3e1d945080f3d",
+        "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+        "dd939b5bbaa82ec03ed75d8a3c72274853dcba2d22960638f6f0b773f967fd5e",
+        "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+        "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad",
+        "e603092b9cd31da6cc56f149c04346797e7b3ff499e25f599e4882c420fea99a",
+        "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+        "e8ea13cca3b9ad6b40574f93054426a837586ea558c6f0d33c06f0c90cd5c9c8",
+        "ef9ca815b0a74bbbdc01a7130966d17b85492e507fc9958200db69341c0e85f7",
+        "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+        "f1525eccdea6980e21d5b5630dcea1a45e60ecf1c4f030756f4b69e77d7cefbb",
+        "f15daf3ce6ec6a29f1130852e55f52e227718f78e798c689f3106186778b2572",
+        "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+        "faf86b20d47362666ae42efb0559d2e47140608b0b5af1c9ebe8418406a95beb",
+        "fe8b7243214add33e2f37c0ac0c0b02eaea19192c15b92bd4e8307b2292332f7",
+        "ffebf677437abeff10ac7065331defb7bb282e2939b61218995e52f0f8cc903c"
+      ],
+      "rejected": {
+        "non_successful_status": 180,
+        "not_a_measurement_row": 3
+      },
+      "rows": 270,
+      "sha256": "14096770d52bb9c5ed8135347548a465b52ee0a9c3cd3b376009d833f20e8a02",
+      "statuses": {
+        "failed": 180,
+        "ok": 90
+      }
+    },
+    {
+      "accepted": 0,
+      "name": "1044.txt",
+      "non_successful_shapes": [
+        "05548df28bf8875da93c6c1e0e255337464e779cc7cffdc5e7700e9b553975a9",
+        "07c8b6d4f50dee0f63fad029bb87ae1fc2da1ce1d7bc6a5aef4f635c1794d83f",
+        "0b2a36789a70fadb261faed1b69b86c0bef15d1cfd774f9e0edb4d16291d3f30",
+        "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+        "11c61ac7e77dfcfadb8efd136c48eb2ee711816d68692c6cfce3c33739d968a2",
+        "11c667f99e803232d2b0e237254a7382197009d31853cb93c06dd8266d6a6e06",
+        "1424d4e084bd1c742fd82f22525501450e206b582f696e31044ee819f634c433",
+        "17817cd8b768bb7b82923daccd6476ac595fb3561f423f1787fa0906e5ac7fb2",
+        "1a877cea600fedb62773b90c1e778bccd3abbf50d79079908134defb9415539c",
+        "1c295259c90f5c20880a44b20805dc0056c52e631c65ad9a21e53778dd0b9b63",
+        "1d14dd3830e9c6a4b568f9fdcdc1752a24531e3d6041c16ac45e17e614f6598e",
+        "1e08cf62088c9de734e3714bcc937caa1a471cfaac572b5b461d533ce369ef09",
+        "1fd4907554e11b340b12df1376b5158007a65a1ac6bf19cf4e7576afc660e51f",
+        "20497c73ebc3454ed3874b8eb591c4408dd68b6047b9ec41ec19a59cdf627aed",
+        "20d0153d9060f4187ca08b831f344cdb7b25282ce06c4faec8c71b70afb83241",
+        "276765d94c10c71792700d0c12a284472d40f21763b594af41aaa323824b0925",
+        "27fa821312b4e23508f60dfc285fe00549b82fbcb6641c6c2a2932a33e191d36",
+        "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+        "31ce528d4c3c9bf25d202e3d7e26b658a0ab817243fb8db5890a51f230423d61",
+        "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+        "336f944215410c9c108802394354c072ff7786ae24992ee3e27178a053322caf",
+        "373c2292a5daa32a22b8dbdf0f5f7b1f1a172601bd9cb8c95c028ab7e0791194",
+        "3a916667091c49adffe47a4e6c739e637d903d466ee81e1a7a87c614b1a13642",
+        "3ace462367850f14b2feff9118013b0924c3d602b2e7a19b7de3c645b62266c9",
+        "40c15087092709fabe049c3cc01ea375723c5b44769fc5b08ca55cd433d1ca87",
+        "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+        "4d5353b6776d39e727bdf8f80885c63c06533027a75d2a8f8327b75c09aa22a6",
+        "5265b7e1ad010a4be98d4762b7e50631ba7c81d1af3b6d727f8ac67ab293406b",
+        "56e3ab09c77250ba53b32febabf73e1a5e920a5bb844489759cd4f2376f238df",
+        "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+        "58f7c4204ecf73d84fdecbfbc7c49dfca8f6c89cf93e7917dfc7927c56bd6679",
+        "59b63a4898eafc0fd1a526c41635a754735fc5bf6aca75a9c73e36ba274b36da",
+        "63796a95a8104402d467efdfb51a93925b5c31ab93f7267298d4d5d26070883c",
+        "65cda8819eca9e225449a45fdb0da32767dea97440cd7106ca3234f3fa8a952c",
+        "665c33a05304942cd7c546cf2c1717405dc408c49979d563132112f380af096a",
+        "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+        "681083c901ff4315babd0d269a078e046c508b209019c6b6618c3103cd14a885",
+        "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+        "7ae66174f75dcf1d85005c802963e6b7a7f57ff396d45d3c602c2fe210a4139d",
+        "7bb813bc0052a996972bf1a97c11b44294be8ea87e37b6cd7a8d4dc9b1ab5ca2",
+        "7dc4c405f7d76a4ea4348b1420eaf792ae401ccfacbbda7873a76200255a2b8d",
+        "815e5472cb2ec088eeca26f7a517128416c8ebbd178affd13449a9d027d98aef",
+        "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
+        "84c925822d1e25c1e3de45f6aab47d8c4fdf30008715cf8b6ee5fdea83e79481",
+        "86a3fd0f033fa44f71a75d9f45c38f2fca2aca0598055a828f57f8a5819436d4",
+        "8ee92dffbbe776d928e07fd63f69fd28d0827cdf44114c040d67a82c4c3beab3",
+        "8f6e9b9761955cf40c6dced0e04a4e3e5c3e941e12f3085874f798088e695f01",
+        "8ffb3e2024ec0bafb79b3307206223d100484bfb08d3289e4b3c5219fd70d993",
+        "9148059d9eb60b28e7ab8852790bb383baa352554094257ac45596e1c1402efa",
+        "964511fa4f522b925b0343301f4758dc700231edb88a2d2093ba9642c30eadda",
+        "96cef8bcd563b9f1680cacc39b4f8b105f6cb52c98cff41accff771e328644e5",
+        "989ea011c0731bc31342b0778cdc926c7208e983642f9fa9f97610e5136b318f",
+        "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+        "9b8494195fcaacebffc86fee0d48f83988699dab294a2dd719b6b91c1c6c94c3",
+        "9df02549b3ea974732d773b45582df2e545d5d856448b7279ba31c6290c7ace6",
+        "a386782a29e79bcade8a8aa450d365f03ffef41a207d2787c0fff012f732064e",
+        "a66d16ac8ceb2106c8322f33185dc44f11d688a582a0b35defb5693057c56459",
+        "a8777ca4b54afa60010fc48dd125f47e05e123992121b4fdcd34cb43e884f6a7",
+        "aad226e94ab15c0daef0bdf004ac7cd023c7d1c2408466fa8da0ef3f1d2b9966",
+        "ab096c26ee0109d8f266790c0fda142681d6ac0273a780849d33d8f11e7741f1",
+        "b04d807419a0746dd9199260a0a98756a2128efc0028baebbda2544c154b67b4",
+        "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+        "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+        "ba72d40a7a4f2fc2f12727e95a7ec4421c8d87558163981d9548e8b439099507",
+        "bffa8b6c6514d9f6a2c22894f86950b59d1b9013be5b3d3042485acd48ac3db7",
+        "c10cb9edfca54f229a40d3b2bb34dd15edabf056058eeb8460b4b036fe778940",
+        "c3a85c57c74bed4931b14f4bf0bf0a06ec62a3ab5feaedd75cf0176a6507af17",
+        "c400cd3c3f5311b26ed620105cf1bfb28d20e57fb7fc6152d1bad4777fbb2798",
+        "c57c155f6b01e64bc046953d6ff5e1e3c97c7bb50e23ae7cd789f7c0ee9521da",
+        "ca14929f9c2a726f2502c2929fca74690e6d875fd7d396392e97bc2eed0a6d05",
+        "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+        "d0ed7be88d19877aa4f97f2562551ff6abb645a006447495d7360f3027d14733",
+        "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+        "d96302085bf560f64719b688c4f1468ffb4189f9ec6a0674e454aecf6dfbafdc",
+        "d9a4be59b49021c7ed2ca5221af13c965aa746ac7d12223178a3e1d945080f3d",
+        "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+        "dd939b5bbaa82ec03ed75d8a3c72274853dcba2d22960638f6f0b773f967fd5e",
+        "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+        "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad",
+        "e603092b9cd31da6cc56f149c04346797e7b3ff499e25f599e4882c420fea99a",
+        "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+        "e8ea13cca3b9ad6b40574f93054426a837586ea558c6f0d33c06f0c90cd5c9c8",
+        "ef9ca815b0a74bbbdc01a7130966d17b85492e507fc9958200db69341c0e85f7",
+        "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+        "f1525eccdea6980e21d5b5630dcea1a45e60ecf1c4f030756f4b69e77d7cefbb",
+        "f15daf3ce6ec6a29f1130852e55f52e227718f78e798c689f3106186778b2572",
+        "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+        "faf86b20d47362666ae42efb0559d2e47140608b0b5af1c9ebe8418406a95beb",
+        "fe8b7243214add33e2f37c0ac0c0b02eaea19192c15b92bd4e8307b2292332f7",
+        "ffebf677437abeff10ac7065331defb7bb282e2939b61218995e52f0f8cc903c"
+      ],
+      "rejected": {
+        "non_successful_status": 180,
+        "not_a_measurement_row": 374
+      },
+      "rows": 180,
+      "sha256": "aba29b6818cdc2d8a89d9bc70c271e5e0c104ae6726b95a1fbfa53710c3a26f4",
+      "statuses": {
+        "failed": 180
+      }
+    },
+    {
+      "accepted": 32,
+      "name": "0836.txt",
+      "non_successful_shapes": [],
+      "rejected": {},
+      "rows": 32,
+      "sha256": "51c129597c004dfda45e6a04cda859ba8de298207493921caddf0aa5927bbe10",
+      "statuses": {
+        "ok": 32
+      }
+    },
+    {
+      "accepted": 312,
+      "name": "search.txt",
+      "non_successful_shapes": [
+        "0d4975e5fc7b5869f8c4ab9aa6d114898534498e0ef35b238363a87a3d0eb693",
+        "26bf7b1944dee0a3a447c528bf7eaebaab96daed2e921731d96e866bc8f4c7bd",
+        "e28431a47c10cff1249c8bf405ec1742c66a18ebb2a8f13e97262425bebbda82"
+      ],
+      "rejected": {
+        "non_successful_status": 24,
+        "not_a_measurement_row": 5
+      },
+      "rows": 336,
+      "sha256": "4959a975467979695dbe09b71d77b5b2787260aa300dd71d7eeb85203ec6cf42",
+      "statuses": {
+        "ok": 312,
+        "runner_failed": 24
+      }
+    },
+    {
+      "accepted": 88,
+      "name": "358.txt",
+      "non_successful_shapes": [
+        "af6d88c9b9bc7b09628dbdad51f641b775688ab7f6355d298c66b911d94c69e6"
+      ],
+      "rejected": {
+        "non_successful_status": 8,
+        "not_a_measurement_row": 191
+      },
+      "rows": 96,
+      "sha256": "3144bbe955a8d2dccc404983b5783977a9b448917f950beaa10c2829950b2b10",
+      "statuses": {
+        "ok": 88,
+        "runner_failed": 8
+      }
+    },
+    {
+      "accepted": 0,
+      "duplicate_file_of": "358.txt",
+      "name": "New20Document283%29.txt",
+      "non_successful_shapes": [],
+      "rejected": {},
+      "rows": 0,
+      "sha256": "3144bbe955a8d2dccc404983b5783977a9b448917f950beaa10c2829950b2b10",
+      "statuses": {}
+    },
+    {
+      "accepted": 73,
+      "name": "20261027_150837_partial.txt",
+      "non_successful_shapes": [],
+      "rejected": {
+        "not_a_measurement_row": 5800
+      },
+      "rows": 73,
+      "sha256": "8b7123521ead86de618bc1b42cff53e0ea79d81086dad5a4bce03886a24a9d74",
+      "statuses": {
+        "ok": 73
+      }
+    },
+    {
+      "accepted": 4,
+      "name": "1053.txt",
+      "non_successful_shapes": [
+        "6c491d254bd3e9d56eb0e27c8f9144091a263e7997ddab91fa5edb82b842fe02",
+        "e86ef6413141b2ee2d8185f26a41981bc30c7080ee49815c7d34b357cf0aba48"
+      ],
+      "rejected": {
+        "non_successful_status": 4
+      },
+      "rows": 8,
+      "sha256": "59b0292183769c8e4cfc0513e6b4fb1d503e031704328e791ad88c5086d0e2bc",
+      "statuses": {
+        "failed": 4,
+        "ok": 4
+      }
+    },
+    {
+      "accepted": 0,
+      "name": "1110.txt",
+      "non_successful_shapes": [],
+      "rejected": {
+        "not_a_measurement_row": 318
+      },
+      "rows": 0,
+      "sha256": "893772030541e6d15d3d1ae9263006307220746a19072f9e605d57bdd7b8bbf7",
+      "statuses": {}
     }
   ],
   "exposed_shapes": [
@@ -748,6 +2684,7 @@
     "00685a929b794c189667a09b4770a3ffbe2f2ed3184f402470f467598f95e6c1",
     "0070ab087368ad9deca4a3bb407aa2c7b66a685db022647de4dc4e00a5ec34a9",
     "00a6c818c81909f62bdf3d18f2f6e5082f8101a3b806a5e37bde2ab6eb0bf725",
+    "00aa88e268b5c6f54473fe5eae9e05285f9fac6b27ea2d4fc2a7e8b648e80f27",
     "00c31531244a81e3e0b81f60c96b6aaf77c5c417650981f45cebe714831a64b9",
     "0112da79d881851e8b94168660f61b25e881217483f1903eb67e899583da91b8",
     "01414fa1b5d0c1d114b765aefd01464fd33f44d62cf5a8011473c9b161378bb0",
@@ -803,6 +2740,7 @@
     "0b26ab68f169006bc3714e0551478c3cc53e3231aa5679653b118924b08dbd84",
     "0b2a36789a70fadb261faed1b69b86c0bef15d1cfd774f9e0edb4d16291d3f30",
     "0b2b28505d7ba7da5fdd52a8a4af2cd7f10685831a58d8619a5a9a4207f02abd",
+    "0b9beb25c48fe6b518cd41c36d286671d447f2b826e204d8614bbf38906c8fce",
     "0bb6fe9bb2d04b994f94ab8a27cc12bc059a0fbb97ba8e673203faaeee3582c9",
     "0bca24027c0ba7a17a4dd436fe3d229db524badd8adde70fe3820b6911451262",
     "0bef9e627d2fc22562e36b5c99fe2da5db8d5dd4eae66dafa07bcc8d91cc8575",
@@ -813,6 +2751,9 @@
     "0ced81f792636a7b534b270d558c222f9d272b7852387299e7a3c55222f02cdf",
     "0cfdef2678b11e2a1614bf203f2e35ec16c22dfa9178a309a83ea8feaed1dc8e",
     "0d3ac2d1435a52469c498141fd2d89aa2efb48a49ba53ba05e7510d3985065d1",
+    "0d4975e5fc7b5869f8c4ab9aa6d114898534498e0ef35b238363a87a3d0eb693",
+    "0d967486cee8199254a777fba58175024734f2318d3b8500a5d3bf8912eacab8",
+    "0dcf8e6664daefb98aecb0e4a2522ac13f777d09332f4e0f4ded74568ba5642d",
     "0dd55e9443b157d4c35674fd3e2eb74adde3683d7a5a422e7e8dbb4595b4f6db",
     "0dd9dd5a8a6626a792b84f6d53addf9cd52a72c0b4c306b3c7839c281e65f9b8",
     "0de36ff82d3d68e99162236a91372ce6b5e438240ccd1ecf5e3553b390c6b8ce",
@@ -824,15 +2765,18 @@
     "0e8cb02631b7e6f4c3ba6f5b7cce3e56647aa457c2a89b0bbd0e07acd8833cfa",
     "0e90d2c00c426303f59a56df772a98bd138295ac42f60de3002499103893e2e9",
     "0eed4846ceb3f2cf24cf88771850da6fca2dd6ef267a1d5b048862c635af5437",
+    "0f322d9c518eb1641682bb3adad09486987b9b5c9396a4e10e07dec52b214333",
     "0f43aeed1a78a0a997ada2d5e56a40f93474bee5dd3133364a4a3ff9382f6680",
     "0f6c1a338b48209e951ad359daa75b05f8008a043fc64b853d5eeaa22bedf2f4",
     "0f8157e551000200e7e778a606d3619ac3b80730d957eb3b7f136b7da9e0348a",
     "0f8279c885d388af684430c31c97d23a3bc7a841bd570e1faf1c0683c1a5ba4c",
     "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
     "1024e3d58069f54bace20e34752f188d67e1a3b1c3278ac35e142fa9fb12310f",
+    "1075db57749f34c09312ad20e19b1df5ff5c317f7d50819d96efe1674afe7d06",
     "10fe24a6bd3539c8017077f6b72c0f517e8953f927b3ae45ebd95ebb555f3378",
     "111425526ceca7a5120978015878eeb0c7d7640a4bee6185aabc2c5ca1710869",
     "111b11747d21f74c366f46ae91c58673f06b5a13ba5faac6de37ef975999c4a7",
+    "1130891755fb0f871366b53b96d7014b8c163240bea474d8c7c1e637cd52ef08",
     "113476b5030eaaf3e56e61e73ed32d034334a9fb13a95c6c88461d6e300045b6",
     "116d6bb902e8994ddffe018f9fe45dc4f73f94ca46506df8430685245e8b3450",
     "116ff0749d4b5707c3d2a6dda14d674b770a361549604f13e578966d57236edc",
@@ -902,6 +2846,7 @@
     "19326d0c3fe03f8953e5577630169129d477cf0cd1fc3bffff7cdbb7a70ba3e8",
     "193ed9a36d85792bcd6c1cce73a6d7e6eda34f100e3d72a51a03528c76873009",
     "198235bb140a020fab0284317b79537f01bff4c11d51f394b414b53199cc5800",
+    "198593330a7304e96e8c183a3d583c6d4c4db002f7c647b2421fb86103a29a0f",
     "19f6fccef8700ec8afcd2f64d993e797a4cfba693b8fe9fc47f77ed71e1c6887",
     "1a273600a126daf666b0759848c570b4c4e62de3798c765e98a38ea4a0cb3668",
     "1a45657118e9baded80bc93e557b0ae7b38ef1e264640cd6e87dc6a77823acc0",
@@ -931,6 +2876,7 @@
     "20229fa8c35663ba1f03ad2c72ba854b39af7a103a81b4ab2fbe323ffa2ae14b",
     "202791d36d1119846c5acea602b32349fce4c78863dd18c012ce2fb43a27e73c",
     "20497c73ebc3454ed3874b8eb591c4408dd68b6047b9ec41ec19a59cdf627aed",
+    "206f92e14bd6a061cfae02c4d96f11f7fe472750356ecd49337d8a28321deebc",
     "208df1b54968d3efe943011eb8dbfe7b51b58d6f0b8110584f7b8101d41cf456",
     "209e36afc3d4aec37f93ec2f823e4dcea17eccaf8f4558b508461a64b32d36b8",
     "20a18e01ef46bf83add6e567c6441d35da96730582ef2011fd468b4b2be776fa",
@@ -950,6 +2896,7 @@
     "2275a522279a1faeee528e72d85675ba6edb163466700124097c3bf0ff83cf0e",
     "22d2252ce0cb5a4bdd4cb5fcaf2292548a4d0d6a3b742e15109677883d265b15",
     "2323db57916354d83f81e56d28ec8859e166bd31cb63800acb0a0ffb794b4475",
+    "232f769f516f236087a0f54cc5a51e5fa93d2047fc93ab4ee3c3d3b796971e5c",
     "2343095fd450dd669539b84d65d6b20700ef9dfab64042f2cc187317adac1f20",
     "234deda1ad148c4bf08face55594b01a5347c3c61cc586bfdbe4d395cc040b49",
     "23da29d73e228f4e7082e433e7eefd660bcae324263865aaba7fdc9e1ba7a581",
@@ -962,6 +2909,8 @@
     "2515bbb9314f5c66c52865d00c2f1d4fdaaf16da45c112b221d0937a3aea33a9",
     "256526f25254d97c2c69316968065287a47679872165abe30d96da7ffbde18d4",
     "256cd41d681edc8f36d93b97e7f8cdc2e4b2e38b89a1bf192247f25a64226dd2",
+    "25e2abe0ff8520047b0a535b45a71c616d90b4f62970e7d50e99a6cbc3fb78e7",
+    "26bf7b1944dee0a3a447c528bf7eaebaab96daed2e921731d96e866bc8f4c7bd",
     "26ec1f80ce039fc74d705ebcc4645b1b39548494ae9a3386d88433d9bdeaaec6",
     "276765d94c10c71792700d0c12a284472d40f21763b594af41aaa323824b0925",
     "279136076acd8ce3249227126f3213bb2d02fac19ff0895bf4281975877948a0",
@@ -1027,6 +2976,7 @@
     "379734bd3c79ed863ffe6d72d80ab7e250d1e62a9b0801cf6f33141870d83ea1",
     "37b19b93a65850006081c3a28cc50681b1a6a5e03f079ea9845422b3dda264e2",
     "3816b9af94e7e025088c05be6176a01852ae29a33ff8a1258fc1705a48e91cda",
+    "38e6ee5a99ee1c52349be54c9fa6dc210378473e4540d80b326cdec92a59ad8c",
     "38fd997d99538f4c57458d3e078964843ea72c4578af85364e3bb86221a9faec",
     "392d99f23a8ff53f8bf67806e6926059505d41e0abdb33389e3711c920537acb",
     "3942c4ef87e03687c8502c7341e0acd1541480fc7d009b252124ed1babf47e82",
@@ -1050,6 +3000,7 @@
     "3ee719b334af39620886cf053fbd761a01fbfa93a818b861a11c6de4d9af4f5d",
     "3f21975a9de24833ec62b1dc91397a3215862f8490729c1b2c86e3330630d9fd",
     "3f81c30ab89ea1bfb455ee43bab4d9ea9a2d43a1e6af4a7a5200f676f4b287f5",
+    "3f9f2293eb8133d89c615319ffa5a4a40a5783e2a7819bbf49f7458bb4d3f003",
     "400440f909bef969be98786216c66d6e1a240c02ab0eeb3f2cfaafda2b576c3b",
     "4063f438279718523b8041e9d72c5dabfbc60bf2d31422847f2490c070085d7d",
     "40c15087092709fabe049c3cc01ea375723c5b44769fc5b08ca55cd433d1ca87",
@@ -1072,8 +3023,10 @@
     "49f1961625165ffd9a12390c9c1ac1d01b9fc4c1e3f31d622ceb1ac1f0535a8b",
     "49f9e15a3be976b8e28ec145f866941e074b2b472b5e114ddd36a4f6748380a4",
     "4a90bb7959bfbe241589dd42be4e0f88cedee92fb1ca2b453a281f57226a2e44",
+    "4c1a5cec42f7731bb10c08645108ebf6ec377c5cacae1a7448a855292130f16f",
     "4c3434de96290d5c7de8d8395c52516d21f4c8ca38293150628133e95f2f76e5",
     "4c9ff1e452f9a53bb036fbf32f72fd3a326eba642b887e1f5cdd1defeb2565f6",
+    "4cbdd12fa7eb89c7a72f630260c24ed6a541106b10dc2ef9f834c0ab12c93d52",
     "4d5353b6776d39e727bdf8f80885c63c06533027a75d2a8f8327b75c09aa22a6",
     "4d730760473c86bc65348ccd17ee547d5cd79353e717152a0b691bdaac0c4f46",
     "4e74d650b0e8691307c12a22d62adc470e0fd0360dc04595bf84de2b99e1b495",
@@ -1087,12 +3040,15 @@
     "56ee0eff6f1d4cccdc974933ce12b210ffa5378a486bd60a983cc73a31a6af01",
     "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
     "58f7c4204ecf73d84fdecbfbc7c49dfca8f6c89cf93e7917dfc7927c56bd6679",
+    "5953c8bceb907f7c1487302e4b3b0b937c057ae78192d469c73c3c508d21d16a",
+    "596cd87e2f6e8f6bd50940873ffae4828641a7f4969db3da377ff1424dac93bd",
     "59724ab1e8bb3687e822a2e1bf82a5e11be178841b6261fc660dda58e58cea5c",
     "59b63a4898eafc0fd1a526c41635a754735fc5bf6aca75a9c73e36ba274b36da",
     "5a878cd01f92bc3fe99d0a447408923e36d1a7bf5d5987ebd4a0e3358c3051ef",
     "5c2752afcb75b7e17f96da26acdae7fbae0068a650280f99a7f11dd80b2caf1b",
     "5cecb9d181b810a6f1952772adb7f92b0eec35bffea213e3053c0f53481229f7",
     "6088e2c78edf62fccc0d544a4176f7177d81dabc7f0f249be0561d44bce2cd29",
+    "61d1a74da29eeef68024e292b759207b382c36a34bb8e2f2e8a642525a637038",
     "63796a95a8104402d467efdfb51a93925b5c31ab93f7267298d4d5d26070883c",
     "63e64e9e4490c03255da379cbc9ea774101b39953256a7957370550362b16624",
     "64cde1a2c79d0176754481e439d02cd20201db7e255036dee95120c7cd61e3bf",
@@ -1100,12 +3056,15 @@
     "665c33a05304942cd7c546cf2c1717405dc408c49979d563132112f380af096a",
     "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
     "681083c901ff4315babd0d269a078e046c508b209019c6b6618c3103cd14a885",
+    "6c491d254bd3e9d56eb0e27c8f9144091a263e7997ddab91fa5edb82b842fe02",
     "6e74b201333b0993ea98913f1d67caaccb13152aedd4cdde6573db77a82f7d65",
     "6eee5457f2d3a5d2dfeeb824bc9c7b5d6844047d9ac2b3ce41c9999f70be6f6b",
     "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
     "6fc2b2853c2726ca62ca7086e5643f97055e3a6ef0cf059666439cd8857681ae",
     "7073363b290247d9b82d9c26327f408e49709df7e63484b585578cfd75f531ea",
+    "710e0456408bb5c98c5bffddf111bf27fdfe3812de622383da9cdd9f892599ee",
     "73493ad3733eb015ad2a4b7a09d6d1493d26d641b22afd01c1fa5b43279d78d4",
+    "737f2ee53e0c542564db814e1c6d26871170ead00eae1fd4808db821248a2794",
     "73888b6b887d4ce26625df2419710e20f9168653f75490ec2d8bb04259cd0131",
     "743be37cb7aa8310dae402a96dccee989b92055f16fcd1a57bf99b309bfe9233",
     "7abc17d959de612727c3928039d7086e1735eacf6bde67b0f20f7ab5f82d48ff",
@@ -1113,6 +3072,7 @@
     "7bb813bc0052a996972bf1a97c11b44294be8ea87e37b6cd7a8d4dc9b1ab5ca2",
     "7c02d388f95dd40fd5bac4e9bd4673a4ff31b112a09268569dae53684d328792",
     "7dc4c405f7d76a4ea4348b1420eaf792ae401ccfacbbda7873a76200255a2b8d",
+    "811a22e7cd4570f19ae058c9f7935b73871588f51951316f2ed8ecc4104c3aa6",
     "81295cd4314aebd98b52931996d9f6a1f216ebe882cfffea817296f347bd76a4",
     "815e5472cb2ec088eeca26f7a517128416c8ebbd178affd13449a9d027d98aef",
     "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
@@ -1120,8 +3080,10 @@
     "84c925822d1e25c1e3de45f6aab47d8c4fdf30008715cf8b6ee5fdea83e79481",
     "8501089f32dc649595b6d6a2c3b6f88ae8eb1943dad274b9980d1a566deacd4f",
     "85a1fa21daca4acdd55b24306836ad896dd6c8fdb039a3575a95ae02bc1685bd",
+    "85c9e8e5cb49f896165254f0b6d25c6bfea7031b7282c0a1dfd74c204e17967d",
     "86a3fd0f033fa44f71a75d9f45c38f2fca2aca0598055a828f57f8a5819436d4",
     "86a46821b6273fcd235893432d2de652a2ef705353caf836146a844c96a7927c",
+    "87bbe0995223f041b08aa8153b6dc99c15f59b5cebf3dfb28ad368dcb6b621d3",
     "8d5dac94efbf9ddae6a04a1c789b8d6a58ca29054290eb37277affe8f7601f9d",
     "8ee92dffbbe776d928e07fd63f69fd28d0827cdf44114c040d67a82c4c3beab3",
     "8f6e9b9761955cf40c6dced0e04a4e3e5c3e941e12f3085874f798088e695f01",
@@ -1130,16 +3092,22 @@
     "91e468ae4fdede5093d86db9455fde98ce001988dfcba1fa5d7c2d0ae271316d",
     "9265ddfd9e63260fe17f5829b5e458c13e3682970095d8a6df55256cb3122f03",
     "93bf499d1285468cff1b0cb49628ab44e4bcf7d62102f5d4089a9e32986871e6",
+    "94a061a3a1014f58dde625d89eed7d745238e95836d63f400adc88ae0366bd9e",
     "964511fa4f522b925b0343301f4758dc700231edb88a2d2093ba9642c30eadda",
     "96cef8bcd563b9f1680cacc39b4f8b105f6cb52c98cff41accff771e328644e5",
+    "98725a6b80391f6f92c82279bf3d960bec17fc71c10daba7e8dccfc00be8b681",
     "989ea011c0731bc31342b0778cdc926c7208e983642f9fa9f97610e5136b318f",
     "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+    "9ab602f20c8559a911f993d8c9dd4efca0e633b29558fe171abee3110268fb98",
     "9b8494195fcaacebffc86fee0d48f83988699dab294a2dd719b6b91c1c6c94c3",
+    "9c13f76eebaa8f851713c8e0832db056c1a43f2695e8f3171e0132c1e7780198",
     "9c988de922d5c06403e481b105f4e1e487eeb082a21d237c87df26a0ad187420",
     "9df02549b3ea974732d773b45582df2e545d5d856448b7279ba31c6290c7ace6",
+    "9ed4574f4b3732c3d829f194a70a727633f93a4d22f46a6337b5b7eab2d1cba5",
     "a1d0152e5dd5f24123ddbe3754d42687b365ee2b4405d45471bca153be22f4eb",
     "a386782a29e79bcade8a8aa450d365f03ffef41a207d2787c0fff012f732064e",
     "a66d16ac8ceb2106c8322f33185dc44f11d688a582a0b35defb5693057c56459",
+    "a738232c0180141dee8834260390e22de859891f7d866012a0fb9eb680897c9c",
     "a7bfdd96c7c7c86c78306679ac81cd410b82f1b7f7db01023d8228c8785ecc2e",
     "a8777ca4b54afa60010fc48dd125f47e05e123992121b4fdcd34cb43e884f6a7",
     "aa76dcfb90cb33b2bb5fa41a2c86cfa17f616606f1d8388e1c9c050954af6308",
@@ -1148,6 +3116,7 @@
     "ac1a99938789a9292294d5884485a44432a23ad544df9af66240559aacb32dc0",
     "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
     "acd88e554e78ff0a75afb7f537e059c8995e8c90b498b00e1e52339ae0b800ea",
+    "af6d88c9b9bc7b09628dbdad51f641b775688ab7f6355d298c66b911d94c69e6",
     "b04d807419a0746dd9199260a0a98756a2128efc0028baebbda2544c154b67b4",
     "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
     "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
@@ -1156,6 +3125,7 @@
     "bc05d4e8fafd65617d0e0f759e7286defaacbbb5b64d6ea04566db4fe5fe9a0e",
     "bdacccee7f5faa477edb09f2e9a7c7bf1dc2b00db92e450890ae2778ca6d901b",
     "be0a50525c9135a7bc40fe5c6a92a5804737419e726fcd6fdd77e4fc8b92726f",
+    "bf1d9dca53b920e14cd9af06215c9e366cecbc6065a0759624f3011fbbcd7e16",
     "bffa8b6c6514d9f6a2c22894f86950b59d1b9013be5b3d3042485acd48ac3db7",
     "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
     "c0d4e604b3c19787f6c9c1f302e7f9b9d4636dcd6f3c902a6518aedd2db52884",
@@ -1170,9 +3140,13 @@
     "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
     "ce8029855d4b4743df727690fd1479ac25d2ab864bfca858a3d875844d842686",
     "d0ed7be88d19877aa4f97f2562551ff6abb645a006447495d7360f3027d14733",
+    "d125ed8b566f356f6f7a6a439f6db107fcea328387c92fef7544428dbdc45d49",
     "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
     "d3a4eda034b813e5cd7489dc974e3112ee1de4e726530569911ef69326b95514",
     "d3d7227836c185ab31fb431d2917787074193d4d3146d55093f19ee30239bab0",
+    "d4fd61f6fcf286d630a2a12db5c730d5b257b69f6a43fb61df051eb461e4bfa2",
+    "d5b2913b415cf4251477154c2f51d085e15091c9fc6054881d22afdc12082673",
+    "d6263a3e775626e50e6506eb76a033f11e1547330828473ae0b0ce9c52c4ce8d",
     "d720f9edd7bedb0291c485fb0ce8733fe7888e02e0b9df3565893a96ac27e47c",
     "d92a800317d2ab4503cb2aa30bc5e69ff5a6669849c68920106b2e1dbab1dc31",
     "d96302085bf560f64719b688c4f1468ffb4189f9ec6a0674e454aecf6dfbafdc",
@@ -1182,16 +3156,20 @@
     "dd939b5bbaa82ec03ed75d8a3c72274853dcba2d22960638f6f0b773f967fd5e",
     "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
     "e1e1ff2f59a2fade91e1e3c6803e293df0efd1b1080f70a9b6d6f6a4d231c9db",
+    "e28431a47c10cff1249c8bf405ec1742c66a18ebb2a8f13e97262425bebbda82",
+    "e2a7703c49730f1c5f7f0b3e54c0d902964b324a8d77bd4ce38550a0e4b9596b",
     "e4163e2f3a0f4b425671f600bc7df79dcf42a3f82b6e46f34ebdb598c7db0cad",
     "e603092b9cd31da6cc56f149c04346797e7b3ff499e25f599e4882c420fea99a",
     "e70279f90a902575994d84bef3d7685716830e078ac00f9bc6a8df93a52339d8",
     "e787bcead416f07322ce88429ba5156aebbe145fe9a86c1b501da17aefe69de2",
     "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+    "e86ef6413141b2ee2d8185f26a41981bc30c7080ee49815c7d34b357cf0aba48",
     "e8ea13cca3b9ad6b40574f93054426a837586ea558c6f0d33c06f0c90cd5c9c8",
     "e95ca56572b5f58883702c69a24fbe2d81bd2e3b220630ed1b181f6e926ec942",
     "eb6800b6b50afb8341237d4d1759f2a70ea3c1503d7e1bc0cb80d6f7041d84e0",
     "ebcbc08a4fa15677db0c2726e5c50dddfe0d977a0485af8fec3bbdbdf627fcd4",
     "ec4cf7c224412be083b512585c447095336c0d84dedc396bdb86df9d5156aebd",
+    "ec69165d7e797b1012c05a0ebce3e99795fcd4fdd02b172ea852cdff413ee5fe",
     "edece15bf7d7173e4645b91d3b723564741a05a86ccbff73242982a72e276f31",
     "ef9ca815b0a74bbbdc01a7130966d17b85492e507fc9958200db69341c0e85f7",
     "efbe85a7d13d4d3f71ad384f2fe9d9f30e3ce3fa94e49e53d3787cd0d08fc7f6",
@@ -1202,14 +3180,20 @@
     "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527",
     "f1e444b4deee71b9a21243ba9e50e3acc93ef9f8c55df124591dc5aded7895bb",
     "f2354b7f26fdc89667bbaa0fc3dd77141e54432fe7dce93130e2d54d15da20e3",
+    "f361f07aa3c92c047b88099091609063e2b8c7dc59e838b783fe8febeebc9dc1",
     "f3f1bac535adbb6d10e969d2907faba497dd0fcfc1f5aa5a250a2543defbddf1",
+    "f66fb845206d75068f690445fdcaa65b0841ace35fe3f1014140127184009f70",
     "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+    "f9a0120fb943c6125fef77fed191d4ec0d7ed7fbe78f73510eeffdb797dac943",
+    "fa4ae672202523dcd67625e70eb8a99555c3a1f8963afe55c4f3176c9a26efa1",
     "faf86b20d47362666ae42efb0559d2e47140608b0b5af1c9ebe8418406a95beb",
     "fb57ec1cd97f574cbd5a641918fdfb38a2e2926625a5c539316c466a741671bd",
     "fe8b7243214add33e2f37c0ac0c0b02eaea19192c15b92bd4e8307b2292332f7",
     "fea49c254a73c5454e2fa60797c3c710333ded4c9d85b42e95ed3e22508815f4",
+    "ff6d61d7b143992989342b2815bdc60817d4935464430cab239e981fa42120eb",
     "ffebf677437abeff10ac7065331defb7bb282e2939b61218995e52f0f8cc903c"
   ],
+  "frozen_utc": "2026-10-29T11:32:29.476690+00:00",
   "global_fallback": false,
   "hardware": {
     "aic_cores": 20,
@@ -1219,62 +3203,27 @@
     "soc": "Ascend910B3",
     "ub_bytes": 196608
   },
-  "identifiability": "Within the stated linear workload basis, uniquely determined costs are distinguished from joint counter fits. Non-unique phase costs retain all feasible nonnegative decompositions and are propagated as timing ranges. No rates are borrowed across execution classes. These ranges exclude counter-fit error and missing physical effects; they are not confidence intervals or an accuracy guarantee.",
-  "next_validation": {
-    "count": 36,
-    "input_sha256": [
-      "f2a59733b981ab38f90da55d546f6f9245766e0dce3de7954a3560c9d2db03b4",
-      "a5202b0079abf2e51af435e866fc4134a88e371b5a94650a5b3ad4f69926b920",
-      "e8e4473ef4d948396ba9bd957fcf6ff25d9c22e4595254c48da33cb23ad5a87e",
-      "dc7016ce9456cb25fd9ec53933d016274d288860a97b1c67efb4fe4ec01bc90e",
-      "2bc7a5bbeb03945388021d3e1b947307a8d9a8a498c75dc282b13d4c0a46b6fd",
-      "709f5246815f1bee34ead505587b9a1012e2a5678a75c2fa4bd11f0d5874f162",
-      "d72c25bd1fbbc0d0e0f99fc750fc4a67393f8a86ab507ee878d1f67e9c9b0385",
-      "04f4d22b4312765fb0a803dbd00218cef74f53843e113adb370b8651d45ac03b",
-      "a2516b52a66f24b0aad93f75c960398a51e3413d1ba501bb01c6282957b65d9c",
-      "c07ed68767e5b5bcaad13cf956ef90071dec9f76e5afed59fb144959743c9ee7",
-      "7c1f2f07390485da2133b9dd7cde485f23052bf181a5b6d7027da9bec27efa6c",
-      "d75a5cf165ccf8dd30d876940c24d79ef4755f89037ad7bd91f76cae67e81a03",
-      "23318e599fbdece00c6cf197babf325a55ea05d2a6538cd4f6ba8ad84c8f66d2",
-      "9ce2bd2ab9fd0bd0468cc08af685e478c426e1835f78ce54f250815754cd5586",
-      "af1abeb17fb6156ed15951b71625e46b602a8e69b8659517541d0d5520de3250",
-      "ffe902826544f7a16c260a517961fddc70b4d3fcdfe4e36e7c3bccde13232e20",
-      "242da4dd77ca342bfb7ee0593206a49db9d385c0049e0ade2199819055f1d2ea",
-      "a144341705c0c6e25ec26cdf8064ed826e9460dc72e7f04ee8dc6264f11e7791",
-      "af7f71e5d9dd35ca67d4b2de9b74702c43515d1531e42f2346e9768811bf1bb6",
-      "39f32e4693f15c732c1337e1dc10daca49bb42fbccd5f624765bf42708c2ee4d",
-      "0c036bbf104f495450510191ac0f78f96c0c99048207101cf5c4ef6539c41442",
-      "dd1771ea2d9eb01d38ec694b085c39a67e8ca76db621e4aacc9d810cc6fb03e9",
-      "33af65002ff076afa25d31b6da132c35838287f0937a45dee7edd5aee1bb7228",
-      "7cfa46ce7ae906be180803316b00ee82606581034b9b2da33a9bf044b88f58ca",
-      "6ca918fcbb25f6ebf67853db23c59e598b1d07b7a4e6f74b4fd79614de6b2a4e",
-      "ae96edb2672c6c16542a34ef4ac1fbd4e0af4e39705571be0273c396e97adb76",
-      "14404f79e1f720d479f9042ccf21ad5fc79e1b6d69ec87a4be3d05affb692694",
-      "d15d119e331e0744fb826bb99b0f43c47089b3888a70fc88f7f85e5f872e0100",
-      "64a582b1f2e7a3e235ff134f9fa0ffb5bddd231c61fe795a9533ad9fe3978440",
-      "1396e19081fc061ed0e3e431e447054e2616b393a841a1d31eed66a66d98da0e",
-      "6f7792e35703b00004affd07c48a33a0e8e8201266216a42a22ec577c6ce0c96",
-      "a827d2e42c8b1b846d9d4a5afe9a318fb4e99d7db1e0f27010d54664100d86e2",
-      "8eeac49f2c7c2a3ef48df63f581b2fe3e0486948befe66659acfab199a3cad1c",
-      "8f4cf08b17fb6d652b4a69a546a76c0c26c925213c73e7697ed1ff179ed2d536",
-      "4e937cb7d0222761da5fc1c6ac5da64fcf2f2127077db96616ce655f21fd57ca",
-      "67acb0afbd7f6626c79f78f076a29c2d504799e9e4dc0308da1f330d79ed8520"
+  "phase_costs": "Stage resource demands are reconstructed, not independently timed. PMU Scalar busy time includes waits and is only an upper bound. Stage resource sums are not stage wall times.",
+  "phase_model": {
+    "critical_contributions_sum_to_kernel_prediction": true,
+    "interpretation": "Critical-path time contributions are model estimates; PMU active sums span the whole kernel and cannot uniquely attribute a residual to an individual phase.",
+    "manual_tnd_k_chunk": 192,
+    "manual_tnd_n_chunk": 256,
+    "phases": [
+      "startup",
+      "drop_adapter",
+      "bmm1",
+      "vec1",
+      "bmm2",
+      "vec2"
     ],
-    "pass_rule": "Every new numerically valid point must have absolute relative latency error at most 10%; failures and unavailable predictions cannot be dropped",
-    "variations": [
-      "batch",
-      "MHA/GQA",
-      "head count and core waves",
-      "S1/S2",
-      "Q tail",
-      "K window tail",
-      "Dv including unaligned output"
-    ]
+    "q_reload": "First S2 window only for each Q block in TND L1 carry",
+    "source": "attention/flash_attention_score/op_kernel/arch32/flash_attention_var_len_score_sab.h:690",
+    "standalone_phase_measurements_available": false
   },
-  "parameter_sha256": "463bc113e430eaa5bdf55f29f38723f4342f4d8f86d4304c5b41ea921722394a",
-  "phase_costs": "Partial reconstruction from class-specific PMU constraints, with all feasible nonnegative rate decompositions retained; phase active sums are not isolated phase wall times",
-  "qualification": "development_holdout_passed_pending_new_shapes",
-  "scope": "SameAB BF16 BNSD UNSPLITK without dropout, attention mask, PSE, Rope or FAG; shape tails change counted work, not fitted shape exceptions",
+  "prospective_pass": false,
+  "qualification": "experimental_accuracy_reported_by_execution_class",
+  "scope": "Existing dense and uniform-TND SameAB implementations; FP16/BF16, observed layouts, NORMAL/UNSPLITK, with and without dropout. No fallback to another kernel implementation.",
   "source_evidence": {
     "kernel_files": {
       "b": [
@@ -1310,38 +3259,134 @@
       "attention/flash_attention_score/op_kernel/arch32/flash_attention_var_len_score_sab.h": "a7bb10cb0f40242d56ce24b389503a9788cfe69d948d4f629f81841d0c6993fc"
     }
   },
-  "source_sha256": "cf8dc56964e603d928992170a275c53850ecfb0fdd6d308b0b5e60f8204c9401",
-  "stage_measurement": {
-    "async_completion": "https://www.hiascend.com/doc_center/source/en/CANNCommunityEdition/850/API/ascendcopapi/atlasascendc_api_07_0641.html",
-    "available": true,
-    "current_data_contains_isolated_stage_times": false,
-    "interpretation": "Device timestamps must distinguish submission, completion and waiting. Additional barriers or tracing affect the original overlap; isolated stage wall times cannot simply be added as kernel latency.",
-    "timestamp_api": "https://www.hiascend.com/doc_center/source/en/CANNCommunityEdition/850/API/ascendcopapi/atlasascendc_api_07_0282.html"
-  },
+  "source_sha256": "b32c770d10fe1ff70f5565b9cf2162278a741b8519f9babbc504d532bf690dde",
   "target": "FlashAttentionScore kernel Task Duration(us)",
   "training_shapes": [
+    "00685a929b794c189667a09b4770a3ffbe2f2ed3184f402470f467598f95e6c1",
+    "01d1cebe4b3dc814f44f4fba0acb24d58f1b85315ecbe5cf5f985b85c2cb962a",
+    "01f2605d049eb1b5533eee3813e7b67c64f515d120dbc5f767468a116bd13c2a",
+    "05c080beb7c1c6a6d281275cba5e9f9aa7619dceb90571cd58f3d92ef72c40c5",
+    "061c692873777cf4538606721df525c715f6fdeee325b9a94c8df6419003eb86",
+    "067816b6f7876c38a806c2ef22a5c7c971e7e0c18818983be68426922ed2aff3",
+    "06dd7ed00558a9b44fdd70d59583f5b0f6a747c9a392d8625b92a384275dd4fb",
+    "06fa65a891b04652d61511680fd4e7c7bbb38aac22fd0d9deb73edb7c0ed93ff",
+    "0ae148cde56ca2ae434100c488d82fd12463401a78e0d350bda6775e0312e540",
+    "0b9beb25c48fe6b518cd41c36d286671d447f2b826e204d8614bbf38906c8fce",
+    "0bb6fe9bb2d04b994f94ab8a27cc12bc059a0fbb97ba8e673203faaeee3582c9",
+    "0c8c4ab31b1d7872782c50f11b59ce1c377b2c258afe9050aa52a97cb641ccf4",
+    "0c932a653eacee39d03c096683ba55a468f702d7a68067de4996300346346955",
+    "0ced81f792636a7b534b270d558c222f9d272b7852387299e7a3c55222f02cdf",
+    "0d3ac2d1435a52469c498141fd2d89aa2efb48a49ba53ba05e7510d3985065d1",
+    "0d4975e5fc7b5869f8c4ab9aa6d114898534498e0ef35b238363a87a3d0eb693",
+    "0d967486cee8199254a777fba58175024734f2318d3b8500a5d3bf8912eacab8",
+    "0dcf8e6664daefb98aecb0e4a2522ac13f777d09332f4e0f4ded74568ba5642d",
     "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+    "119cfde424ec6c3a988aab0e27ab29f9a892c032da99a33f96121704c7422711",
+    "11c9f27ac887cb2774b2518b8ca8d77e7947cf48fb1c12153a7672b90b8400b2",
+    "11e4e9a75456b9673990b1e90be89d3a05a1f8591d1e3580a52a559daedb2c67",
+    "12d4cd573d21236cc2925558ede5041e90608ce2770cfe981cac0af9894b74a1",
+    "13d5e9b632a10eea2081cf8d187688f0c93bfb97443b3cc9f89312517c9085da",
+    "141dc41ad214b3937f50a0f7adf2da13fd2a612a456ae14cdb0ea5229a067eab",
+    "14480d68a007b4ae8f099ec3e8a77937a9213874623fede1633097995d4ab1a3",
+    "151d4c7c006cdfe90c6d9142abd2418461e443611107e18b61ee8b8402695aee",
+    "16655e99ae0f9d749b46176e2da40cac02da1ae8ad074ac650bc8c498c605253",
+    "1794ab56cb41d719c3aac9b02931f46b1075712757b91805e54c9a09c52fda3e",
+    "17e7caa23b579b89ea571b634d24636689abbfce904b62e7fb98460a9eb298e7",
+    "185d65fef26889d228696eadc6839968c33ab6530baa94ff6b3defb6e6404b60",
+    "191c744a15606affd43c68eb562c83591979196a2cda3766a27951c017a09c59",
+    "193ed9a36d85792bcd6c1cce73a6d7e6eda34f100e3d72a51a03528c76873009",
+    "198593330a7304e96e8c183a3d583c6d4c4db002f7c647b2421fb86103a29a0f",
+    "1c3ded89532f18777e7a0a5ce07532a6b1651f49a239c3a85b142689d6cca39e",
+    "1db935b07515710e487cb6e0777e27d7994d937021eb46329d18f0d0ddabf617",
+    "1de48bbfe5644cf174576af029caca9c480acdedcc0ab6cf9ec4cb796ff8c98e",
+    "1e49cb17d334c2b6d4c58da85f16b057415b5f1326f2219e6881cc78e88d152b",
+    "200ccecf9fceb903358e6c049419425cd4794c320186566984b8ba9d66f1a1ad",
+    "2020882235a7c149d28a04b3f02db41b61b8e924ccb65f55de45d3d43b9082e3",
+    "21c32fae499b15557630b2523d4ed9ee07b48b61847e64c1169d0ba3b64cca44",
+    "226f0ee787a6a99629e307c52b475a7af0018a95c33697f2854e6da4f102a0b4",
+    "2323db57916354d83f81e56d28ec8859e166bd31cb63800acb0a0ffb794b4475",
+    "232f769f516f236087a0f54cc5a51e5fa93d2047fc93ab4ee3c3d3b796971e5c",
+    "23f30fef891f0b484f0e275566541ba6f936a3a558eb47341498466ea1d60ef0",
+    "256cd41d681edc8f36d93b97e7f8cdc2e4b2e38b89a1bf192247f25a64226dd2",
+    "26bf7b1944dee0a3a447c528bf7eaebaab96daed2e921731d96e866bc8f4c7bd",
+    "26ec1f80ce039fc74d705ebcc4645b1b39548494ae9a3386d88433d9bdeaaec6",
+    "28c1437a910844b392a7df12667b8a5d811712933c53df8c34935edff33841e3",
+    "28c7a6d6dcb363ca3f358455d4f32a0790d65eab1437c4d25728a0073b4d16bd",
+    "29d3d9eaf428b10ef3eb68732a6d7104689e8b36fe2d9cdc785296ce0a46bab0",
+    "2aa0a1877a96b67ca9303269681e40049a75b1e39e427d9b66519829269f0720",
+    "2b561bf0e7d45d6e7427c9cfd7e812ecfc3600bbfdf868742691c33b92080acc",
+    "2b964727c463c9c0626c997fa31549f2566606fb6a9c14d5630065630edd8faf",
+    "2bb761dd74941eff99953b3bbbe12942e3418d3bd94e8569e096821462fadf97",
+    "2cf7164ac07cbca41331cb1b86b02d7b2bee8c6df48c94ff2f9c19a9f9493b05",
+    "2d15ae4cc637ee66fe7a7e9e018163e8efeeade8c9afe6d2f1c0f5a3dff6711b",
+    "2da768cf41d763c96a668fe651a3a0f4a39ea8ae3dcde5e8374ceeab166b10cb",
+    "2eeb25b975bf7a60131baa78b72b6bfdc8437c56ad56f9d201ebf4a26323ff0a",
+    "2f13c9a48d9390b294bf9ad26b91fd551c6459318a5bd284f6ce7ea9f7b8344c",
+    "2f8675d435663d53532132cc7a7a84f6391a9677d3042cde9717091e07c221f2",
     "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
     "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+    "30756f76243cc0ff5878a1be493886221abc5c2ae093b81250b89175d495587b",
+    "30d7d0e49e71bc23e93b7ba9505850ea92e6438aaabcd8bb08e815c138e571c7",
+    "3254510aec1a48885ad42b9c846dde9f63084eb8a15545dec1217401c0d55003",
     "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+    "33ff2f249dd8a57d722de66957b08fe868eeadf0c1899ac369c27af74f66b367",
+    "352230ee0473ec15bf88e7e65b61d7dca022839b3abcba999c4b2128f67e26da",
+    "37424210869e91e4f9483f3158f03913b5e95b65ec43cb561d68b34fc85a8bdd",
+    "377d9e4a062a96dc806a4aa1014d35d2806a6e95aed1088b3fb677041f794c8e",
+    "39c1bb6947d338935d6e91a2cd389aeee2f30fea9d55a2de595b438b99e05c48",
+    "3ae66943914d356a3a5cb3e4ba45bc044b152baf845712b671fc997290a7415c",
+    "3bda2d8550631797bb6474a5d8e65985d1e8830dc95fec756afd4d1372a25324",
+    "3f21975a9de24833ec62b1dc91397a3215862f8490729c1b2c86e3330630d9fd",
+    "3f81c30ab89ea1bfb455ee43bab4d9ea9a2d43a1e6af4a7a5200f676f4b287f5",
+    "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+    "438b65c9105993934afe797f36ff9ac7e4a117e844746d5e4b269ace0d47380b",
+    "4506ad4ab829c7f0289d26f4d359924d71d9ffd1d31ae0312af6d77dc74a7645",
+    "461b357f942a94522bbb91eaf118ceca1adfef74fd0db4c5369843d54b818d4f",
+    "47a342214c705d8f4b2fc1316d5a73b855e1c9020c629f290e5e5238ca0ccc3c",
+    "48b89deef120df7315da6835d31103816d87f31df8038b47c743c590dce080b8",
+    "4d730760473c86bc65348ccd17ee547d5cd79353e717152a0b691bdaac0c4f46",
+    "4e74d650b0e8691307c12a22d62adc470e0fd0360dc04595bf84de2b99e1b495",
+    "4fc54ca47586dd5f669378e56b6fd1c858c56403996d20fa1412953c021c4c1e",
+    "514269726c53afe7628f766b44c160cb8af9acfb93d06db3eb06cf256c3f3a26",
+    "5342e50b5c329b00dd95a12587e6bb343463a8cf24ebc15dc30f76ccfb29ff3f",
+    "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+    "5953c8bceb907f7c1487302e4b3b0b937c057ae78192d469c73c3c508d21d16a",
+    "596cd87e2f6e8f6bd50940873ffae4828641a7f4969db3da377ff1424dac93bd",
+    "5a878cd01f92bc3fe99d0a447408923e36d1a7bf5d5987ebd4a0e3358c3051ef",
+    "5c2752afcb75b7e17f96da26acdae7fbae0068a650280f99a7f11dd80b2caf1b",
+    "5cecb9d181b810a6f1952772adb7f92b0eec35bffea213e3053c0f53481229f7",
     "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+    "6e74b201333b0993ea98913f1d67caaccb13152aedd4cdde6573db77a82f7d65",
     "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+    "710e0456408bb5c98c5bffddf111bf27fdfe3812de622383da9cdd9f892599ee",
+    "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
+    "85c9e8e5cb49f896165254f0b6d25c6bfea7031b7282c0a1dfd74c204e17967d",
+    "91e468ae4fdede5093d86db9455fde98ce001988dfcba1fa5d7c2d0ae271316d",
+    "9265ddfd9e63260fe17f5829b5e458c13e3682970095d8a6df55256cb3122f03",
+    "94a061a3a1014f58dde625d89eed7d745238e95836d63f400adc88ae0366bd9e",
     "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+    "9c13f76eebaa8f851713c8e0832db056c1a43f2695e8f3171e0132c1e7780198",
     "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
+    "af6d88c9b9bc7b09628dbdad51f641b775688ab7f6355d298c66b911d94c69e6",
+    "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+    "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
     "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
+    "c0fec943f94a4f4822a4d89007ef27495179cda83d308dafa01736865f7fd261",
+    "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
     "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+    "d3a4eda034b813e5cd7489dc974e3112ee1de4e726530569911ef69326b95514",
+    "d5b2913b415cf4251477154c2f51d085e15091c9fc6054881d22afdc12082673",
     "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+    "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+    "e1e1ff2f59a2fade91e1e3c6803e293df0efd1b1080f70a9b6d6f6a4d231c9db",
+    "e28431a47c10cff1249c8bf405ec1742c66a18ebb2a8f13e97262425bebbda82",
+    "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+    "e95ca56572b5f58883702c69a24fbe2d81bd2e3b220630ed1b181f6e926ec942",
     "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
-    "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
+    "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527",
+    "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+    "f9a0120fb943c6125fef77fed191d4ec0d7ed7fbe78f73510eeffdb797dac943",
+    "fea49c254a73c5454e2fa60797c3c710333ded4c9d85b42e95ed3e22508815f4"
   ],
-  "version": "fa_source_pipeline_v3",
-  "work_audit": {
-    "fake_peer": "General pairs Q tasks within each head and may send an empty peer message; these classes are separate and their empty-message pipeline cost is not yet modeled",
-    "general_bmm2": "Dense General outputs ND; TND General and SameAB output NZ",
-    "l1_reuse": "Paired clients share matching K/V windows; reuse is tracked separately for each S2 window",
-    "s1_bmm2": "Kernel C2 is FP32, including FP16 inputs; Host bmm2OutDtype is not the kernel output width",
-    "tnd_sameab": "Its ComputeConstexpr retains reduction width 8; TND General has a separate reduction-width branch",
-    "traffic": "Operand-byte estimates are checked against PMU; API reloads and memory transactions are not assumed proven by a matching Host route",
-    "windowed_stats": "Final K window writes max and sum; Vec2 consumes sum from UB"
-  }
+  "version": "fa_source_pipeline_v4"
 }
