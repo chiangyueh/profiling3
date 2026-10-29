@@ -152,12 +152,14 @@ def prepare_runner(ops_root, folder):
             if result.returncode:
                 raise RuntimeError('stage instrumentation does not match official v8.5.0: ' + result.stderr[-2000:])
         patch = subprocess.run(['git', '-C', temporary, 'diff', '--binary', '--no-ext-diff'], check=True, capture_output=True, text=True).stdout
+        kernel_sources = {name.split('/op_kernel/', 1)[1]: hashlib.sha256((checkout / name).read_bytes()).hexdigest()
+                          for name in files if '/op_kernel/' in name}
     (folder / 'patches').mkdir(exist_ok=True)
     (folder / 'patches/fa_candidate_hook.patch').write_text(patch)
     shutil.copy2(ROOT / 'patches/ops_transformer_incremental_build.patch', folder / 'patches')
     for name in ('build.sh', 'run.sh', 'fa_launcher.cpp'):
         shutil.copy2(ROOT / name, folder / name)
-    return hashlib.sha256(patch.encode()).hexdigest()
+    return hashlib.sha256(patch.encode()).hexdigest(), kernel_sources
 
 
 def cache_location(base):
@@ -402,11 +404,13 @@ def main():
         raise RuntimeError('NPU profiling environment is unavailable; no instrumentation was compiled')
     runner = work / 'runner'
     ops = Path(env.get('OPS_TRANSFORMER_ROOT', str(ROOT.parent / 'ops-transformer-official-8.5.0'))).resolve()
-    patch_sha = prepare_runner(ops, runner)
+    patch_sha, kernel_sources = prepare_runner(ops, runner)
+    kernel_source_sha = hashlib.sha256(json.dumps(kernel_sources, sort_keys=True).encode()).hexdigest()
     manifest = normal_binary.parent / 'build_manifest.txt'
     signature = hashlib.sha256(json.dumps({'patch': patch_sha, 'cases': CASES, 'repeats': REPEATS,
         'warmup': 2, 'metrics': 'KernelScale,PipeUtilization,Memory,ArithmeticUtilization', 'input_pattern': 1, 'unmarked_instrumented_control': True,
         'baseline_manifest': hashlib.sha256(manifest.read_bytes()).hexdigest() if manifest.is_file() else None}, sort_keys=True).encode()).hexdigest()
+    instrumented_signature = hashlib.sha256((signature + kernel_source_sha).encode()).hexdigest()
     plan = []
     for name, shape, query_position in CASES:
         inputs = dict(zip(cost.INPUT_FIELDS, shape))
@@ -417,10 +421,13 @@ def main():
                          'query_task': query_position if phase not in ('baseline', 'control') else 'all', 'stage_selector': selector, 'instrumented': phase != 'baseline',
                          'measurement_scope': 'unmodified_kernel' if phase == 'baseline' else 'instrumented_kernel_without_markers' if phase == 'control' else 'isolated_phase_engine_counters_one_query_task_per_core',
                          'phase_wall_time_measured': False, 'barriers_around_selected_phase': phase not in ('baseline', 'control'),
-                         'protocol_sha256': signature, 'status': 'pending', 'error': ''})
+                         'protocol_sha256': signature if phase == 'baseline' else instrumented_signature,
+                         'expected_kernel_source_sha256': '' if phase == 'baseline' else kernel_source_sha,
+                         'status': 'pending', 'error': ''})
     previous = list(csv.DictReader(output.open())) if output.is_file() else []
     saved = {(row['case'], row['phase'], row['key_window']): row for row in previous
-             if row.get('status') == 'ok' and row.get('protocol_sha256') == signature and row.get('physical_npu_id') == str(args.id)}
+             if row.get('status') == 'ok' and row.get('protocol_sha256') == (signature if row['phase'] == 'baseline' else instrumented_signature)
+             and row.get('physical_npu_id') == str(args.id)}
     for row in plan:
         old = saved.get((row['case'], row['phase'], row['key_window']))
         if old is not None:
@@ -431,7 +438,7 @@ def main():
         return
     print(f'SHAPES: 3; tiling_key={KEY}; stage measurements=20; cached-baseline measurements=3; unmarked controls=3; NPU={args.id}', flush=True)
     print('BUILD: at most one instrumented tiling key, one CPU; baseline binaries are reused; total execution limit=900s', flush=True)
-    stage_env = dict(env, FA_CACHE_ROOT=str(work / 'cache'), OPS_TRANSFORMER_ROOT=str(ops))
+    stage_env = dict(env, FA_CACHE_ROOT=str(work / 'cache'), OPS_TRANSFORMER_ROOT=str(ops), FA_KERNEL_SOURCE_SHA256=kernel_source_sha)
     stage_binary = stage_vendor = None
     for index, row in enumerate(plan, 1):
         if row['status'] == 'ok':
@@ -449,6 +456,20 @@ def main():
                     if line.startswith(('BUILD CACHE HIT:', 'BUILD READY:')):
                         print(line, flush=True)
                 stage_binary, stage_vendor = cache_location(work / 'cache')
+                if 'kernel_source=' + kernel_source_sha not in (stage_binary.parent / 'build_manifest.txt').read_text().splitlines():
+                    raise RuntimeError('instrumented cache has no matching kernel source fingerprint; no NPU measurement started')
+                provenance = stage_binary.parent / 'stage_source_manifest.json'
+                if not provenance.is_file() or json.loads(provenance.read_text()) != kernel_sources:
+                    copied = ops / 'build/binary' / env.get('FA_SOC_UNIT', 'ascend910b') / 'src/flash_attention_score/op_kernel'
+                    for name, expected in kernel_sources.items():
+                        path = copied / name
+                        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                            raise RuntimeError(f'compiled kernel source differs from the instrumented source: {path}; no NPU measurement started')
+                    provenance.write_text(json.dumps(kernel_sources, sort_keys=True))
+                for pending in plan:
+                    if pending['phase'] != 'baseline':
+                        pending.update(compiled_kernel_source_sha256=kernel_source_sha, kernel_source_verified=True)
+                print(f'KERNEL SOURCE VERIFIED: {kernel_source_sha}', flush=True)
                 stage_env = runtime_env(stage_vendor, stage_env)
             except BaseException as error:
                 for pending in plan:
