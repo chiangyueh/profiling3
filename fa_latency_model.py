@@ -2002,6 +2002,50 @@ def audit_stage_model(rows, model, previous_model=None):
                            'volume_error_percent': 100 * abs(predicted / actual - 1) if actual else None,
                            'validation_scope': 'source_bytes_checked_against_gated_memory_counters'})
     output.extend({'record_type': 'excluded_stage_observation', **row} for row in model['excluded_observations'])
+    output.extend(audit_stage_replays(rows, model))
+    return output
+
+
+def audit_stage_replays(rows, model, accuracy_budget_percent=10.0):
+    budget = accuracy_budget_percent / 100
+    if not 0 < budget < 1:
+        raise ValueError('repeatability accuracy budget must be between zero and one hundred percent')
+    observations = {(row['case'], row['phase'], row['window']): row
+                    for row in stage_observations(rows, model['hardware'])}
+    columns = {'cube': 'aic_cube', 'mte1': 'aic_mte1', 'mte2': 'aic_mte2', 'fixpipe': 'aic_fixpipe',
+               'cscalar': 'aic_scalar', 'vector': 'aiv_vec', 'vmte2': 'aiv_mte2', 'vmte3': 'aiv_mte3', 'vscalar': 'aiv_scalar'}
+    output = []
+    for saved in rows:
+        observation = observations.get((saved['case'], saved['phase'], saved['key_window']))
+        metrics = {'task_duration': json.loads(saved.get('task_duration_samples_us') or '[]')}
+        if observation is not None:
+            metrics.update({pipe: json.loads(saved[columns[pipe] + '_sum_samples_us']) for pipe in observation['features']})
+        for pipe, samples in metrics.items():
+            if not samples or any(not math.isfinite(value) or value <= 0 for value in samples):
+                continue
+            intervals = [(value / (1 + budget), value / (1 - budget)) for value in samples]
+            support = max(sum(low <= point <= high for low, high in intervals) for point in sorted({end for pair in intervals for end in pair}))
+            record = {'record_type': 'repeatability_check', 'case': saved['case'], 'phase': saved['phase'],
+                'key_window': saved['key_window'], 'pipe': pipe, 'repeat_count': len(samples),
+                'samples_us_json': json.dumps(samples, separators=(',', ':')), 'median_us': statistics.median(samples),
+                'minimum_us': min(samples), 'maximum_us': max(samples),
+                'repeat_span_percent': 100 * (max(samples) - min(samples)) / statistics.median(samples),
+                'accuracy_budget_percent': accuracy_budget_percent, 'largest_consistent_repeat_count': support,
+                'majority_consistent_with_accuracy_budget': support > len(samples) / 2,
+                'discarded_repeats': 0, 'phase_cost_fit_uses_this_metric': observation is not None and pipe != 'task_duration',
+                'validation_scope': 'measurement-only interval consistency; no sample is deleted using prediction error'}
+            if observation is not None and pipe != 'task_duration':
+                key = stage_component_key(observation['phase'], pipe, observation['runtime_bmm1_output'])
+                component = model['components'].get(key)
+                if component is not None:
+                    prediction = evaluate_stage_features(observation['features'][pipe], component)['predicted_active_sum_us']
+                    deletion_medians = [statistics.median(samples[:index] + samples[index + 1:]) for index in range(len(samples))] if len(samples) > 1 else samples
+                    errors = [100 * abs(prediction / value - 1) for value in deletion_medians]
+                    record.update(candidate_us=prediction, candidate_ape_percent=100 * abs(prediction / statistics.median(samples) - 1),
+                        best_single_repeat_ape_percent=min(100 * abs(prediction / value - 1) for value in samples),
+                        leave_one_repeat_out_min_ape_percent=min(errors), leave_one_repeat_out_max_ape_percent=max(errors),
+                        sensitivity_uses_refitted_coefficients=False)
+            output.append(record)
     return output
 
 
