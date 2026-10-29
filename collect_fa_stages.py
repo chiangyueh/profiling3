@@ -205,11 +205,11 @@ def save_csv(path, rows):
     temporary.replace(path)
 
 
-def parse_metrics(folder, phase):
+def parse_metrics(folder, phase, allow_partial=False):
     target_engine = None if phase in ('baseline', 'control') else 'aic' if phase in ('bmm1', 'bmm2') else 'aiv'
     groups = {}
     for path in sorted(folder.rglob('*.csv')):
-        match = re.fullmatch(r'(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_(\d{17})\.csv', path.name)
+        match = re.fullmatch(r'(?:\d+_)?(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_(\d{17})\.csv', path.name)
         if match is None:
             continue
         records = profile_table(path)
@@ -220,11 +220,17 @@ def parse_metrics(folder, phase):
     basic = [row for (kind, _), records in groups.items() if kind == 'OpBasicInfo' for row in records
              if re.match(rf'^FlashAttentionScore_[A-Za-z0-9]+_{KEY}(?:_|$)', row.get('Op Name', ''))]
     durations = [float(row['Task Duration(us)']) for row in basic if finite(row.get('Task Duration(us)'))]
-    if len(durations) != REPEATS:
+    if len(durations) != REPEATS and not allow_partial:
         raise RuntimeError(f'expected {REPEATS} kernel launches, got {len(durations)}')
-    result = {'profile_launches': len(durations), 'task_duration_us': statistics.median(durations),
-              'task_duration_min_us': min(durations), 'task_duration_max_us': max(durations),
-              'task_duration_spread_ratio': max(durations) / min(durations)}
+    result = {'profile_launches': len(durations), 'task_duration_us': statistics.median(durations) if durations else '',
+              'task_duration_min_us': min(durations) if durations else '', 'task_duration_max_us': max(durations) if durations else '',
+              'task_duration_spread_ratio': max(durations) / min(durations) if durations and min(durations) > 0 else '',
+              'task_duration_samples_us': json.dumps(durations),
+              'basic_stamps': json.dumps(sorted(stamp for kind, stamp in groups if kind == 'OpBasicInfo')),
+              'pipe_stamps': json.dumps(sorted(stamp for kind, stamp in groups if kind == 'PipeUtilization')),
+              'memory_stamps': json.dumps(sorted(stamp for kind, stamp in groups if kind == 'Memory')),
+              'profile_pids': json.dumps(sorted({row.get('Pid', '') for row in basic})),
+              'raw_metric_table_counts': json.dumps({kind: sum(item == kind for item, _ in groups) for kind in ('OpBasicInfo', 'PipeUtilization', 'Memory', 'ArithmeticUtilization')})}
     freq = [float(row['Current Freq']) for row in basic if finite(row.get('Current Freq'))]
     result.update(freq_min_mhz=min(freq) if freq else '', freq_max_mhz=max(freq) if freq else '')
     for engine, pipes in PIPE_COLUMNS.items():
@@ -234,21 +240,26 @@ def parse_metrics(folder, phase):
             if kind != 'PipeUtilization':
                 continue
             selected = [row for row in records if row.get('sub_block_id', '').startswith(core)]
-            if not selected and target_engine in (None, engine):
+            if not selected and target_engine in (None, engine) and not allow_partial:
                 raise RuntimeError(f'no {engine} core rows in PipeUtilization')
             values = {pipe: [finite(row.get(f'{engine}_{pipe}_time(us)')) for row in selected] for pipe in pipes}
             required = ('cube', 'mte1', 'mte2', 'fixpipe') if engine == 'aic' else ('vec', 'mte2', 'mte3')
-            if target_engine in (None, engine) and any(not any(value is not None for value in values[pipe]) for pipe in required):
+            if not allow_partial and target_engine in (None, engine) and any(not any(value is not None for value in values[pipe]) for pipe in required):
                 raise RuntimeError(f'missing {engine} per-pipe active times')
             observed = {pipe: [value for value in values[pipe] if value is not None] for pipe in pipes}
+            core_times = [finite(row.get(engine + '_time(us)')) for row in selected]
+            core_times = [value for value in core_times if value is not None]
             launches.append({**{f'{engine}_{pipe}_sum_us': sum(observed[pipe]) if observed[pipe] else None for pipe in pipes},
                              **{f'{engine}_{pipe}_max_us': max(observed[pipe]) if observed[pipe] else None for pipe in pipes},
+                             f'{engine}_own_table_time_max_us': max(core_times) if core_times else None,
                              f'{engine}_active_cores': sum(any((values[pipe][index] or 0) > 1e-6 for pipe in required) for index in range(len(selected)))})
-        if len(launches) != REPEATS:
+        if len(launches) != REPEATS and not allow_partial:
             raise RuntimeError(f'expected {REPEATS} PipeUtilization tables, got {len(launches)}')
-        for name in launches[0]:
+        names = list(launches[0]) if launches else [name for pipe in pipes for name in (f'{engine}_{pipe}_sum_us', f'{engine}_{pipe}_max_us')] + [f'{engine}_active_cores', f'{engine}_own_table_time_max_us']
+        for name in names:
             values = [row[name] for row in launches if row[name] is not None]
             result[name] = statistics.median(values) if values else ''
+            result[name.replace('_us', '_samples_us') if name.endswith('_us') else name + '_samples'] = json.dumps(values)
         for pipe in pipes:
             values = [row[f'{engine}_{pipe}_sum_us'] for row in launches if row[f'{engine}_{pipe}_sum_us'] is not None]
             result[f'{engine}_{pipe}_spread_ratio'] = max(values) / min(values) if values and min(values) > 0 else ''
@@ -261,29 +272,97 @@ def parse_metrics(folder, phase):
             values = [finite(item.get(column)) for item in records]
             values = [value for value in values if value is not None]
             owner = 'aic' if name in ('gm_to_l1_kb', 'l0c_to_gm_kb') else 'aiv'
-            if not values and target_engine in (None, owner):
+            if not values and target_engine in (None, owner) and not allow_partial:
                 raise RuntimeError(f'missing memory counter: {column}')
             row[name] = sum(values) if values else None
+            prefix = 'cube' if owner == 'aic' else 'vector'
+            owned = [finite(item.get(column)) for item in records if item.get('sub_block_id', '').startswith(prefix)]
+            owned = [value for value in owned if value is not None]
+            row[name + '_owner_only'] = sum(owned) if owned else None
         memory.append(row)
-    if len(memory) != REPEATS:
+    if len(memory) != REPEATS and not allow_partial:
         raise RuntimeError(f'expected {REPEATS} Memory tables, got {len(memory)}')
-    for name in MEMORY_COLUMNS:
+    for name in (*MEMORY_COLUMNS, *(name + '_owner_only' for name in MEMORY_COLUMNS)):
         values = [row[name] for row in memory if row[name] is not None]
         result[name] = statistics.median(values) if values else ''
+        result[name + '_samples'] = json.dumps(values)
     if phase not in ('baseline', 'control'):
         target = 'aic' if phase in ('bmm1', 'bmm2') else 'aiv'
         other = 'aiv' if target == 'aic' else 'aic'
         busy = {engine: sum(finite(result[f'{engine}_{pipe}_sum_us']) or 0 for pipe in pipes if pipe != 'scalar') for engine, pipes in PIPE_COLUMNS.items()}
-        if busy[target] <= 0 or busy[other] > max(0.1, busy[target] * 0.1):
-            raise RuntimeError('KernelScale gating is not verified: inactive-engine counters are nonzero or the selected stage is empty')
-        result['gating_verified'] = True
+        result['gating_target_engine'] = target
+        result['gating_target_busy_us'] = busy[target]
+        result['gating_other_busy_us'] = busy[other]
+        result['gating_other_target_ratio'] = busy[other] / busy[target] if busy[target] > 0 else ''
+        result['gating_verified'] = busy[target] > 0 and busy[other] <= max(0.1, busy[target] * 0.1)
+        result['gating_error'] = 'selected_stage_empty' if busy[target] <= 0 else 'unselected_engine_active' if not result['gating_verified'] else ''
+        if not any(kind == 'PipeUtilization' for kind, _ in groups):
+            result['gating_error'] = 'no_cached_pipe_tables'
         result['unselected_engine_counters_reported'] = any(result[f'{other}_{pipe}_sum_us'] != '' for pipe in PIPE_COLUMNS[other])
     return result
+
+
+def export_cached(output, work, npu_id):
+    if not output.is_file():
+        raise FileNotFoundError(f'existing stage collection is missing: {output}; no NPU operation was attempted')
+    with output.open(newline='') as source:
+        rows = list(csv.DictReader(source))
+    if any(int(row['physical_npu_id']) != npu_id for row in rows):
+        raise RuntimeError('the saved collection uses another NPU ID; export with its recorded --id')
+    recovered, schema = 0, {}
+    for row in rows:
+        row.setdefault('acquisition_status', row['status'])
+        row.setdefault('acquisition_error', row.get('error', ''))
+        row.update(export_action='cached_tables_only', calibration_ready=False,
+                   numerical_check_recorded=(finite(row.get('checked_elements')) or 0) > 0,
+                   diagnostic_error='')
+        folder = work / 'cases' / row['case'] / (row['phase'] + '_' + row['key_window'])
+        if work.resolve() not in folder.resolve().parents:
+            raise RuntimeError('invalid saved case path')
+        tables = folder / 'tables'
+        files = list(tables.glob('*.csv')) if tables.is_dir() else []
+        row['cached_table_files'] = len(files)
+        if not files:
+            row['diagnostic_error'] = 'cached metric tables are missing; original status and values retained'
+            continue
+        try:
+            row.update(parse_metrics(tables, row['phase'], allow_partial=True))
+            issues = [row['gating_error']] if row.get('gating_error') else []
+            try:
+                route, effective = read_trace(folder)
+                row['cached_route_matches'] = route == (95, KEY)
+                row['cached_stage_selector'] = effective.get('FA_STAGE_PROFILE_ID', '') if effective else ''
+                row['cached_selector_matches'] = row['phase'] == 'baseline' or row['cached_stage_selector'] == int(row['stage_selector'])
+                if not row['cached_route_matches']:
+                    issues.append('cached route differs from the selected route')
+                if not row['cached_selector_matches']:
+                    issues.append('cached stage selector differs from the requested selector')
+            except (OSError, ValueError, KeyError) as error:
+                issues.append('cached trace unavailable: ' + str(error))
+            row['diagnostic_error'] = '; '.join(issues)
+            for path in files:
+                match = re.fullmatch(r'(?:\d+_)?(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_\d{17}\.csv', path.name)
+                if match and match[1] not in schema:
+                    records = profile_table(path)
+                    if records:
+                        schema[match[1]] = list(records[0])
+            recovered += 1
+        except (OSError, ValueError, RuntimeError, KeyError) as error:
+            row['diagnostic_error'] = str(error)
+    if rows:
+        rows[0]['raw_metric_column_names'] = json.dumps(schema, separators=(',', ':'))
+    save_csv(output, rows)
+    print(f'CACHED EXPORT: {recovered}/{len(rows)} rows have readable raw tables; NPU launches=0; compilations=0', flush=True)
+    for row in rows:
+        if row['phase'] not in ('baseline', 'control'):
+            print(f'{row["case"]} {row["phase"]} {row["key_window"]}: target={row.get("gating_target_busy_us", "")} other={row.get("gating_other_busy_us", "")} diagnosis={row["diagnostic_error"]}', flush=True)
+    print(f'CSV={output}; diagnostic values are not accepted stage measurements', flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--id', type=int, default=4)
+    parser.add_argument('--export-cached', action='store_true')
     args = parser.parse_args()
     if args.id < 0:
         parser.error('--id must be nonnegative')
@@ -296,6 +375,9 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     lock = (work / 'run.lock').open('w')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if args.export_cached:
+        export_cached(output, work, args.id)
+        return
     deadline = time.monotonic() + LIMIT_SECONDS
     env = dict(os.environ)
     env.update(FA_NPU_ID=str(args.id), ASCEND_RT_VISIBLE_DEVICES=str(args.id), FA_DTYPE_KIND='1', FA_BUILD_JOBS='1', FA_TILING_KEY=str(KEY))
@@ -417,6 +499,10 @@ def main():
                        core_num=effective['FA_CORE_NUM'], total_tasks=effective['FA_TOTAL_TASKS'], split_factor=effective['FA_SPLIT_FACTOR'],
                        s1_base=effective['FA_S1_BASE'], s2_base=effective['FA_S2_BASE'], n_ratio=effective['FA_N_RATIO'],
                        collected_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), status='ok', error='')
+            if not row.get('gating_verified', True):
+                row.update(status='range_unverified', error=row.get('gating_error', 'stage range is not verified'))
+                print(f'UNVERIFIED: {row["phase"]} {row["key_window"]}; counters retained in CSV', flush=True)
+                continue
             print(f'OK: {row["phase"]} {row["key_window"]}; isolated counters only; msprof Task Duration={row["task_duration_us"]:.6g} us', flush=True)
         except Exception as error:
             row.update(status='failed', error=str(error))
