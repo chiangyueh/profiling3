@@ -1280,11 +1280,14 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
     cost.save_json(folder / "hardware.json", hardware)
     manifest = folder / "manifest.json"
     previous = json.loads(manifest.read_text()) if manifest.is_file() else None
-    catalog = external_design(hardware)
+    catalog = [case for case in external_design(hardware) if case["coverage"] == "same_ab_unsplitk"]
     known = measured_branches(directory, folder)
     sampling_targets = set(previous.get("sampling_targets", [])) if previous else set()
+    sampling_targets.add("same_ab_unsplitk")
     sampling_targets.update(case["coverage"] for case in catalog if not any(matches_branch(case, item["branch"]) for item in known.values()))
-    sampling_plan = branch_samples(catalog, sampling_targets)
+    sampling_plan = [{**catalog[0], "name": f"fa_branch_same_ab_unsplitk_{cost.sha256(inputs)[:12]}",
+                      "inputs": inputs, "derived_schedule": {**catalog[0]["derived_schedule"], **source_model.schedule(inputs, hardware)}}
+                     for inputs in source_model.validation_inputs(hardware)]
     registry = list(previous["plan"]) if previous else []
     by_input = {cost.sha256(case["inputs"]): case for case in registry}
     active_plan = []
@@ -1503,12 +1506,12 @@ def main() -> None:
             raise RuntimeError("an existing dataset can only be extended with calibration inputs")
     if not manifest.is_file():
         cost.save_json(manifest, protocol)
-    print("MODE: FA execution paths not covered by successful measurements", flush=True)
+    print("MODE: SameAB BF16 BNSD UNSPLITK; new shapes; existing measurements and native binaries are reused", flush=True)
     if not (directory / "diagnostics.csv").is_file():
         text_report(directory, ALL_FAMILIES)
     result = collect_external(directory, hardware, signature, set())
     model_report = result.get("source_model", result.get("route_model", {}))
-    if model_report.get("prospective", {}).get("count") and not model_report.get("fresh_blind_pass"):
+    if model_report.get("prospective_expected", model_report.get("prospective", {}).get("count")) and not model_report.get("fresh_blind_pass"):
         print("PREDICTION ACCURACY FAIL: the full collection finished; prospective latency predictions did not all meet 10%", flush=True)
         raise SystemExit(1)
     if not result["coverage_complete"] and not result["stopped_for_time_budget"]:

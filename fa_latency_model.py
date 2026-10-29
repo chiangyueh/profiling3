@@ -4,9 +4,11 @@ import csv
 import hashlib
 import heapq
 import inspect
+import itertools
 import json
 import math
 import os
+import re
 import subprocess
 import statistics
 from datetime import datetime, timezone
@@ -14,11 +16,13 @@ from collections import Counter, deque
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
+
 import fa_latency_inputs as cost
 import fit_fa_latency as legacy
 
 
-VERSION = "fa_source_pipeline_v2"
+VERSION = "fa_source_pipeline_v3"
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT / "fa_source_model.json"
 SOURCE = "attention/flash_attention_score/"
@@ -30,13 +34,13 @@ PIPES = {
     "vector": ("aiv_vec_active_sum_us", ("softmax_k", "reduction_k", "cast_k", "format_k", "online_k", "drop_k", "chunks")),
     "vmte2": ("aiv_mte2_active_sum_us", ("read_kb", "loads")),
     "vmte3": ("aiv_mte3_active_sum_us", ("write_kb", "stores")),
-    "cscalar": ("aic_scalar_active_sum_us", ("workers", "commands")),
-    "vscalar": ("aiv_scalar_active_sum_us", ("workers", "chunks")),
+    "cscalar": ("aic_scalar_active_sum_us", ("workers", "batch_entries", "commands")),
+    "vscalar": ("aiv_scalar_active_sum_us", ("workers", "batch_entries", "chunks")),
 }
 
 
 def source_hash():
-    functions = (schedule, mm_requests, matmul_geometry, vector_job, cube_job, workload, features, service, cost_group, elapsed, adapter, predict)
+    functions = (schedule, mm_requests, matmul_geometry, vector_job, cube_job, adapter_jobs, reuse_fake_pairs, workload, features, atomic_features, cost_vertices, service, execution_class, modeled_path, cost_group, phase_features, elapsed, adapter, predict, predict_design)
     return cost.sha256({"version": VERSION, "pipes": PIPES, "python": [inspect.getsource(function) for function in functions],
                         "host": (ROOT / "fa_matmul_tiling.cpp").read_text(),
                         "sameab_geometry": inspect.getsource(legacy.sameab_workload)})
@@ -225,24 +229,24 @@ def vector_job(p, s, rows, columns, first, last):
     soft_elements = soft_rows * padded
     nz1 = s["nz"] and (s["family"] == "s1" or columns % 64 != 0)
     probability_nz = s["same_ab"] or (not batch and s["nz"])
-    nz2 = windowed or p["DV"] % 16 != 0
+    nz2 = s["same_ab"] or p["layout"] == "TND" or (s["family"] in ("s1", "b", "b_drop") and p["DV"] % 16 != 0)
     width = align(p["DV"])
-    stats = rows * (1 if (s["same_ab"] and s["s1_base"] > 256) or (p["layout"] == "TND" and s["s1_base"] > 128) else 8) * 4
+    stats = rows * 32
     drop_bytes = rows * (align(columns, 32) if s["drop_adapter"] else ceil(align(columns, 32), 8)) if p["has_drop_mask"] else 0
     stage1 = {"softmax_k": soft_elements / 1000, "reduction_k": soft_rows * math.ceil(math.log2(max(2, padded))) / 1000,
               "cast_k": rows * padded / 1000, "format_k": rows * padded * (int(nz1) + int(probability_nz)) / 1000,
               "online_k": (0 if first else rows * 8) / 1000, "drop_k": rows * padded / 1000 if p["has_drop_mask"] else 0,
               "chunks": c1, "calls": 1, "read_kb": (4 * rows * align(columns) + drop_bytes) / 1024,
-              "write_kb": (2 * rows * align(columns) + 2 * stats) / 1024,
-              "loads": c1 * (1 + int(bool(p["has_drop_mask"]))), "stores": c1 * 3,
+              "write_kb": (2 * rows * align(columns) + (stats if last else 0) if windowed else 2 * rows * align(columns) + 2 * stats) / 1024,
+              "loads": c1 * (1 + int(bool(p["has_drop_mask"]))), "stores": c1 + int(last) if windowed else c1 * 3,
               "vec1_calls": c1, "softmax_initial_calls": c1 if first else 0, "softmax_update_calls": 0 if first else c1}
     output_elements = rows * width
-    stage2 = {"softmax_k": 0, "reduction_k": 0, "cast_k": output_elements / 1000 if last and p["dtype"] == "BF16" or last and windowed else 0,
+    stage2 = {"softmax_k": 0, "reduction_k": 0, "cast_k": output_elements / 1000 if last else 0,
               "format_k": output_elements / 1000 if nz2 else 0, "online_k": output_elements * (int(not first) * 2 + int(last)) / 1000,
               "drop_k": 0, "chunks": c2, "calls": 1,
-              "read_kb": ((4 if windowed or p["dtype"] == "BF16" or batch else 2) * output_elements + stats + (0 if first else 4 * output_elements)) / 1024,
-              "write_kb": (2 * rows * p["DV"] if last else 4 * output_elements) / 1024,
-              "loads": c2 * (2 + int(not first)), "stores": c2,
+              "read_kb": (4 * output_elements + (0 if windowed else stats) + (0 if first else 4 * output_elements)) / 1024,
+              "write_kb": ((2 * rows * p["DV"] if last else 4 * output_elements) + (stats if windowed and last else 0)) / 1024,
+              "loads": c2 * (1 + int(not windowed) + int(not first)), "stores": c2 + ((1 if s["same_ab"] else c2) if windowed and last else 0),
               "vec2_calls": c2, "accumulator_read_bytes": 0 if first else 4 * output_elements,
               "accumulator_write_bytes": 0 if last else 4 * output_elements,
               "final_output_bytes": 2 * rows * p["DV"] if last else 0}
@@ -259,7 +263,7 @@ def cube_job(p, s, geometry, stage, rows, columns, heads, kv_heads, shared, carr
     b_bytes = kv_heads * columns * align(p["D"] if stage == 0 else p["DV"], 16) * 2
     if shared or carried:
         b_bytes = 0
-    output_width = 2 if stage == 2 and s["family"] == "s1" else 4
+    output_width = 4
     return {"flops_m": 2 * heads * align(m) * align(n) * align(k) / 1e6, "tiles": tiles,
             "l0_kb": heads * 2 * (align(m) * align(k) * nt + align(n) * align(k) * mt) / 1024,
             "read_kb": (a_bytes + b_bytes) / 1024,
@@ -267,6 +271,38 @@ def cube_job(p, s, geometry, stage, rows, columns, heads, kv_heads, shared, carr
             "loads": heads * ceil(mt * kt, geometry["depth_a1"]) + (0 if shared or carried else kv_heads * ceil(nt * kt, geometry["depth_b1"])),
             "stores": heads * mt * nt, "calls": 1, "commands": 1 + tiles,
             "query_rows": heads * rows}
+
+
+def adapter_jobs(p, s, hardware):
+    if not s["drop_adapter"]:
+        return []
+    count = p["B"] * p["N1"] * p["S1"] * p["S2"]
+    aligned = cost.align(count, 2048)
+    single = cost.ceil_div(cost.ceil_div(count, 2048), int(hardware["aiv_cores"])) * 2048
+    base = min(single, cost.ceil_div(int(hardware["ub_bytes"]), 6) // 2048 * 2048)
+    factor, total = cost.ceil_div(single, base), cost.ceil_div(aligned, base)
+    jobs = []
+    for core in range(int(hardware["aiv_cores"])):
+        chunks = max(0, min(factor, total - core * factor))
+        elements = max(0, min(chunks * base, count - core * factor * base))
+        if elements:
+            jobs.append({"cast_k": elements / 1000, "drop_k": elements / 1000, "chunks": chunks, "calls": chunks,
+                         "read_kb": cost.ceil_div(elements, 8) / 1024, "write_kb": elements / 1024,
+                         "loads": chunks, "stores": chunks})
+    return jobs
+
+
+def reuse_fake_pairs(p, s):
+    if not s["reuse"]:
+        return 0
+    if s["family"] == "s1":
+        return s["total_tasks"] % 2
+    count, outer = 0, s["s1_outer"]
+    for start in range(0, s["total_tasks"], s["split_factor"]):
+        end = min(start + s["split_factor"], s["total_tasks"])
+        for head in range(start // outer, (end - 1) // outer + 1):
+            count += (min(end, (head + 1) * outer) - max(start, head * outer)) % 2
+    return count
 
 
 def workload(inputs, hardware, calibration_geometry=None):
@@ -292,17 +328,19 @@ def workload(inputs, hardware, calibration_geometry=None):
             head = 0 if batch else task // s["s1_outer"] % p["N1"]
             batch_id = task if batch else task // (s["s1_outer"] * p["N1"])
             client = (task - start) % 2 if s["reuse"] else 0
+            if s["reuse"] and s["family"] == "general":
+                client = (task - max(start, task // s["s1_outer"] * s["s1_outer"])) % 2
             heads, kv_heads = (p["N1"], p["N2"]) if batch else (1, 1)
             for offset in range(0, p["S2"], window):
                 columns = min(window, p["S2"] - offset)
                 key = batch_id, head // (p["N1"] // p["N2"]), offset
                 cube = []
                 for stage in (0, 2):
-                    shared = s["reuse"] and client == 1 and previous.get(stage) == key
+                    shared = s["reuse"] and client == 1 and previous.get(("shared", stage, offset)) == key
                     carry_api = s["l1"] and (stage == 2 or p["layout"] == "TND")
-                    carried = carry_api and previous.get((stage, client)) == key
+                    carried = carry_api and previous.get(("carried", stage, client)) == key
                     cube.append(cube_job(p, s, mm[stage // 2], stage, rows, columns, heads, kv_heads, shared, carried))
-                    previous[stage], previous[stage, client] = key, key
+                    previous["shared", stage, offset], previous["carried", stage, client] = key, key
                 vector = []
                 for owned in ((cost.ceil_div(rows, 2), rows // 2) if s["same_ab"] else (rows,)):
                     if owned == 0:
@@ -322,9 +360,11 @@ def workload(inputs, hardware, calibration_geometry=None):
         workers.extend(clients)
     cube_pairs = len(workers) if s["same_ab"] else cost.ceil_div(len(workers), 2)
     aiv_workers = 2 * len(workers) if s["same_ab"] else len(workers)
-    totals.update(cube_workers=cube_pairs, vector_workers=aiv_workers,
+    totals.update(cube_workers=int(hardware["aic_cores"]) if s["drop_adapter"] else cube_pairs,
+                  vector_workers=int(hardware["aiv_cores"]) if s["drop_adapter"] else aiv_workers,
                   bmm1_calls=len(jobs), bmm2_calls=len(jobs))
-    return {"inputs": p, "schedule": s, "matmul": mm, "workers": workers, "jobs": jobs, "totals": dict(totals)}
+    return {"inputs": p, "schedule": s, "matmul": mm, "workers": workers, "jobs": jobs, "totals": dict(totals),
+            "adapter_jobs": adapter_jobs(p, s, hardware), "unpaired_reuse_segments": reuse_fake_pairs(p, s)}
 
 
 def features(design, pipe):
@@ -335,19 +375,166 @@ def features(design, pipe):
     for job in design["jobs"]:
         for item in job["cube"] if cube else (item for pair in job["vector"] for item in pair):
             result.update({name: item.get(name, 0) for name in PIPES[pipe][1] if name != "workers"})
+    if not cube:
+        for job in design["adapter_jobs"]:
+            result.update({name: job.get(name, 0) for name in PIPES[pipe][1]})
     if "workers" in PIPES[pipe][1]:
         result["workers"] = design["totals"]["cube_workers" if cube else "vector_workers"]
+        result["batch_entries"] = result["workers"] * design["inputs"]["B"] if design["inputs"]["layout"] == "TND" else 0
     return result
 
 
+def atomic_features(design, pipe):
+    cube = pipe in ("cube", "mte1", "mte2", "fixpipe", "cscalar")
+    names = PIPES[pipe][1]
+    values = set()
+    for job in design["jobs"]:
+        for item in job["cube"] if cube else (item for pair in job["vector"] for item in pair):
+            values.add(tuple(float(item.get(name, 0)) for name in names))
+    if not cube:
+        values.update(tuple(float(job.get(name, 0)) for name in names) for job in design["adapter_jobs"])
+    if "workers" in names:
+        startup = {"workers": 1, "batch_entries": design["inputs"]["B"] if design["inputs"]["layout"] == "TND" else 0}
+        values.add(tuple(float(startup.get(name, 0)) for name in names))
+    return sorted(values)
+
+
 def service(job, pipe, model):
-    return sum(value * job.get(name, 0) for name, value in model["pipes"][pipe]["coefficients"].items())
+    identity = pipe, tuple(job.get(name, 0) for name in PIPES[pipe][1])
+    cache = model.setdefault("_service_cache", {})
+    if identity in cache:
+        return cache[identity]
+    if model.get("strict_classes"):
+        if not any(job.get(name, 0) for name in PIPES[pipe][1]):
+            return 0.0
+        fitted = model["pipes"].get(pipe)
+        if fitted is None or fitted.get("status") == "unavailable":
+            raise ValueError(f"uncalibrated cost: {model['class_id']} {pipe}")
+        if model.get("cost_mode") in ("lower", "upper"):
+            if any(job.get(name, 0) for name in fitted["inactive_feature_rates"]):
+                raise ValueError(f"unmeasured operation cost: {model['class_id']} {pipe}")
+            vector = np.asarray([job.get(name, 0) for name in PIPES[pipe][1]])
+            values = np.asarray(fitted["feasible_rate_vertices"]) @ vector
+            value = float(np.min(values) if model["cost_mode"] == "lower" else np.max(values))
+            cache[identity] = value
+            return value
+        vector = np.asarray([job.get(name, 0) / scale for name, scale in zip(PIPES[pipe][1], fitted["feature_scales"])])
+        basis = np.asarray(fitted["row_basis"])
+        projected = vector @ basis.T @ basis
+        residual = float(np.linalg.norm(vector - projected) / max(np.linalg.norm(vector), 1e-30))
+        if residual > 1e-7:
+            raise ValueError(f"unidentified stage cost: {model['class_id']} {pipe}; relative_rowspace_residual={residual:.6g}")
+    value = sum(value * job.get(name, 0) for name, value in model["pipes"][pipe]["coefficients"].items())
+    cache[identity] = value
+    return value
+
+
+def cost_vertices(pipe, fitted):
+    names = PIPES[pipe][1]
+    scale, basis = np.asarray(fitted["feature_scales"]), np.asarray(fitted["row_basis"])
+    total = basis @ (np.asarray([fitted["coefficients"][name] for name in names]) * scale)
+    active = [index for index, name in enumerate(names) if name not in fitted["inactive_feature_rates"]]
+    vertices = []
+    tolerance = 1e-7 * max(1.0, float(np.linalg.norm(total)))
+    for selected in itertools.combinations(active, len(basis)):
+        matrix = basis[:, selected]
+        if np.linalg.matrix_rank(matrix) < len(basis):
+            continue
+        solution = np.linalg.solve(matrix, total)
+        if float(np.min(solution)) < -tolerance:
+            continue
+        vector = np.zeros(len(names))
+        vector[list(selected)] = np.maximum(solution, 0)
+        if float(np.linalg.norm(basis @ vector - total)) <= tolerance:
+            vertices.append((vector / scale).tolist())
+    if not vertices:
+        raise ValueError(f"no feasible nonnegative cost decomposition: {pipe}")
+    return vertices
+
+
+def execution_class(design):
+    p, s = design["inputs"], design["schedule"]
+    windowed = s["same_ab"] or s["family"] in ("general", "varlen")
+    width = s["s2_base"] * s["n_ratio"] if windowed else p["S2"]
+    columns = [min(width, p["S2"] - offset) for offset in range(0, p["S2"], width)]
+    if s["family"] == "s1":
+        formats = ["NZ" if s["nz"] else "ND"]
+    else:
+        formats = sorted({"NZ" if s["nz"] and count % 64 else "ND" for count in columns})
+    mm2_format = "NZ" if s["same_ab"] or p["layout"] == "TND" or s["family"] in ("s1", "b", "b_drop") and p["DV"] % 16 else "ND"
+    family = "tnd_same_ab" if s["same_ab"] and p["layout"] == "TND" else "tnd_general" if p["layout"] == "TND" else "b" if s["family"] in ("b", "b_drop") else s["family"]
+    q_blocks = [min(s["s1_base"], p["S1"])]
+    if p["S1"] % s["s1_base"]:
+        q_blocks.append(p["S1"] % s["s1_base"])
+    vector_rows = [r for q in q_blocks for r in ((cost.ceil_div(q, 2), q // 2) if s["same_ab"] else (q,)) if r]
+    return {"kernel": family, "dtype": p["dtype"], "layout": p["layout"],
+            "matmul": "STATIC" if s.get("static_matmul") else s["policy"],
+            "mm1_template": "NZ" if s["nz"] else "ND", "mm1_windows": "+".join(formats), "mm2_output": mm2_format,
+            "operand_path": "TSCM" if s["policy"] == "UNSPLITK" else "L1_CARRY" if s["l1"] else "IBSHARE" if s["reuse"] else "GM",
+            "reuse_fake_peer": bool(design["unpaired_reuse_segments"]),
+            "probability_format": "NZ" if s["same_ab"] or s["nz"] else "ND",
+            "drop_mask": "BYTE_ADAPTER" if s["drop_adapter"] else "BIT" if p["has_drop_mask"] else "NONE",
+            "softmax_reduce": 1 if s["same_ab"] and p["layout"] != "TND" and s["s1_base"] > 256 or p["layout"] == "TND" and not s["same_ab"] and s["s1_base"] > 128 else 8,
+            "online_update": bool(windowed and len(columns) > 1),
+            "q_tail": bool(p["S1"] % s["s1_base"]), "k_tail_mask": bool(any(count % 64 for count in columns)),
+            "softmax_row_padding": bool(any(rows % 8 for rows in vector_rows)),
+            "tiny_k": bool(p["layout"] == "TND" and any(count < 8 for count in columns)),
+            "d_tail": bool(p["D"] % 16), "dv_tail": bool(p["DV"] % 16)}
+
+
+def modeled_path(design):
+    p, s = design["inputs"], design["schedule"]
+    return s["same_ab"] and p["dtype"] == "BF16" and p["layout"] == "BNSD" and s["policy"] == "UNSPLITK" and not p["has_drop_mask"]
+
+
+def validation_inputs(hardware):
+    result = []
+    for query, key in ((384, 1536), (640, 2176), (1152, 3200), (2304, 3456), (4608, 5504), (8960, 9216)):
+        for batch, nq, nkv, dv in ((1, 16, 16, 128), (1, 64, 64, 128), (2, 16, 16, 128),
+                                    (1, 24, 8, 128), (1, 16, 16, 96), (1, 16, 16, 136)):
+            inputs = cost.normalize(dict(zip(cost.INPUT_FIELDS, (batch, nq, nkv, query, key, 192, dv, "BF16", "BNSD", 0))))
+            if not modeled_path({"inputs": inputs, "schedule": schedule(inputs, hardware)}):
+                raise RuntimeError("a validation input does not select the modeled SameAB path")
+            result.append(inputs)
+    return result
 
 
 def cost_group(design):
-    p, s = design["inputs"], design["schedule"]
-    family = "tnd_same_ab" if s["same_ab"] and p["layout"] == "TND" else "tnd_general" if p["layout"] == "TND" else "b" if s["family"] in ("b", "b_drop") else s["family"]
-    return family + "/" + ("UNSPLITK" if s["policy"] == "UNSPLITK" else "IBSHARE" if s["reuse"] else "L1_CARRY" if s["l1"] else "GM") + ("/STATIC" if s.get("static_matmul") else "")
+    if modeled_path(design):
+        return "same_ab_bf16_bnsd_unsplitk"
+    return "|".join(f"{name}={value}" for name, value in execution_class(design).items())
+
+
+def phase_features(design):
+    result = {stage: {pipe: Counter() for pipe in pipes} for stage, pipes in
+              (("bmm1", ("cube", "mte1", "mte2", "fixpipe", "cscalar")),
+               ("bmm2", ("cube", "mte1", "mte2", "fixpipe", "cscalar")),
+               ("vec1", ("vector", "vmte2", "vmte3", "vscalar")),
+               ("vec2", ("vector", "vmte2", "vmte3", "vscalar")))}
+    for job in design["jobs"]:
+        for index, stage in enumerate(("bmm1", "bmm2")):
+            for pipe in result[stage]:
+                result[stage][pipe].update({name: job["cube"][index].get(name, 0) for name in PIPES[pipe][1]})
+        for pair in job["vector"]:
+            for index, stage in enumerate(("vec1", "vec2")):
+                for pipe in result[stage]:
+                    result[stage][pipe].update({name: pair[index].get(name, 0) for name in PIPES[pipe][1]})
+    result["startup"] = {"cscalar": {"workers": design["totals"]["cube_workers"], "batch_entries": 0},
+                         "vscalar": {"workers": design["totals"]["vector_workers"], "batch_entries": 0}}
+    return result
+
+
+def source_evidence():
+    root = Path(os.environ.get("OPS_TRANSFORMER_ROOT", str(ROOT.parent / "ops-transformer-official-8.5.0")))
+    kernels = {"b": ["flash_attention_score_bn2gs1s2_b.h"], "s1": ["flash_attention_score_s1_bn2gs1.h"],
+               "general": ["flash_attention_score_s1s2_bn2gs1.h"], "same_ab": ["flash_attention_score_s1s2_bn2gs1_sab.h"],
+               "tnd_general": ["flash_attention_var_len_score.h", "flash_attention_score_s1s2_bn2gs1.h"],
+               "tnd_same_ab": ["flash_attention_var_len_score_sab.h", "flash_attention_score_s1s2_bn2gs1_sab.h"]}
+    files = {SOURCE + "op_kernel/arch32/" + name for names in kernels.values() for name in names}
+    files.update(SOURCE + suffix for suffix in ("op_host/arch32/flash_attention_score_tiling_general.cpp",
+                 "op_kernel/arch32/flash_attention_score_template_tiling_key.h", "op_kernel/arch32/flash_attention_score_drop_mask_adapter.h"))
+    return {"kernel_files": {name: [SOURCE + "op_kernel/arch32/" + item for item in names] for name, names in kernels.items()},
+            "sha256": {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in sorted(files)}}
 
 
 def elapsed(design, model):
@@ -471,7 +658,8 @@ def elapsed(design, model):
                     return
             finished[worker] = time
 
-        startup = max(model["pipes"]["cscalar"]["coefficients"].get("workers", 0), model["pipes"]["vscalar"]["coefficients"].get("workers", 0))
+        init = {"workers": 1, "batch_entries": design["inputs"]["B"] if design["inputs"]["layout"] == "TND" else 0}
+        startup = max(service(init, "cscalar", model), service(init, "vscalar", model))
         if controlled_cube:
             start_cube(startup)
         for worker in range(len(workers)):
@@ -516,14 +704,11 @@ def adapter(design, model):
     p, s, h = design["inputs"], design["schedule"], model["hardware"]
     if not s["drop_adapter"]:
         return {"adapter_us": 0.0, "adapter_passes": 0}
-    elements = p["B"] * p["N1"] * p["S1"] * p["S2"]
-    single = cost.ceil_div(cost.ceil_div(elements, 2048), int(h["aiv_cores"])) * 2048
-    available = cost.ceil_div(int(h["ub_bytes"]), 6) // 2048 * 2048
-    base = min(single, available)
-    passes = cost.ceil_div(single, base)
-    job = {"cast_k": single / 1000, "drop_k": single / 1000, "chunks": passes, "calls": passes,
-           "read_kb": single / 8 / 1024, "write_kb": single / 1024, "loads": passes, "stores": passes}
-    duration = max(service(job, "vector", model), service(job, "vmte2", model) + service(job, "vmte3", model), service(job, "vscalar", model))
+    duration, passes = 0.0, 0
+    for job in design["adapter_jobs"]:
+        pipes = [service(job, pipe, model) for pipe in ("vector", "vmte2", "vmte3")]
+        current = max(max(pipes), service(job, "vscalar", model)) + (sum(pipes) - max(pipes)) / job["chunks"]
+        duration, passes = max(duration, current), max(passes, job["chunks"])
     return {"adapter_us": duration, "adapter_passes": passes}
 
 
@@ -531,116 +716,398 @@ def predict(inputs, model):
     if model["version"] != VERSION or model["source_sha256"] != source_hash():
         raise RuntimeError("source model and frozen predictor differ; native caches are unaffected")
     design = workload(inputs, model["hardware"])
+    return predict_design(design, model)
+
+
+def predict_design(design, model, geometry_origin="cpu_matmul_tiler"):
+    if not modeled_path(design):
+        raise ValueError("outside the modeled SameAB BF16 BNSD UNSPLITK path")
     group = cost_group(design)
-    rates = {**model, "pipes": {**model["pipes"], **model.get("policies", {}).get(group, {})}}
-    result = elapsed(design, rates)
-    extra = adapter(design, rates)
-    value = result["pipeline_us"] + extra["adapter_us"]
+    entry = model["classes"].get(group)
+    if entry is None:
+        raise ValueError(f"unmeasured execution class: {group}")
+    if design["unpaired_reuse_segments"]:
+        raise ValueError("unmodeled paired-Matmul empty-message control cost")
+    results, costs = [], []
+    for mode in ("lower", "upper"):
+        rates = {"hardware": model["hardware"], "pipes": entry["pipes"], "strict_classes": True, "class_id": group, "cost_mode": mode}
+        results.append(elapsed(design, rates))
+        costs.append({stage: {pipe: service(job, pipe, rates) for pipe, job in pipes.items()} for stage, pipes in phase_features(design).items()})
+    lower, upper = (result["pipeline_us"] for result in results)
+    if lower > upper + 1e-7:
+        raise RuntimeError("source timing range is inconsistent")
+    value = 2 * lower * upper / (lower + upper)
     if not math.isfinite(value) or value <= 0:
         raise RuntimeError("invalid source-model latency")
-    return {**result, **extra, "predicted_us": value, "input_schedule": design["schedule"],
+    return {"pipeline_us": value, "adapter_us": 0.0, "predicted_us": value, "input_schedule": design["schedule"],
             "matmul": design["matmul"], "work": design["totals"], "cost_policy": group,
+            "identification_range_us": [lower, upper], "identification_width_percent": 100 * (upper - lower) / (upper + lower),
+            "phase_pipe_active_sum_range_us": {stage: {pipe: [costs[0][stage][pipe], costs[1][stage][pipe]] for pipe in costs[0][stage]} for stage in costs[0]},
+            "range_scope": "Nonnegative decompositions with the same fitted class PMU totals; this is not a confidence interval and excludes counter-fit error and missing physical effects",
+            "point_rule": "harmonic mean of the two pipeline limits minimizes worst relative error within that range",
             "prediction_quality": "source_frozen_before_measurement", "model_version": VERSION,
-            "host_api_sha256": tiler()[1], "qualification": "unqualified_until_independent_per_case_error_is_at_most_10_percent",
-            "unidentified_costs": model["unidentified_costs"], "transferred_pipe_rates": sorted(set(PIPES) - set(model.get("policies", {}).get(group, {}))),
-            "out_of_calibration_range": [name for name, bounds in model["input_ranges"].items() if not bounds[0] <= design["inputs"][name] <= bounds[1]]}
+            "host_api_sha256": tiler()[1] if geometry_origin == "cpu_matmul_tiler" else geometry_origin,
+            "qualification": "unqualified_until_independent_per_case_error_is_at_most_10_percent",
+            "unidentified_costs": [pipe for pipe, fitted in entry["pipes"].items() if fitted.get("unidentified_atomic_jobs")],
+            "transferred_pipe_rates": [], "execution_class": execution_class(design),
+            "out_of_calibration_range": [name for name, bounds in entry["input_ranges"].items() if not bounds[0] <= design["inputs"][name] <= bounds[1]]}
+
+
+@lru_cache(maxsize=1)
+def key_schema():
+    path = Path(os.environ.get("OPS_TRANSFORMER_ROOT", str(ROOT.parent / "ops-transformer-official-8.5.0")))
+    path /= SOURCE + "op_kernel/arch32/flash_attention_score_template_tiling_key.h"
+    text = path.read_text().split("ASCENDC_TPL_SEL(", 1)[0]
+    return [(name, int(width), tuple(map(int, re.findall(r"\d+", values)))) for name, width, values in
+            re.findall(r"ASCENDC_TPL_UINT_DECL\(\s*(\w+)\s*,\s*ASCENDC_TPL_(\d+)_BW\s*,\s*ASCENDC_TPL_UI_LIST\s*,([^)]*)\)", text)]
+
+
+def verify_class_trace(raw, design):
+    value, shift, decoded = int(raw["tiling_key"]), 0, {}
+    schema = key_schema()
+    if not schema:
+        raise ValueError("official template key schema is missing")
+    for name, width, values in schema:
+        index = value >> shift & ((1 << width) - 1)
+        if index >= len(values):
+            raise ValueError("Host key contains an invalid template index")
+        decoded[name] = values[index]
+        shift += width
+    s, p = design["schedule"], design["inputs"]
+    ub0, ub1, block = (9, 9, 0) if s["family"] in ("b", "b_drop") else (3, 9, 9) if s["same_ab"] else (3, 5, 9) if s["family"] == "s1" else (3, 4, 9)
+    expected = {"UB0": ub0, "UB1": ub1, "Block": block, "DataType": 2 if p["dtype"] == "BF16" else 3,
+                "KernelTypeKey": 0, "Sparse": 1 if s["family"] in ("b", "b_drop") else 2, "BigDoubleBuffer": 2,
+                "Layout": {"BSND": 1, "SBH": 2, "BNSD": 3, "TND": 4}[p["layout"]],
+                "Bmm1Format": 0 if p["layout"] == "TND" else int(s["nz"]),
+                "Bmm2Source": int(s["family"] == "s1" and s["l1"]), "EnableL1Reuse": int(s["reuse"]),
+                "MatmulPolicyType": int(s["policy"] == "UNSPLITK"), "HasDropOut": p["has_drop_mask"],
+                "HasAttenMask": 0, "HasPse": 0, "HasRope": 0, "ImplMode": 0}
+    if not s["static_matmul"]:
+        expected.update(S1TemplateType=0, S2TemplateType=0, DTemplateType=0)
+    return {name: [expected[name], decoded.get(name)] for name in expected if expected[name] != decoded.get(name)}
+
+
+def load_cost_records(paths, hardware, fieldnames=None):
+    unique = {}
+    for path in paths:
+        with Path(path).open(newline="") as source:
+            schema = fieldnames.get(Path(path).name) if isinstance(fieldnames, dict) else fieldnames
+            reader = csv.DictReader(source, fieldnames=schema)
+            required = set(cost.INPUT_FIELDS) | {"status", "stable", "duration_us", "checked_elements", "tiling_key"}
+            if not required <= set(reader.fieldnames or []):
+                raise ValueError(f"measurement CSV has no compatible header; explicit fieldnames are required: {path}")
+            for raw in reader:
+                if None in raw or any(value is None for value in raw.values()):
+                    raise ValueError(f"measurement CSV row does not match its header: {path}, line={reader.line_num}")
+                if raw.get("status") != "ok":
+                    continue
+                inputs = cost.normalize({name: raw[name] for name in cost.INPUT_FIELDS})
+                identity = cost.sha256(inputs)
+                if any(str(raw[name]) != str(hardware[name]) for name in hardware if raw.get(name)):
+                    raise ValueError("calibration measurements use another hardware profile")
+                if int(raw.get("checked_elements") or 0) <= 0:
+                    continue
+                duration = float(raw["duration_us"])
+                if not math.isfinite(duration) or duration <= 0:
+                    raise ValueError(f"successful measurement has an invalid latency: {path}, line={reader.line_num}")
+                geometry = [{name: int(raw[f"bmm{stage}_{name}"]) for name in ("base_m", "base_n", "base_k", "depth_a1", "depth_b1")} for stage in (1, 2)]
+                design = workload(inputs, hardware, calibration_geometry=geometry)
+                mismatch = {name: [design["schedule"][name], int(raw[name])]
+                            for name in ("priority", "s1_base", "s2_base", "n_ratio", "total_tasks", "core_num", "split_factor")
+                            if raw.get(name) and design["schedule"][name] != int(raw[name])}
+                mismatch.update(verify_class_trace(raw, design))
+                targets = {}
+                for pipe, (field, _) in PIPES.items():
+                    try:
+                        value = float(raw[field])
+                        if math.isfinite(value) and value > 0:
+                            targets[pipe] = value
+                    except (KeyError, TypeError, ValueError):
+                        pass
+                unique[identity] = {"identity": identity, "inputs": inputs, "geometry": geometry,
+                                    "measurement_file": Path(path).name,
+                                    "trace": {name: int(raw[name]) for name in ("tiling_key", "priority", "s1_base", "s2_base", "n_ratio", "total_tasks", "core_num", "split_factor")},
+                                    "checked_elements": int(raw["checked_elements"]),
+                                    "case": raw.get("case") or identity, "coverage": raw.get("coverage") or raw["family"],
+                                    "stable": str(raw.get("stable")).lower() == "true", "duration_us": duration,
+                                    "class_id": cost_group(design), "path": execution_class(design), "schedule_mismatch": mismatch,
+                                    "fold": int(cost.sha256({name: inputs[name] for name in ("S1", "S2")})[:8], 16) % 5,
+                                    "features": {pipe: dict(features(design, pipe)) for pipe in PIPES},
+                                    "atoms": {pipe: atomic_features(design, pipe) for pipe in PIPES}, "targets": targets,
+                                    "byte_checks": {"gm_to_l1_kb": [features(design, "mte2").get("read_kb", 0), raw.get("gm_to_l1_kb")],
+                                                    "l0c_to_gm_kb": [features(design, "fixpipe").get("write_kb", 0), raw.get("l0c_to_gm_kb")]}}
+    return list(unique.values())
+
+
+def fit_class_costs(records, hardware):
+    classes = {}
+    for group in sorted({row["class_id"] for row in records}):
+        observed = [row for row in records if row["class_id"] == group]
+        selected = [row for row in observed if row["stable"] and not row["schedule_mismatch"]]
+        entry = {"path": observed[0]["path"], "measured_shapes": len(observed), "stable_shapes": len(selected), "pipes": {},
+                 "pipeline_control_modeled": not observed[0]["path"]["reuse_fake_peer"],
+                 "sequence_pairs": len({(row["inputs"]["S1"], row["inputs"]["S2"]) for row in selected}),
+                 "input_ranges": {name: [min(row["inputs"][name] for row in selected), max(row["inputs"][name] for row in selected)] for name in cost.INPUT_FIELDS[:7]} if selected else {}}
+        for pipe, (_, names) in PIPES.items():
+            rows = [row for row in selected if pipe in row["targets"]]
+            if not rows:
+                entry["pipes"][pipe] = {"status": "unavailable", "reason": "no stable counter measurements in this execution class", "samples": 0}
+                continue
+            matrix = np.asarray([[row["features"][pipe].get(name, 0) for name in names] for row in rows], dtype=float)
+            targets = np.asarray([row["targets"][pipe] for row in rows])
+            scales = np.maximum(np.max(abs(matrix), axis=0), 1.0)
+            _, singular, basis = np.linalg.svd(matrix / scales, full_matrices=False)
+            rank = int(np.sum(singular > max(float(singular[0]), 1e-30) * 1e-9))
+            basis = basis[:rank]
+            if not rank:
+                entry["pipes"][pipe] = {"status": "unavailable", "reason": "source work is zero but the measured pipe is active", "samples": len(rows)}
+                continue
+            atom = np.asarray(sorted({tuple(values) for row in rows for values in row["atoms"][pipe]}), dtype=float)
+            normalized = atom / scales
+            residuals = np.linalg.norm(normalized - normalized @ basis.T @ basis, axis=1) / np.maximum(np.linalg.norm(normalized, axis=1), 1e-30)
+            fitted = legacy.pipeline_nnls(matrix.tolist(), targets.tolist())
+            weights = fitted.pop("weights")
+            estimates = matrix @ weights
+            errors = abs(estimates / targets - 1) * 100
+            unidentified = int(np.sum(residuals > 1e-7))
+            rate_residuals = np.linalg.norm(np.eye(len(names)) - basis.T @ basis, axis=1)
+            entry["pipes"][pipe] = {"status": "identified_stage_costs" if unidentified == 0 else "joint_counter_only",
+                                    "coefficients": dict(zip(names, weights)), "feature_scales": scales.tolist(), "row_basis": basis.tolist(),
+                                    "identified_feature_rates": [name for name, residual in zip(names, rate_residuals) if residual <= 1e-7],
+                                    "unresolved_feature_rates": [name for index, (name, residual) in enumerate(zip(names, rate_residuals)) if residual > 1e-7 and np.any(matrix[:, index])],
+                                    "inactive_feature_rates": [name for index, name in enumerate(names) if not np.any(matrix[:, index])],
+                                    "samples": len(rows), "sequence_pairs": len({(row["inputs"]["S1"], row["inputs"]["S2"]) for row in rows}),
+                                    "rank": rank, "feature_count": len(names), "unidentified_atomic_jobs": unidentified,
+                                    "atomic_jobs": len(atom), "calibration_mape_percent": float(np.mean(errors)),
+                                    "calibration_max_ape_percent": float(np.max(errors)),
+                                    "calibration_shapes": sorted(row["identity"] for row in rows)}
+            entry["pipes"][pipe]["feasible_rate_vertices"] = cost_vertices(pipe, entry["pipes"][pipe])
+        entry["all_stage_costs_identified"] = all(item["status"] == "identified_stage_costs" for item in entry["pipes"].values())
+        classes[group] = entry
+    return {"version": VERSION, "source_sha256": source_hash(), "hardware": hardware, "classes": classes,
+            "training_shapes": sorted(row["identity"] for row in records if row["stable"] and not row["schedule_mismatch"]),
+            "exposed_shapes": sorted(row["identity"] for row in records),
+            "source_evidence": source_evidence(),
+            "target": "FlashAttentionScore kernel Task Duration(us)", "global_fallback": False,
+            "scope": "Dense FP16/BF16 FA; BNSD/SBH/BSND and uniform TND; optional dropout; no sparse/PSE/Rope/sink/FAG",
+            "calibration": "Class-specific PMU only; all supplied stable development measurements; no FA latency target is fitted",
+            "work_audit": {"s1_bmm2": "Kernel C2 is FP32, including FP16 inputs; Host bmm2OutDtype is not the kernel output width",
+                           "general_bmm2": "Dense General outputs ND; TND General and SameAB output NZ",
+                           "windowed_stats": "Final K window writes max and sum; Vec2 consumes sum from UB",
+                           "l1_reuse": "Paired clients share matching K/V windows; reuse is tracked separately for each S2 window",
+                           "fake_peer": "General pairs Q tasks within each head and may send an empty peer message; these classes are separate and their empty-message pipeline cost is not yet modeled",
+                           "tnd_sameab": "Its ComputeConstexpr retains reduction width 8; TND General has a separate reduction-width branch",
+                           "traffic": "Operand-byte estimates are checked against PMU; API reloads and memory transactions are not assumed proven by a matching Host route"},
+            "identifiability": "Within the stated linear workload basis, uniquely determined costs are distinguished from joint counter fits. Non-unique phase costs retain all feasible nonnegative decompositions and are propagated as timing ranges. No rates are borrowed across execution classes. These ranges exclude counter-fit error and missing physical effects; they are not confidence intervals or an accuracy guarantee.",
+            "classification": "Official implementation, input dtype/layout, Matmul policy, actual ND/NZ windows, second-Matmul output format, operand path, probability format, dropout representation, reduction mode, online update and padding branches",
+            "qualification": "development_calibration_requires_grouped_validation_and_new_frozen_shape_test"}
 
 
 def fit(paths, previous_model):
-    allowed = set(previous_model["training_shapes"])
-    selected = {}
-    for path in paths:
-        with Path(path).open(newline="") as source:
-            for row in csv.DictReader(source):
-                if row.get("status") != "ok" or str(row.get("stable")).lower() != "true" or not legacy.pipeline_counters_complete(row):
-                    continue
-                p = cost.normalize({name: row[name] for name in cost.INPUT_FIELDS})
-                identity = cost.sha256(p)
-                if identity not in allowed:
-                    continue
-                if any(str(row[name]) != str(previous_model["hardware"][name]) for name in previous_model["hardware"] if row.get(name)):
-                    raise ValueError("calibration hardware differs")
-                if not all(row.get(name) for name in ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes")):
-                    raise ValueError("calibration platform identity is incomplete")
-                if any(not row.get(PIPES[pipe][0]) for pipe in PIPES):
-                    continue
-                mm = [{name: int(row[f"bmm{stage}_{name}"]) for name in ("base_m", "base_n", "base_k", "depth_a1", "depth_b1")} for stage in (1, 2)]
-                design = workload(p, previous_model["hardware"], calibration_geometry=mm)
-                if design["schedule"]["drop_adapter"]:
-                    continue
-                compact = {name: design[name] for name in ("inputs", "schedule", "totals")}
-                compact["pipe_features"] = {pipe: features(design, pipe) for pipe in PIPES}
-                selected[identity] = row, compact
-    if not selected:
-        raise ValueError("original frozen PMU calibration rows are missing")
-    rows = list(selected.values())
-    result = {"version": VERSION, "source_sha256": source_hash(), "hardware": previous_model["hardware"], "pipes": {},
-              "training_shapes": sorted(selected), "exposed_shapes": sorted(set(previous_model["exposed_shapes"]) | set(selected)),
-              "input_ranges": {name: [min(d["inputs"][name] for _, d in rows), max(d["inputs"][name] for _, d in rows)] for name in cost.INPUT_FIELDS[:7]},
-              "target": "FlashAttentionScore kernel Task Duration(us)", "host_api_sha256_at_calibration": tiler()[1],
-              "calibration": "Only original v1 training identities with stable, numerically checked PMU; no FA duration targets; no October 28 prospective rows used",
-              "calibration_geometry": "Original official Host Matmul geometry from calibration CSV; inference independently invokes CPU Matmul tiling from operator inputs",
-              "schedule": "Official Host task partitions, two Vector clients per Cube, shared Matmul FIFO, SameAB paired Vector barriers and two drain iterations",
-              "cost_model": "Global nonnegative per-pipe PMU rates; no branch-specific FA latency multiplier, no shape-to-latency table",
-              "scope": "Dense FA forward FP16/BF16, BNSD/SBH/BSND, uniform-length TND, optional dropout; no mask/PSE/Rope/sink/FP32/FAG",
-              "limitations": ["Aggregate per-pipe service is calibrated, not an instruction-accurate hardware simulator",
-                              "L2 contention, memory coalescing and runtime clock/thermal interference are not determined exactly by shape",
-                              "Adapter global barrier and Matmul internal overlap are approximated by the resource dependency model",
-                              "Static Matmul variants have no numerically successful calibration and remain unqualified"],
-              "qualification": "not_validated_to_10_percent"}
-    for pipe, (target, names) in PIPES.items():
-        matrix = [[features(d, pipe).get(name, 0) for name in names] for _, d in rows]
-        observed = [float(r[target]) for r, _ in rows]
-        fitted = legacy.pipeline_nnls(matrix, observed)
-        coefficients = dict(zip(names, fitted.pop("weights")))
-        estimates = [sum(value * coefficients[name] for value, name in zip(line, names)) for line in matrix]
-        result["pipes"][pipe] = {"coefficients": coefficients, **fitted,
-                                 "calibration_mape_percent": statistics.mean(abs(v / y - 1) * 100 for v, y in zip(estimates, observed))}
-    result["unidentified_costs"] = [pipe for pipe, item in result["pipes"].items() if item["rank"] < len(PIPES[pipe][1])]
-    result["policies"] = {}
-    for group in sorted({cost_group(design) for _, design in rows}):
-        subset = [(row, design) for row, design in rows if cost_group(design) == group]
-        rates = {}
-        if len(subset) < 2:
-            continue
-        for pipe, (target, names) in PIPES.items():
-            matrix = [[features(d, pipe).get(name, 0) for name in names] for _, d in subset]
-            fitted = legacy.pipeline_nnls(matrix, [float(row[target]) for row, _ in subset])
-            if fitted["rank"] == len(names):
-                rates[pipe] = {"coefficients": dict(zip(names, fitted.pop("weights"))), **fitted,
-                               "calibration_shapes": sorted(cost.sha256(d["inputs"]) for _, d in subset)}
-        result["policies"][group] = rates
-    result["cost_model"] = "Per-pipe PMU rates for source Matmul/Vector policies when identifiable; otherwise transferred global rates; no FA latency multiplier or shape-to-latency table"
+    records = load_cost_records(paths, previous_model["hardware"])
+    selected = [row for row in records if row["class_id"] == "same_ab_bf16_bnsd_unsplitk"]
+    result = fit_class_costs(selected, previous_model["hardware"])
+    result["exposed_shapes"] = sorted(row["identity"] for row in records)
+    result["scope"] = "SameAB BF16 BNSD UNSPLITK without dropout, sparse mask, PSE, Rope or FAG; tails change counted work rather than selecting a fitted shape exception"
     return result
 
 
-def evaluate(paths, model):
-    outcomes = []
+def evaluate(paths, model, input_only=False, fieldnames=None):
+    if model["version"] != VERSION or model["source_sha256"] != source_hash():
+        raise RuntimeError("source model and frozen predictor differ")
+    records = load_cost_records(paths, model["hardware"], fieldnames=fieldnames)
+    outcomes, exposed = [], set(model["exposed_shapes"])
+    for index, row in enumerate(records, 1):
+        outcome = evaluate_record(row, model)
+        outcome.update(previously_exposed=row["identity"] in exposed, known_class=row["class_id"] in model["classes"])
+        if input_only:
+            result = {"ape_percent": None, "predicted_us": None, "geometry_mismatch": []}
+            try:
+                design = workload(row["inputs"], model["hardware"])
+                result["geometry_mismatch"] = [f"bmm{stage}_{name}" for stage, (actual, expected) in enumerate(zip(design["matmul"], row["geometry"]), 1)
+                                               for name in expected if actual[name] != expected[name]]
+                predicted = predict_design(design, model)["predicted_us"]
+                error = abs(predicted / row["duration_us"] - 1) * 100
+                result.update(predicted_us=predicted, ape_percent=error, pass_10_percent=error <= 10 and not result["geometry_mismatch"] and not row["schedule_mismatch"])
+            except (ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                result["error"] = str(error)
+            outcome["input_only"] = result
+        outcomes.append(outcome)
+        if index % 64 == 0:
+            print(f"OFFLINE EXTERNAL CHECK: {index}/{len(records)}; frozen costs, no NPU", flush=True)
+    groups = {"all": outcomes, "stable": [row for row in outcomes if row["stable"]],
+              "unseen": [row for row in outcomes if not row["previously_exposed"]],
+              "unseen_stable": [row for row in outcomes if not row["previously_exposed"] and row["stable"]],
+              "repeated": [row for row in outcomes if row["previously_exposed"]]}
+    summary = {name: {"host_geometry_replay": error_metrics(rows),
+                      "input_only_local_sdk": error_metrics([row["input_only"] for row in rows]) if input_only else None,
+                      "unknown_classes": sum(not row["known_class"] for row in rows),
+                      "geometry_mismatches": sum(bool(row.get("input_only", {}).get("geometry_mismatch")) for row in rows),
+                      "host_trace_mismatches": sum(bool(row["schedule_mismatch"]) for row in rows)} for name, rows in groups.items()}
+    return {"summary": summary, "cases": outcomes, "prospective_pass": False,
+            "new_data_used_for_fit": False, "frozen_model_sha256": cost.sha256(model),
+            "evaluation": "Unseen-file holdout is separate from repeated development inputs; Host-geometry replay and input-only installed-SDK predictions are separate"}
+
+
+def error_metrics(rows):
+    errors = [row["ape_percent"] for row in rows if row.get("ape_percent") is not None]
+    passed = sum(row.get("pass_10_percent", row["ape_percent"] <= 10) for row in rows if row.get("ape_percent") is not None)
+    return {"count": len(rows), "predicted": len(errors), "unavailable": len(rows) - len(errors),
+            "pass_10_percent": passed, "fail_10_percent_including_unavailable": len(rows) - passed,
+            "mape_percent": statistics.mean(errors) if errors else None, "max_ape_percent": max(errors, default=None),
+            "all_pass": bool(rows) and passed == len(rows)}
+
+
+def evaluate_record(row, model):
+    result = {"case": row["case"], "identity": row["identity"], "class_id": row["class_id"], "stable": row["stable"],
+              "actual_us": row["duration_us"], "ape_percent": None, "predicted_us": None,
+              "inputs": row["inputs"], "execution_class": row["path"], "geometry": row["geometry"], "trace": row["trace"],
+              "checked_elements": row["checked_elements"], "schedule_mismatch": row["schedule_mismatch"], "byte_checks": row["byte_checks"],
+              "aggregate_pipes": {}, "geometry_origin": "recorded_v8.5.0_host_tiling"}
+    entry = model["classes"].get(row["class_id"])
+    for pipe, actual in row["targets"].items():
+        counter = {"actual_us": actual, "ape_percent": None, "predicted_us": None}
+        try:
+            rates = {"class_id": row["class_id"], "strict_classes": True, "pipes": entry["pipes"] if entry else {}}
+            value = service(row["features"][pipe], pipe, rates)
+            counter.update(predicted_us=value, ape_percent=abs(value / actual - 1) * 100)
+        except ValueError as error:
+            counter["error"] = str(error)
+        result["aggregate_pipes"][pipe] = counter
+    try:
+        if row["schedule_mismatch"]:
+            raise ValueError("source classification differs from the recorded Host trace")
+        design = workload(row["inputs"], model["hardware"], calibration_geometry=row["geometry"])
+        value = predict_design(design, model, geometry_origin=result["geometry_origin"])["predicted_us"]
+        result.update(predicted_us=value, ape_percent=abs(value / row["duration_us"] - 1) * 100)
+    except (ValueError, RuntimeError) as error:
+        result["error"] = str(error)
+    return result
+
+
+def assess_costs(paths, previous_model, output, fieldnames=None):
+    paths = [Path(path) for path in paths]
+    hardware = previous_model["hardware"]
+    records = load_cost_records(paths, hardware, fieldnames=fieldnames)
+    selected = [row for row in records if row["class_id"] == "same_ab_bf16_bnsd_unsplitk"]
+    if not selected:
+        raise ValueError("no numerically successful measurements of the modeled SameAB path")
+    model = fit_class_costs(selected, hardware)
+    model["scope"] = "SameAB BF16 BNSD UNSPLITK without dropout, attention mask, PSE, Rope or FAG; shape tails change counted work, not fitted shape exceptions"
+    model["exposed_shapes"] = sorted(row["identity"] for row in records)
+    model["development_data"] = [{"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in paths]
+    validation, replay = {}, {}
+    groups = sorted({(row["inputs"]["S1"], row["inputs"]["S2"]) for row in selected})
+    designs = {row["identity"]: workload(row["inputs"], hardware) for row in selected}
+    for index, pair in enumerate(groups, 1):
+        train = [row for row in selected if (row["inputs"]["S1"], row["inputs"]["S2"]) != pair]
+        held = [row for row in selected if (row["inputs"]["S1"], row["inputs"]["S2"]) == pair]
+        folded = fit_class_costs(train, hardware)
+        assert not {row["identity"] for row in held} & set(folded["training_shapes"])
+        for row in held:
+            outcome = {"ape_percent": None, "predicted_us": None, "pass_10_percent": False,
+                       "fold_model_sha256": cost.sha256(folded), "stable": row["stable"], "held_sequence_pair": pair}
+            try:
+                design = designs[row["identity"]]
+                bad = [f"bmm{stage}_{name}" for stage, (actual, expected) in enumerate(zip(design["matmul"], row["geometry"]), 1)
+                       for name in expected if actual[name] != expected[name]]
+                prediction = predict_design(design, folded)
+                error = abs(prediction["predicted_us"] / row["duration_us"] - 1) * 100
+                outcome.update(prediction, ape_percent=error, pass_10_percent=error <= 10 and not bad and not row["schedule_mismatch"], geometry_mismatch=bad)
+            except (ValueError, RuntimeError) as error:
+                outcome["error"] = str(error)
+            validation[row["identity"]] = outcome
+        print(f"SAMEAB COST VALIDATION: held S1/S2={pair}; group={index}/{len(groups)}; input-only CPU prediction, no NPU", flush=True)
+    for row in selected:
+        replay[row["identity"]] = predict_design(designs[row["identity"]], model)
+    metrics = error_metrics(list(validation.values()))
+    model["assessment"] = {"evaluation": "development_leave_one_complete_sequence_pair_out; all B/head variants of a sequence pair are held together",
+                           "measured_shapes": len(selected), "sequence_groups": len(groups), "input_only": metrics,
+                           "geometry_mismatches": sum(bool(item.get("geometry_mismatch")) for item in validation.values()),
+                           "host_trace_mismatches": sum(bool(row["schedule_mismatch"]) for row in selected),
+                           "host_api_sha256": tiler()[1], "host_api_profile": str(cann_root()),
+                           "prospective_pass": False, "new_measurements_required_for_blind_validation": True,
+                           "classification_only_shapes": len(records) - len(selected),
+                           "classified_successful_shapes": len(records), "execution_combinations": len({row["class_id"] for row in records})}
+    model["classification"] = "One SameAB BF16 BNSD UNSPLITK implementation; source tail conditions change counted work. Other kernel paths are classified for diagnostics and have no fitted latency model here."
+    model["phase_costs"] = "Partial reconstruction from class-specific PMU constraints, with all feasible nonnegative rate decompositions retained; phase active sums are not isolated phase wall times"
+    model["qualification"] = "development_holdout_passed_pending_new_shapes" if metrics["all_pass"] else "development_holdout_failed"
+    model["stage_measurement"] = {"available": True, "current_data_contains_isolated_stage_times": False,
+                                  "timestamp_api": "https://www.hiascend.com/doc_center/source/en/CANNCommunityEdition/850/API/ascendcopapi/atlasascendc_api_07_0282.html",
+                                  "async_completion": "https://www.hiascend.com/doc_center/source/en/CANNCommunityEdition/850/API/ascendcopapi/atlasascendc_api_07_0641.html",
+                                  "interpretation": "Device timestamps must distinguish submission, completion and waiting. Additional barriers or tracing affect the original overlap; isolated stage wall times cannot simply be added as kernel latency."}
+    unsuccessful, data_status = {}, {}
     for path in paths:
-        with Path(path).open(newline="") as source:
-            for row in csv.DictReader(source):
-                if row.get("status") != "ok":
-                    continue
-                p = cost.normalize({name: row[name] for name in cost.INPUT_FIELDS})
-                identity = cost.sha256(p)
-                try:
-                    result = predict(p, model)
-                    error = abs(result["predicted_us"] / float(row["duration_us"]) - 1) * 100
-                    outcomes.append({"case": row.get("case", ""), "identity": identity, "coverage": row.get("coverage") or row["family"],
-                                     "evaluation": "training_replay" if identity in model["training_shapes"] else "exposed_structural_check",
-                                     "actual_us": float(row["duration_us"]), "predicted_us": result["predicted_us"], "ape_percent": error,
-                                     "stable": str(row.get("stable")).lower() == "true"})
-                except (ValueError, RuntimeError) as error:
-                    outcomes.append({"case": row.get("case", ""), "error": str(error)})
-    unique = {r.get("identity", r["case"]): r for r in outcomes}
-    outcomes = list(unique.values())
-    summaries = {}
-    for group in ("all", "training_replay", "exposed_structural_check"):
-        rows = [r for r in outcomes if group == "all" or r.get("evaluation") == group]
-        errors = [r["ape_percent"] for r in rows if "ape_percent" in r]
-        summaries[group] = {"count": len(rows), "predicted": len(errors), "pass_10_percent": sum(e <= 10 for e in errors),
-                            "mape_percent": statistics.mean(errors) if errors else None, "max_ape_percent": max(errors, default=None)}
-    return {"summary": summaries, "cases": outcomes, "prospective_pass": False}
+        schema = fieldnames.get(path.name) if isinstance(fieldnames, dict) else fieldnames
+        with path.open(newline="") as source:
+            raw_rows = list(csv.DictReader(source, fieldnames=schema))
+        data_status[path.name] = dict(Counter(row.get("status", "missing") for row in raw_rows))
+        for raw in raw_rows:
+            if raw.get("status") in ("ok", "covered", "pending"):
+                continue
+            inputs = cost.normalize({name: raw[name] for name in cost.INPUT_FIELDS})
+            identity = cost.sha256(inputs)
+            if identity not in set(model["exposed_shapes"]):
+                unsuccessful[identity] = {"case": raw.get("case") or identity, "input_sha256": identity,
+                                          "measurement_file": path.name, "status": raw["status"], "model_scope": "classification_only",
+                                          "family": raw.get("family", ""),
+                                          **inputs, **hardware, "stage": raw.get("stage", ""), "reason": raw.get("error", "")[:240]}
+    model["data_status_counts"] = data_status
+    model["exposed_shapes"] = sorted(set(model["exposed_shapes"]) | set(unsuccessful))
+    model["assessment"]["non_successful_inputs"] = len(unsuccessful)
+    future = validation_inputs(hardware)
+    assert not set(model["exposed_shapes"]) & {cost.sha256(inputs) for inputs in future}
+    model["next_validation"] = {"count": len(future), "input_sha256": [cost.sha256(inputs) for inputs in future],
+                                "variations": ["batch", "MHA/GQA", "head count and core waves", "S1/S2", "Q tail", "K window tail", "Dv including unaligned output"],
+                                "pass_rule": "Every new numerically valid point must have absolute relative latency error at most 10%; failures and unavailable predictions cannot be dropped"}
+    rows = []
+    for row in records:
+        scoped = row["identity"] in validation
+        item = {"case": row["case"], "input_sha256": row["identity"], "measurement_file": row["measurement_file"],
+                "status": "ok", "family": row["path"]["kernel"], "model_scope": "modeled_path" if scoped else "classification_only", "stable": row["stable"],
+                "checked_elements": row["checked_elements"], **row["inputs"], **hardware, **row["trace"],
+                **{f"bmm{stage}_{name}": value for stage, geometry in enumerate(row["geometry"], 1) for name, value in geometry.items()},
+                **row["path"], "host_trace_matches": not row["schedule_mismatch"], "duration_us": row["duration_us"]}
+        for pipe, target in PIPES.items():
+            item[target[0]] = row["targets"].get(pipe)
+        for name, (value, measured) in row["byte_checks"].items():
+            item[name] = measured
+            item[name + "_source"] = value
+            item[name + "_ape_percent"] = abs(value / float(measured) - 1) * 100 if measured and float(measured) > 0 else None
+        if scoped:
+            outcome, fitted = validation[row["identity"]], replay[row["identity"]]
+            item.update(prediction_origin="development_sequence_holdout", predicted_us=outcome["predicted_us"], ape_percent=outcome["ape_percent"],
+                        pass_10_percent=outcome["pass_10_percent"], held_sequence_pair=str(outcome["held_sequence_pair"]),
+                        fold_model_sha256=outcome["fold_model_sha256"], replay_us=fitted["predicted_us"],
+                        replay_ape_percent=100 * abs(fitted["predicted_us"] / row["duration_us"] - 1),
+                        identification_min_us=outcome.get("identification_range_us", [None, None])[0],
+                        identification_max_us=outcome.get("identification_range_us", [None, None])[1],
+                        identification_width_percent=outcome.get("identification_width_percent"),
+                        phase_pipe_active_sum_range_us=json.dumps(outcome.get("phase_pipe_active_sum_range_us", {}), separators=(",", ":")),
+                        reason=outcome.get("error", ""))
+        rows.append(item)
+    for index, inputs in enumerate(future, 1):
+        identity = cost.sha256(inputs)
+        prediction = predict(inputs, model)
+        rows.append({"case": "fa_branch_same_ab_unsplitk_" + identity[:12], "input_sha256": identity, "status": "pending",
+                     "model_scope": "modeled_path", "family": "same_ab", **inputs, **hardware, **prediction["execution_class"],
+                     "prediction_origin": "frozen_before_future_npu_measurement", "predicted_us": prediction["predicted_us"],
+                     "identification_min_us": prediction["identification_range_us"][0], "identification_max_us": prediction["identification_range_us"][1],
+                     "identification_width_percent": prediction["identification_width_percent"],
+                     "phase_pipe_active_sum_range_us": json.dumps(prediction["phase_pipe_active_sum_range_us"], separators=(",", ":")),
+                     "out_of_calibration_range": "|".join(prediction["out_of_calibration_range"])})
+        if index % 12 == 0:
+            print(f"SAMEAB CPU FORECAST: {index}/{len(future)} new inputs; no NPU measurement", flush=True)
+    rows.extend(unsuccessful.values())
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.with_suffix(".tmp").open("w", newline="") as target:
+        writer = csv.DictWriter(target, fieldnames=list(dict.fromkeys(name for row in rows for name in row)), lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+    output.with_suffix(".tmp").replace(output)
+    model["assessment"]["csv_sha256"] = hashlib.sha256(output.read_bytes()).hexdigest()
+    return model
 
 
 def freeze_predictions(payload, plan, records, snapshot, hardware):
@@ -677,7 +1144,7 @@ def freeze_predictions(payload, plan, records, snapshot, hardware):
         except (ValueError, RuntimeError, subprocess.SubprocessError) as error:
             item.update(status="unavailable", error=str(error))
         forecasts[name] = item
-        if index % 32 == 0 or index == len(plan):
+        if index % 8 == 0 or index == len(plan):
             cost.save_json(snapshot, payload)
             print(f"CPU FORECAST: {index}/{len(plan)}; predictions only, no NPU measurement", flush=True)
     cost.save_json(snapshot, payload)
@@ -688,6 +1155,7 @@ def report(path, model, forecasts, plan=()):
         reader = csv.DictReader(source)
         fields, rows = list(reader.fieldnames or []), list(reader)
     planned = {item["name"]: item for item in plan}
+    rows = [row for row in rows if row.get("status") != "pending" or row.get("case") in planned]
     existing = {row.get("case") for row in rows}
     for name, case in planned.items():
         if name not in existing:
@@ -695,29 +1163,53 @@ def report(path, model, forecasts, plan=()):
                          **case["inputs"], **model["hardware"], "status": "pending"})
     columns = ("source_predicted_us", "source_ape_percent", "source_pass_10_percent", "source_evaluation", "source_error",
                "source_model_sha256", "source_host_api_sha256", "source_implementation", "source_cost_policy",
+               "source_execution_class", "source_class_cost_status",
+               "source_identification_min_us", "source_identification_max_us", "source_identification_width_percent",
+               "source_phase_active_sum_ranges_us",
                "source_transferred_pipe_rates", "source_pipeline_us", "source_adapter_us", "source_vec1_calls", "source_vec2_calls",
                "source_schedule_mismatch", "source_geometry_mismatch")
     fields.extend(name for name in columns if name not in fields)
     identity = cost.sha256(model)
+    replay_cache = getattr(report, "_prediction_cache", {})
+    if replay_cache.get("identity") != (identity, tiler()[1]):
+        replay_cache = {"identity": (identity, tiler()[1]), "values": {}}
+        report._prediction_cache = replay_cache
     outcomes, prospective, retrospective = [], [], []
     for row in rows:
         row.update({name: "" for name in columns})
+        inputs = None
         try:
             inputs = cost.normalize({name: row[name] for name in cost.INPUT_FIELDS})
+            route = schedule(inputs, model["hardware"])
+            if not modeled_path({"inputs": inputs, "schedule": route}):
+                row.update(source_evaluation="outside_model_scope", source_implementation=route["implementation"])
+                continue
             item = forecasts.get(row.get("case"))
             if item is not None and item["input_sha256"] != cost.sha256(inputs):
                 raise RuntimeError("frozen prediction input differs from measurement")
             if item is not None and item["status"] != "predicted":
                 raise RuntimeError(item["error"])
-            value = item["result"] if item else predict(inputs, model)
+            if item:
+                value = item["result"]
+            else:
+                key = cost.sha256(inputs)
+                if key not in replay_cache["values"]:
+                    replay_cache["values"][key] = predict(inputs, model)
+                value = replay_cache["values"][key]
             row.update(source_predicted_us=format(value["predicted_us"], ".7g"), source_model_sha256=identity,
                        source_host_api_sha256=value["host_api_sha256"], source_implementation=value["input_schedule"]["implementation"],
                        source_cost_policy=value["cost_policy"], source_transferred_pipe_rates="|".join(value["transferred_pipe_rates"]),
                        source_pipeline_us=format(value["pipeline_us"], ".7g"), source_adapter_us=format(value["adapter_us"], ".7g"),
                        source_vec1_calls=value["work"]["vec1_calls"], source_vec2_calls=value["work"]["vec2_calls"])
-            schedule = value["input_schedule"]
+            row["source_execution_class"] = json.dumps(value["execution_class"], sort_keys=True, separators=(",", ":"))
+            row.update(source_identification_min_us=value["identification_range_us"][0], source_identification_max_us=value["identification_range_us"][1],
+                       source_identification_width_percent=value["identification_width_percent"],
+                       source_phase_active_sum_ranges_us=json.dumps(value["phase_pipe_active_sum_range_us"], sort_keys=True, separators=(",", ":")))
+            entry = model["classes"].get(value["cost_policy"], {})
+            row["source_class_cost_status"] = "|".join(f"{pipe}:{item['status']}" for pipe, item in entry.get("pipes", {}).items())
+            derived = value["input_schedule"]
             schedule_bad = [name for name in ("priority", "s1_base", "s2_base", "n_ratio", "total_tasks", "core_num", "split_factor")
-                            if row.get(name) not in (None, "") and int(row[name]) != schedule[name]]
+                            if row.get(name) not in (None, "") and int(row[name]) != derived[name]]
             geometry_bad = [f"bmm{stage}_{name}" for stage, mm in enumerate(value["matmul"], 1)
                             for name in ("base_m", "base_n", "base_k", "depth_a1", "depth_b1")
                             if row.get(f"bmm{stage}_{name}") not in (None, "") and int(row[f"bmm{stage}_{name}"]) != mm[name]]
@@ -736,6 +1228,16 @@ def report(path, model, forecasts, plan=()):
                 (prospective if before else retrospective).append(outcome)
         except (ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
             row["source_error"] = str(error)
+            if inputs is not None:
+                try:
+                    design = workload(inputs, model["hardware"])
+                    group = cost_group(design)
+                    entry = model["classes"].get(group, {})
+                    row.update(source_model_sha256=identity, source_implementation=design["schedule"]["implementation"],
+                               source_cost_policy=group, source_execution_class=json.dumps(execution_class(design), sort_keys=True, separators=(",", ":")),
+                               source_class_cost_status="|".join(f"{pipe}:{item['status']}" for pipe, item in entry.get("pipes", {}).items()) or "unmeasured_class")
+                except (ValueError, RuntimeError, subprocess.SubprocessError):
+                    pass
     temporary = Path(path).with_suffix(".source.tmp")
     with temporary.open("w", newline="") as target:
         writer = csv.DictWriter(target, fieldnames=fields, lineterminator="\n")
@@ -751,12 +1253,21 @@ def report(path, model, forecasts, plan=()):
 
     targets = {case.get("coverage", case["family"]) for case in plan}
     covered = {item["coverage"] for item in prospective}
+    exposed = set(model["exposed_shapes"])
+    fresh = {name for name, case in planned.items() if
+             (not forecasts[name]["previously_exposed"] if name in forecasts else cost.sha256(case["inputs"]) not in exposed)}
+    passed = {item["case"] for item in prospective if item["pass"]}
+    prospective_metrics = metrics(prospective)
+    prospective_metrics.update(predicted_and_measured=prospective_metrics["count"], count=len(fresh),
+                               failed_or_missing=len(fresh - passed), all_pass=bool(fresh) and fresh <= passed)
     summary = {"version": VERSION, "model_sha256": identity, "prospective": metrics(prospective),
                "retrospective": metrics(retrospective), "by_path": {name: metrics([item for item in outcomes if item["coverage"] == name]) for name in sorted({item["coverage"] for item in outcomes})},
-               "fresh_blind_pass": metrics(prospective)["all_pass"] and targets <= covered,
+               "fresh_blind_pass": bool(fresh) and fresh <= passed and targets <= covered,
+               "prospective_expected": len(fresh), "prospective_failed_or_missing": len(fresh - passed),
                "planned_predictions": len(forecasts), "pending": sum(row.get("status") == "pending" for row in rows),
                "missing_forecasts": sum(bool(row.get("source_error")) for row in rows),
                "qualification": "Every measured point must pass 10%; existing measurements are retrospective, not a new blind test"}
+    summary["prospective"] = prospective_metrics
     cost.save_json(Path(path).parent / "source_model_report.json", summary)
     print(f"SOURCE MODEL: prospective={summary['prospective']}; retrospective={summary['retrospective']}; pending={summary['pending']}; qualified={summary['fresh_blind_pass']}", flush=True)
     return summary
