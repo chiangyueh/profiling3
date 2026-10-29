@@ -208,7 +208,7 @@ def save_csv(path, rows):
 
 
 def parse_metrics(folder, phase, allow_partial=False):
-    target_engine = None if phase in ('baseline', 'control') else 'aic' if phase in ('bmm1', 'bmm2') else 'aiv'
+    target_engine = None if phase not in PHASES else 'aic' if phase in ('bmm1', 'bmm2') else 'aiv'
     groups = {}
     for path in sorted(folder.rglob('*.csv')):
         match = re.fullmatch(r'(?:\d+_)?(OpBasicInfo|PipeUtilization|Memory|ArithmeticUtilization)_(\d{17})\.csv', path.name)
@@ -288,7 +288,7 @@ def parse_metrics(folder, phase, allow_partial=False):
         values = [row[name] for row in memory if row[name] is not None]
         result[name] = statistics.median(values) if values else ''
         result[name + '_samples'] = json.dumps(values)
-    if phase not in ('baseline', 'control'):
+    if phase in PHASES:
         target = 'aic' if phase in ('bmm1', 'bmm2') else 'aiv'
         other = 'aiv' if target == 'aic' else 'aic'
         busy = {engine: sum(finite(result[f'{engine}_{pipe}_sum_us']) or 0 for pipe in pipes if pipe != 'scalar') for engine, pipes in PIPE_COLUMNS.items()}
@@ -334,7 +334,7 @@ def export_cached(output, work, npu_id):
                 route, effective = read_trace(folder)
                 row['cached_route_matches'] = route == (95, KEY)
                 row['cached_stage_selector'] = effective.get('FA_STAGE_PROFILE_ID', '') if effective else ''
-                row['cached_selector_matches'] = row['phase'] == 'baseline' or row['cached_stage_selector'] == int(row['stage_selector'])
+                row['cached_selector_matches'] = row['phase'] in ('baseline', 'protocol_reference') or row['cached_stage_selector'] == int(row['stage_selector'])
                 if not row['cached_route_matches']:
                     issues.append('cached route differs from the selected route')
                 if not row['cached_selector_matches']:
@@ -356,7 +356,7 @@ def export_cached(output, work, npu_id):
     save_csv(output, rows)
     print(f'CACHED EXPORT: {recovered}/{len(rows)} rows have readable raw tables; NPU launches=0; compilations=0', flush=True)
     for row in rows:
-        if row['phase'] not in ('baseline', 'control'):
+        if row['phase'] in PHASES:
             print(f'{row["case"]} {row["phase"]} {row["key_window"]}: target={row.get("gating_target_busy_us", "")} other={row.get("gating_other_busy_us", "")} diagnosis={row["diagnostic_error"]}', flush=True)
     print(f'CSV={output}; diagnostic values are not accepted stage measurements', flush=True)
 
@@ -411,6 +411,7 @@ def main():
         'warmup': 2, 'metrics': 'KernelScale,PipeUtilization,Memory,ArithmeticUtilization', 'input_pattern': 1, 'unmarked_instrumented_control': True,
         'baseline_manifest': hashlib.sha256(manifest.read_bytes()).hexdigest() if manifest.is_file() else None}, sort_keys=True).encode()).hexdigest()
     instrumented_signature = hashlib.sha256((signature + kernel_source_sha).encode()).hexdigest()
+    reference_signature = hashlib.sha256((signature + ':native:default_metrics:profiler_warmup10:launcher_warmup5:launch10:rounds3').encode()).hexdigest()
     plan = []
     for name, shape, query_position in CASES:
         inputs = dict(zip(cost.INPUT_FIELDS, shape))
@@ -424,9 +425,15 @@ def main():
                          'protocol_sha256': signature if phase == 'baseline' else instrumented_signature,
                          'expected_kernel_source_sha256': '' if phase == 'baseline' else kernel_source_sha,
                          'status': 'pending', 'error': ''})
+    for round_id in range(1, 4):
+        plan.append({**plan[0], 'phase': 'protocol_reference', 'key_window': 'round_' + str(round_id),
+                     'instrumented': False, 'measurement_scope': 'unmodified_kernel_original_collection_protocol',
+                     'protocol_sha256': reference_signature, 'profiler_warmup': 10, 'launcher_warmup': 5,
+                     'requested_profile_launches': 10, 'profile_metrics': 'Default'})
     previous = list(csv.DictReader(output.open())) if output.is_file() else []
     saved = {(row['case'], row['phase'], row['key_window']): row for row in previous
-             if row.get('status') == 'ok' and row.get('protocol_sha256') == (signature if row['phase'] == 'baseline' else instrumented_signature)
+             if row.get('status') == 'ok' and row.get('protocol_sha256') ==
+             {'baseline': signature, 'protocol_reference': reference_signature}.get(row['phase'], instrumented_signature)
              and row.get('physical_npu_id') == str(args.id)}
     for row in plan:
         old = saved.get((row['case'], row['phase'], row['key_window']))
@@ -438,6 +445,7 @@ def main():
         return
     print(f'SHAPES: 3; tiling_key={KEY}; stage measurements=20; cached-baseline measurements=3; unmarked controls=3; NPU={args.id}', flush=True)
     print('BUILD: at most one instrumented tiling key, one CPU; baseline binaries are reused; total execution limit=900s', flush=True)
+    print('REFERENCE: one existing shape, original cached binary, original profiler settings, three rounds; successful stage rows are reused', flush=True)
     stage_env = dict(env, FA_CACHE_ROOT=str(work / 'cache'), OPS_TRANSFORMER_ROOT=str(ops), FA_KERNEL_SOURCE_SHA256=kernel_source_sha)
     stage_binary = stage_vendor = None
     for index, row in enumerate(plan, 1):
@@ -448,7 +456,9 @@ def main():
             row.update(status='not_measured', error='15-minute total budget exhausted')
             save_csv(output, plan)
             continue
-        if row['phase'] != 'baseline' and stage_binary is None:
+        native = row['phase'] in ('baseline', 'protocol_reference')
+        reference = row['phase'] == 'protocol_reference'
+        if not native and stage_binary is None:
             try:
                 print(f'BUILD CHECK: instrumented tiling_key={KEY}; one CPU; limit=600s; log={work / "build.log"}', flush=True)
                 command(['bash', str(runner / 'build.sh')], stage_env, runner, work / 'build.log', deadline, 600)
@@ -467,7 +477,7 @@ def main():
                             raise RuntimeError(f'compiled kernel source differs from the instrumented source: {path}; no NPU measurement started')
                     provenance.write_text(json.dumps(kernel_sources, sort_keys=True))
                 for pending in plan:
-                    if pending['phase'] != 'baseline':
+                    if pending['phase'] not in ('baseline', 'protocol_reference'):
                         pending.update(compiled_kernel_source_sha256=kernel_source_sha, kernel_source_verified=True)
                 print(f'KERNEL SOURCE VERIFIED: {kernel_source_sha}', flush=True)
                 stage_env = runtime_env(stage_vendor, stage_env)
@@ -480,16 +490,16 @@ def main():
         folder = work / 'cases' / row['case'] / (row['phase'] + '_' + row['key_window'])
         folder.mkdir(parents=True, exist_ok=True)
         inputs = {name: row[name] for name in cost.INPUT_FIELDS}
-        configured = dict(normal_env if row['phase'] == 'baseline' else stage_env)
+        configured = dict(normal_env if native else stage_env)
         configured.update({'FA_' + name: str(inputs[name]) for name in cost.INPUT_FIELDS[:7]})
         configured.update(FA_DTYPE_KIND='1', FA_DTYPE_BYTES='2', FA_LAYOUT='0', FA_HAS_DROP='0')
-        configured.update(FA_CUSTOM_OPP_ROOT=str(normal_vendor if row['phase'] == 'baseline' else stage_vendor),
-                          ATTENTION_CUSTOM_OPP_ROOT=str(normal_vendor if row['phase'] == 'baseline' else stage_vendor),
-                          FA_STAGE_PROFILE_ID=str(row['stage_selector']), FA_WARMUP='0', FA_REPEAT=str(REPEATS),
+        configured.update(FA_CUSTOM_OPP_ROOT=str(normal_vendor if native else stage_vendor),
+                          ATTENTION_CUSTOM_OPP_ROOT=str(normal_vendor if native else stage_vendor),
+                          FA_STAGE_PROFILE_ID=str(row['stage_selector']), FA_WARMUP='5' if reference else '0', FA_REPEAT='10' if reference else str(REPEATS),
                           FA_INPUT_PATTERN='1', FA_PROFILE='0', FA_EFFECTIVE_TILING_TRACE=str(folder / 'effective.tsv'),
                           FA_ROUTE_TRACE=str(folder / 'route.tsv'), FA_HARDWARE_TRACE=str(folder / 'hardware.json'))
-        configured['LD_LIBRARY_PATH'] = (normal_env if row['phase'] == 'baseline' else stage_env).get('LD_LIBRARY_PATH', '')
-        configured['ASCEND_CUSTOM_OPP_PATH'] = (normal_env if row['phase'] == 'baseline' else stage_env).get('ASCEND_CUSTOM_OPP_PATH', '')
+        configured['LD_LIBRARY_PATH'] = (normal_env if native else stage_env).get('LD_LIBRARY_PATH', '')
+        configured['ASCEND_CUSTOM_OPP_PATH'] = (normal_env if native else stage_env).get('ASCEND_CUSTOM_OPP_PATH', '')
         for name in ('FA_S1_BASE', 'FA_S2_BASE', 'FA_N_RATIO', 'FA_BMM_PRESET', 'FA_LATENCY_TRACE', 'FA_DISCOVER_ONLY'):
             configured.pop(name, None)
         (folder / 'output').mkdir(exist_ok=True)
@@ -497,22 +507,28 @@ def main():
             path.unlink(missing_ok=True)
         scratch = Path(tempfile.mkdtemp(prefix='profiler_', dir=folder))
         metrics = 'PipeUtilization,Memory,ArithmeticUtilization'
-        if row['phase'] not in ('baseline', 'control'):
+        if row['phase'] in PHASES:
             metrics = 'KernelScale,' + metrics
-        binary = normal_binary if row['phase'] == 'baseline' else stage_binary
+        binary = normal_binary if native else stage_binary
         argv = [profiler, 'op', '--aic-metrics=' + metrics, '--kernel-name=FlashAttentionScore', '--warm-up=2',
                 '--launch-count=' + str(REPEATS), '--output=' + str(scratch), str(binary)]
+        if reference:
+            argv = [profiler, 'op', '--kernel-name=FlashAttentionScore', '--warm-up=10', '--launch-count=10',
+                    '--launch-skip-before-match=5', '--output=' + str(scratch), str(binary)]
         start = time.monotonic()
         print(f'MEASURE {index}/{len(plan)} {row["case"]} {row["phase"]} {row["key_window"]} query={row["query_task"]}', flush=True)
         try:
-            command(argv, configured, folder, folder / 'profile.log', deadline, 45)
+            command(argv, configured, folder, folder / 'profile.log', deadline, 120 if reference else 45)
             route, effective = read_trace(folder)
             priority, key = route if route is not None else (None, None)
             if priority != 95 or key != KEY or effective is None or effective['FA_BMM_PRESET'] != 0:
                 raise RuntimeError('Host route or Matmul preset differs from the selected existing case')
-            if row['phase'] != 'baseline' and effective.get('FA_STAGE_PROFILE_ID') != int(row['stage_selector']):
+            if not native and effective.get('FA_STAGE_PROFILE_ID') != int(row['stage_selector']):
                 raise RuntimeError('instrumented Host did not record the selected phase')
-            row.update(parse_metrics(scratch, row['phase']))
+            row.update(parse_metrics(scratch, row['phase'], allow_partial=reference))
+            if reference and (row['profile_launches'] != 10 or any(json.loads(row['raw_metric_table_counts'])[kind] != 10
+                                                                  for kind in ('PipeUtilization', 'Memory', 'ArithmeticUtilization'))):
+                raise RuntimeError('original-protocol reference did not produce ten complete profiler samples')
             correctness = check_output(inputs, folder / 'output/output.bin')
             hardware = json.loads((folder / 'hardware.json').read_text())
             row.update(checked_elements=correctness['checked_elements'], max_abs_error=correctness['max_abs_error'],
