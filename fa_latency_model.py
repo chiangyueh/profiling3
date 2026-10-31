@@ -1269,7 +1269,7 @@ def pipeline_samples(corpus, hardware, graph_store=None):
     return samples, excluded
 
 
-def fit_pipeline_group(samples, hardware, phase_targets=(), phase_graph_targets=(), transport_counters_are_upper_bounds=False):
+def fit_pipeline_group(samples, hardware, phase_targets=(), phase_graph_targets=(), transport_counters_are_upper_bounds=False, max_nfev=160):
     from scipy.optimize import least_squares, nnls
     names = parameter_names()
     position = {pair: index for index, pair in enumerate(names)}
@@ -1374,7 +1374,7 @@ def fit_pipeline_group(samples, hardware, phase_targets=(), phase_graph_targets=
         return values
 
     optimum = least_squares(residual, start, jac=lambda x: (residual(x), last["jacobian"])[1], bounds=(0, limits),
-                            loss="soft_l1", f_scale=0.03, max_nfev=160, ftol=1e-9, xtol=1e-9, gtol=1e-9)
+                            loss="soft_l1", f_scale=0.03, max_nfev=max_nfev, ftol=1e-9, xtol=1e-9, gtol=1e-9)
     rates = np.zeros(dimensions)
     rates[active] = optimum.x[:len(active)] * scales[active]
     pipes = {pipe: {"coefficients": {name: float(rates[position[pipe, name]]) for name in fields},
@@ -1391,6 +1391,7 @@ def fit_pipeline_group(samples, hardware, phase_targets=(), phase_graph_targets=
             "input_ranges": {name: [min(row["inputs"][name] for row in samples), max(row["inputs"][name] for row in samples)] for name in cost.INPUT_FIELDS[:7]},
             "calibration_shapes": sorted({row["shape_identity"] for row in samples}), "optimization_success": bool(optimum.success),
             "optimization_evaluations": int(optimum.nfev), "calibration_mape_percent": statistics.mean(errors),
+            "optimization_message": str(optimum.message), "optimization_optimality": float(optimum.optimality),
             "calibration_max_ape_percent": max(errors), "stage_costs_independently_measured": False,
             "calibration": "Shared nonnegative source-operation rates within this implementation, fitted jointly to kernel times and PMU constraints. Scalar active time is an upper bound, since wait/control is already represented in the graph. Entire shapes and all their tilings must stay in the same validation fold."}
 

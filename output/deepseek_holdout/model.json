@@ -1,0 +1,1086 @@
+{
+  "calibration_max_evaluations": 800,
+  "calibrator_sha256": "5365624a3f337140b370a8761a845c7b568305d5e2ddc69642c702b05315d2a4",
+  "classes": {
+    "kernel=same_ab|dtype=BF16|layout=BNSD|matmul=UNSPLITK|operand_path=TSCM|softmax_reduce=8": {
+      "calibration": "Shared nonnegative source-operation rates within this implementation, fitted jointly to kernel times and PMU constraints. Scalar active time is an upper bound, since wait/control is already represented in the graph. Entire shapes and all their tilings must stay in the same validation fold.",
+      "calibration_mape_percent": 3.0849955582601813,
+      "calibration_max_ape_percent": 17.46654515202448,
+      "calibration_shapes": [
+        "00685a929b794c189667a09b4770a3ffbe2f2ed3184f402470f467598f95e6c1",
+        "01f2605d049eb1b5533eee3813e7b67c64f515d120dbc5f767468a116bd13c2a",
+        "05c080beb7c1c6a6d281275cba5e9f9aa7619dceb90571cd58f3d92ef72c40c5",
+        "0ae148cde56ca2ae434100c488d82fd12463401a78e0d350bda6775e0312e540",
+        "0bb6fe9bb2d04b994f94ab8a27cc12bc059a0fbb97ba8e673203faaeee3582c9",
+        "0ced81f792636a7b534b270d558c222f9d272b7852387299e7a3c55222f02cdf",
+        "0d967486cee8199254a777fba58175024734f2318d3b8500a5d3bf8912eacab8",
+        "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+        "11c9f27ac887cb2774b2518b8ca8d77e7947cf48fb1c12153a7672b90b8400b2",
+        "13d5e9b632a10eea2081cf8d187688f0c93bfb97443b3cc9f89312517c9085da",
+        "17e7caa23b579b89ea571b634d24636689abbfce904b62e7fb98460a9eb298e7",
+        "193ed9a36d85792bcd6c1cce73a6d7e6eda34f100e3d72a51a03528c76873009",
+        "200ccecf9fceb903358e6c049419425cd4794c320186566984b8ba9d66f1a1ad",
+        "232f769f516f236087a0f54cc5a51e5fa93d2047fc93ab4ee3c3d3b796971e5c",
+        "28c1437a910844b392a7df12667b8a5d811712933c53df8c34935edff33841e3",
+        "28c7a6d6dcb363ca3f358455d4f32a0790d65eab1437c4d25728a0073b4d16bd",
+        "2aa0a1877a96b67ca9303269681e40049a75b1e39e427d9b66519829269f0720",
+        "2b964727c463c9c0626c997fa31549f2566606fb6a9c14d5630065630edd8faf",
+        "2bb761dd74941eff99953b3bbbe12942e3418d3bd94e8569e096821462fadf97",
+        "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
+        "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+        "30d7d0e49e71bc23e93b7ba9505850ea92e6438aaabcd8bb08e815c138e571c7",
+        "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+        "37424210869e91e4f9483f3158f03913b5e95b65ec43cb561d68b34fc85a8bdd",
+        "5c2752afcb75b7e17f96da26acdae7fbae0068a650280f99a7f11dd80b2caf1b",
+        "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+        "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+        "710e0456408bb5c98c5bffddf111bf27fdfe3812de622383da9cdd9f892599ee",
+        "91e468ae4fdede5093d86db9455fde98ce001988dfcba1fa5d7c2d0ae271316d",
+        "94a061a3a1014f58dde625d89eed7d745238e95836d63f400adc88ae0366bd9e",
+        "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+        "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
+        "af6d88c9b9bc7b09628dbdad51f641b775688ab7f6355d298c66b911d94c69e6",
+        "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
+        "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+        "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+        "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+        "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527"
+      ],
+      "configurations": 55,
+      "event_bracket_overhead_us": 4.1008906641864345e-14,
+      "input_ranges": {
+        "B": [
+          1,
+          8
+        ],
+        "D": [
+          192,
+          192
+        ],
+        "DV": [
+          128,
+          128
+        ],
+        "N1": [
+          8,
+          96
+        ],
+        "N2": [
+          2,
+          96
+        ],
+        "S1": [
+          256,
+          8192
+        ],
+        "S2": [
+          1536,
+          8192
+        ]
+      },
+      "matmul_end_fences": false,
+      "measured_shapes": 38,
+      "optimization_evaluations": 288,
+      "optimization_message": "`ftol` termination condition is satisfied.",
+      "optimization_optimality": 6.499249183937006e-05,
+      "optimization_success": true,
+      "parameter_names": [
+        [
+          "cube",
+          "flops_m"
+        ],
+        [
+          "cube",
+          "tiles"
+        ],
+        [
+          "cube",
+          "output_tiles"
+        ],
+        [
+          "mte1",
+          "l0_kb"
+        ],
+        [
+          "mte1",
+          "tiles"
+        ],
+        [
+          "mte2",
+          "read_kb"
+        ],
+        [
+          "mte2",
+          "loads"
+        ],
+        [
+          "mte2",
+          "address_gap_kb"
+        ],
+        [
+          "fixpipe",
+          "nd_write_kb"
+        ],
+        [
+          "fixpipe",
+          "nz_write_kb"
+        ],
+        [
+          "fixpipe",
+          "stores"
+        ],
+        [
+          "fixpipe",
+          "calls"
+        ],
+        [
+          "vector",
+          "softmax_k"
+        ],
+        [
+          "vector",
+          "reduction_k"
+        ],
+        [
+          "vector",
+          "cast_k"
+        ],
+        [
+          "vector",
+          "nz2nd_k"
+        ],
+        [
+          "vector",
+          "nd2nz_k"
+        ],
+        [
+          "vector",
+          "online_k"
+        ],
+        [
+          "vector",
+          "rescale_k"
+        ],
+        [
+          "vector",
+          "normalize_k"
+        ],
+        [
+          "vector",
+          "drop_k"
+        ],
+        [
+          "vector",
+          "unpack_k"
+        ],
+        [
+          "vector",
+          "chunks"
+        ],
+        [
+          "vmte2",
+          "read_kb"
+        ],
+        [
+          "vmte2",
+          "alignment_read_kb"
+        ],
+        [
+          "vmte2",
+          "loads"
+        ],
+        [
+          "vmte3",
+          "write_kb"
+        ],
+        [
+          "vmte3",
+          "stores"
+        ],
+        [
+          "vmte3",
+          "address_gap_kb"
+        ],
+        [
+          "cscalar",
+          "workers"
+        ],
+        [
+          "cscalar",
+          "batch_entries"
+        ],
+        [
+          "cscalar",
+          "commands"
+        ],
+        [
+          "vscalar",
+          "workers"
+        ],
+        [
+          "vscalar",
+          "batch_entries"
+        ],
+        [
+          "vscalar",
+          "chunks"
+        ],
+        [
+          "vscalar",
+          "drop_chunks"
+        ],
+        [
+          "vscalar",
+          "adapter_workers"
+        ]
+      ],
+      "path": {
+        "d_tail": false,
+        "drop_mask": "NONE",
+        "dtype": "BF16",
+        "dv_tail": false,
+        "k_tail_mask": false,
+        "kernel": "same_ab",
+        "layout": "BNSD",
+        "matmul": "UNSPLITK",
+        "mm1_template": "ND",
+        "mm1_windows": "ND",
+        "mm2_output": "NZ",
+        "online_update": true,
+        "operand_path": "TSCM",
+        "probability_format": "NZ",
+        "q_tail": false,
+        "reuse_fake_peer": false,
+        "softmax_reduce": 8,
+        "softmax_row_padding": false,
+        "tiny_k": false
+      },
+      "pipeline_k_streaming": false,
+      "pipes": {
+        "cscalar": {
+          "coefficients": {
+            "batch_entries": 0.0,
+            "commands": 0.3136826258541791,
+            "workers": 23.882603821294268
+          },
+          "inactive_feature_rates": [
+            "batch_entries"
+          ],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        },
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.001301260274979135,
+            "output_tiles": 0.00428144559100779,
+            "tiles": 0.24105275091282086
+          },
+          "inactive_feature_rates": [],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 1.0807628872565583e-08,
+            "nd_write_kb": 0.011086882119577687,
+            "nz_write_kb": 2.0450055607060536e-17,
+            "stores": 2.801349835568575e-08
+          },
+          "inactive_feature_rates": [],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte1": {
+          "coefficients": {
+            "l0_kb": 0.0039621495131684625,
+            "tiles": 0.0003376389251799765
+          },
+          "inactive_feature_rates": [],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte2": {
+          "coefficients": {
+            "address_gap_kb": 0.0,
+            "loads": 0.7073334764111129,
+            "read_kb": 0.0043747288244215185
+          },
+          "inactive_feature_rates": [
+            "address_gap_kb"
+          ],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        },
+        "vector": {
+          "coefficients": {
+            "cast_k": 3.113561742539357e-07,
+            "chunks": 0.026010947885871587,
+            "drop_k": 0.02094832059048758,
+            "nd2nz_k": 0.09675987892458539,
+            "normalize_k": 0.08957760807322207,
+            "nz2nd_k": 2.6441556087991356e-12,
+            "online_k": 1.5588500236782592,
+            "reduction_k": 9.699119131388226e-12,
+            "rescale_k": 2.4917024281311994e-10,
+            "softmax_k": 5.066036030631837e-08,
+            "unpack_k": 0.0
+          },
+          "inactive_feature_rates": [
+            "unpack_k"
+          ],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte2": {
+          "coefficients": {
+            "alignment_read_kb": 0.0,
+            "loads": 0.19433525939224336,
+            "read_kb": 0.007381441242788716
+          },
+          "inactive_feature_rates": [
+            "alignment_read_kb"
+          ],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte3": {
+          "coefficients": {
+            "address_gap_kb": 0.0,
+            "stores": 1.0874432616939054e-19,
+            "write_kb": 0.023811658900160775
+          },
+          "inactive_feature_rates": [
+            "address_gap_kb"
+          ],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        },
+        "vscalar": {
+          "coefficients": {
+            "adapter_workers": 0.0,
+            "batch_entries": 0.0,
+            "chunks": 8.255206004783856e-08,
+            "drop_chunks": 0.00039985704711163967,
+            "workers": 9.344259098607441
+          },
+          "inactive_feature_rates": [
+            "batch_entries",
+            "adapter_workers"
+          ],
+          "samples": 32,
+          "status": "joint_pipeline_calibration"
+        }
+      },
+      "rates": [
+        0.001301260274979135,
+        0.24105275091282086,
+        0.00428144559100779,
+        0.0039621495131684625,
+        0.0003376389251799765,
+        0.0043747288244215185,
+        0.7073334764111129,
+        0.0,
+        0.011086882119577687,
+        2.0450055607060536e-17,
+        2.801349835568575e-08,
+        1.0807628872565583e-08,
+        5.066036030631837e-08,
+        9.699119131388226e-12,
+        3.113561742539357e-07,
+        2.6441556087991356e-12,
+        0.09675987892458539,
+        1.5588500236782592,
+        2.4917024281311994e-10,
+        0.08957760807322207,
+        0.02094832059048758,
+        0.0,
+        0.026010947885871587,
+        0.007381441242788716,
+        0.0,
+        0.19433525939224336,
+        0.023811658900160775,
+        1.0874432616939054e-19,
+        0.0,
+        23.882603821294268,
+        0.0,
+        0.3136826258541791,
+        9.344259098607441,
+        0.0,
+        8.255206004783856e-08,
+        0.00039985704711163967,
+        0.0
+      ],
+      "stage_costs_independently_measured": false,
+      "transport_counters_are_upper_bounds": false
+    },
+    "kernel=same_ab|dtype=BF16|layout=SBH|matmul=NORMAL|operand_path=GM|softmax_reduce=8": {
+      "calibration": "Shared nonnegative source-operation rates within this implementation, fitted jointly to kernel times and PMU constraints. Scalar active time is an upper bound, since wait/control is already represented in the graph. Entire shapes and all their tilings must stay in the same validation fold.",
+      "calibration_mape_percent": 13.824235423710672,
+      "calibration_max_ape_percent": 53.93751145697772,
+      "calibration_shapes": [
+        "0b9beb25c48fe6b518cd41c36d286671d447f2b826e204d8614bbf38906c8fce",
+        "0dcf8e6664daefb98aecb0e4a2522ac13f777d09332f4e0f4ded74568ba5642d",
+        "185d65fef26889d228696eadc6839968c33ab6530baa94ff6b3defb6e6404b60",
+        "26ec1f80ce039fc74d705ebcc4645b1b39548494ae9a3386d88433d9bdeaaec6",
+        "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+        "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+        "6e74b201333b0993ea98913f1d67caaccb13152aedd4cdde6573db77a82f7d65",
+        "85c9e8e5cb49f896165254f0b6d25c6bfea7031b7282c0a1dfd74c204e17967d",
+        "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+        "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+        "c0fec943f94a4f4822a4d89007ef27495179cda83d308dafa01736865f7fd261",
+        "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+        "d5b2913b415cf4251477154c2f51d085e15091c9fc6054881d22afdc12082673",
+        "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+        "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+        "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+        "f9a0120fb943c6125fef77fed191d4ec0d7ed7fbe78f73510eeffdb797dac943"
+      ],
+      "configurations": 38,
+      "event_bracket_overhead_us": 1.8519613842511876e-11,
+      "input_ranges": {
+        "B": [
+          1,
+          1
+        ],
+        "D": [
+          192,
+          192
+        ],
+        "DV": [
+          128,
+          128
+        ],
+        "N1": [
+          8,
+          96
+        ],
+        "N2": [
+          8,
+          96
+        ],
+        "S1": [
+          2048,
+          10240
+        ],
+        "S2": [
+          2048,
+          10240
+        ]
+      },
+      "matmul_end_fences": false,
+      "measured_shapes": 17,
+      "optimization_evaluations": 692,
+      "optimization_message": "`xtol` termination condition is satisfied.",
+      "optimization_optimality": 0.0017080126504452559,
+      "optimization_success": true,
+      "parameter_names": [
+        [
+          "cube",
+          "flops_m"
+        ],
+        [
+          "cube",
+          "tiles"
+        ],
+        [
+          "cube",
+          "output_tiles"
+        ],
+        [
+          "mte1",
+          "l0_kb"
+        ],
+        [
+          "mte1",
+          "tiles"
+        ],
+        [
+          "mte2",
+          "read_kb"
+        ],
+        [
+          "mte2",
+          "loads"
+        ],
+        [
+          "mte2",
+          "address_gap_kb"
+        ],
+        [
+          "fixpipe",
+          "nd_write_kb"
+        ],
+        [
+          "fixpipe",
+          "nz_write_kb"
+        ],
+        [
+          "fixpipe",
+          "stores"
+        ],
+        [
+          "fixpipe",
+          "calls"
+        ],
+        [
+          "vector",
+          "softmax_k"
+        ],
+        [
+          "vector",
+          "reduction_k"
+        ],
+        [
+          "vector",
+          "cast_k"
+        ],
+        [
+          "vector",
+          "nz2nd_k"
+        ],
+        [
+          "vector",
+          "nd2nz_k"
+        ],
+        [
+          "vector",
+          "online_k"
+        ],
+        [
+          "vector",
+          "rescale_k"
+        ],
+        [
+          "vector",
+          "normalize_k"
+        ],
+        [
+          "vector",
+          "drop_k"
+        ],
+        [
+          "vector",
+          "unpack_k"
+        ],
+        [
+          "vector",
+          "chunks"
+        ],
+        [
+          "vmte2",
+          "read_kb"
+        ],
+        [
+          "vmte2",
+          "alignment_read_kb"
+        ],
+        [
+          "vmte2",
+          "loads"
+        ],
+        [
+          "vmte3",
+          "write_kb"
+        ],
+        [
+          "vmte3",
+          "stores"
+        ],
+        [
+          "vmte3",
+          "address_gap_kb"
+        ],
+        [
+          "cscalar",
+          "workers"
+        ],
+        [
+          "cscalar",
+          "batch_entries"
+        ],
+        [
+          "cscalar",
+          "commands"
+        ],
+        [
+          "vscalar",
+          "workers"
+        ],
+        [
+          "vscalar",
+          "batch_entries"
+        ],
+        [
+          "vscalar",
+          "chunks"
+        ],
+        [
+          "vscalar",
+          "drop_chunks"
+        ],
+        [
+          "vscalar",
+          "adapter_workers"
+        ]
+      ],
+      "path": {
+        "d_tail": false,
+        "drop_mask": "NONE",
+        "dtype": "BF16",
+        "dv_tail": false,
+        "k_tail_mask": false,
+        "kernel": "same_ab",
+        "layout": "SBH",
+        "matmul": "NORMAL",
+        "mm1_template": "ND",
+        "mm1_windows": "ND",
+        "mm2_output": "NZ",
+        "online_update": true,
+        "operand_path": "GM",
+        "probability_format": "NZ",
+        "q_tail": false,
+        "reuse_fake_peer": false,
+        "softmax_reduce": 8,
+        "softmax_row_padding": false,
+        "tiny_k": false
+      },
+      "pipeline_k_streaming": false,
+      "pipes": {
+        "cscalar": {
+          "coefficients": {
+            "batch_entries": 0.0,
+            "commands": 0.13261311119016925,
+            "workers": 0.001610040625194891
+          },
+          "inactive_feature_rates": [
+            "batch_entries"
+          ],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        },
+        "cube": {
+          "coefficients": {
+            "flops_m": 0.0025818542961661374,
+            "output_tiles": 1.0564299280903142,
+            "tiles": 0.06038541102866907
+          },
+          "inactive_feature_rates": [],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        },
+        "fixpipe": {
+          "coefficients": {
+            "calls": 1.6988648576389254e-05,
+            "nd_write_kb": 0.012299975597830559,
+            "nz_write_kb": 0.030885657386011442,
+            "stores": 1.5863144139176442e-12
+          },
+          "inactive_feature_rates": [],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte1": {
+          "coefficients": {
+            "l0_kb": 0.004286515692899649,
+            "tiles": 6.0602581452820123e-05
+          },
+          "inactive_feature_rates": [],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        },
+        "mte2": {
+          "coefficients": {
+            "address_gap_kb": 7.383115984035653e-05,
+            "loads": 0.006720945514438703,
+            "read_kb": 0.013632498686287615
+          },
+          "inactive_feature_rates": [],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        },
+        "vector": {
+          "coefficients": {
+            "cast_k": 5.149653118731664e-06,
+            "chunks": 0.00012844429644802457,
+            "drop_k": 0.0,
+            "nd2nz_k": 0.09602428243120713,
+            "normalize_k": 0.17699114239744498,
+            "nz2nd_k": 0.00281665876647894,
+            "online_k": 1.3632715792148375,
+            "reduction_k": 0.0010177235497202926,
+            "rescale_k": 0.0016370687693238752,
+            "softmax_k": 8.340454558801921e-06,
+            "unpack_k": 0.0
+          },
+          "inactive_feature_rates": [
+            "drop_k",
+            "unpack_k"
+          ],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte2": {
+          "coefficients": {
+            "alignment_read_kb": 0.0,
+            "loads": 0.3845276357443661,
+            "read_kb": 6.146506462662932e-06
+          },
+          "inactive_feature_rates": [
+            "alignment_read_kb"
+          ],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        },
+        "vmte3": {
+          "coefficients": {
+            "address_gap_kb": 5.565877868821073e-08,
+            "stores": 0.01984482652047411,
+            "write_kb": 0.02196608354727974
+          },
+          "inactive_feature_rates": [],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        },
+        "vscalar": {
+          "coefficients": {
+            "adapter_workers": 0.0,
+            "batch_entries": 0.0,
+            "chunks": 0.2864573584938211,
+            "drop_chunks": 0.0,
+            "workers": 0.0016123420455886955
+          },
+          "inactive_feature_rates": [
+            "batch_entries",
+            "drop_chunks",
+            "adapter_workers"
+          ],
+          "samples": 12,
+          "status": "joint_pipeline_calibration"
+        }
+      },
+      "rates": [
+        0.0025818542961661374,
+        0.06038541102866907,
+        1.0564299280903142,
+        0.004286515692899649,
+        6.0602581452820123e-05,
+        0.013632498686287615,
+        0.006720945514438703,
+        7.383115984035653e-05,
+        0.012299975597830559,
+        0.030885657386011442,
+        1.5863144139176442e-12,
+        1.6988648576389254e-05,
+        8.340454558801921e-06,
+        0.0010177235497202926,
+        5.149653118731664e-06,
+        0.00281665876647894,
+        0.09602428243120713,
+        1.3632715792148375,
+        0.0016370687693238752,
+        0.17699114239744498,
+        0.0,
+        0.0,
+        0.00012844429644802457,
+        6.146506462662932e-06,
+        0.0,
+        0.3845276357443661,
+        0.02196608354727974,
+        0.01984482652047411,
+        5.565877868821073e-08,
+        0.001610040625194891,
+        0.0,
+        0.13261311119016925,
+        0.0016123420455886955,
+        0.0,
+        0.2864573584938211,
+        0.0,
+        0.0
+      ],
+      "stage_costs_independently_measured": false,
+      "transport_counters_are_upper_bounds": false
+    }
+  },
+  "development_data": [
+    {
+      "name": "20261027_203143.txt",
+      "sha256": "7d5da4e5ae43159c5ac86692212901c4b10b5f52a2860a2519246a4864d223de"
+    },
+    {
+      "name": "20261028_175018.txt",
+      "sha256": "007282f9054456421d05421327f0512f563235be8f743d17ab3a4fe626de9762"
+    },
+    {
+      "name": "20261029_024431.txt",
+      "sha256": "1d8d7d5092a9e1d33a418878a68cf2227fcef0db98639a10e89717349e3b74e9"
+    },
+    {
+      "name": "20261027_154809.txt",
+      "sha256": "ddc484267594fc797bd25012ed752d763de38cdb663fc19245a66a42aa47807e"
+    },
+    {
+      "name": "20261027_232931.txt",
+      "sha256": "387ad22f77dd45a1a8204cbd167139ea3dd5625d3c2b88b11a1c5838525651b0"
+    },
+    {
+      "name": "20261028_100603.txt",
+      "sha256": "9dcaad15a98f7388ce608432714c08fad735ad36891c6b83157bf3b2be4b4592"
+    },
+    {
+      "name": "1245.txt",
+      "sha256": "14096770d52bb9c5ed8135347548a465b52ee0a9c3cd3b376009d833f20e8a02"
+    },
+    {
+      "name": "1044.txt",
+      "sha256": "aba29b6818cdc2d8a89d9bc70c271e5e0c104ae6726b95a1fbfa53710c3a26f4"
+    },
+    {
+      "name": "0836.txt",
+      "sha256": "51c129597c004dfda45e6a04cda859ba8de298207493921caddf0aa5927bbe10"
+    },
+    {
+      "name": "search.txt",
+      "sha256": "4959a975467979695dbe09b71d77b5b2787260aa300dd71d7eeb85203ec6cf42"
+    },
+    {
+      "name": "358.txt",
+      "sha256": "3144bbe955a8d2dccc404983b5783977a9b448917f950beaa10c2829950b2b10"
+    },
+    {
+      "name": "New20Document283%29.txt",
+      "sha256": "3144bbe955a8d2dccc404983b5783977a9b448917f950beaa10c2829950b2b10"
+    },
+    {
+      "name": "20261027_150837_partial.txt",
+      "sha256": "8b7123521ead86de618bc1b42cff53e0ea79d81086dad5a4bce03886a24a9d74"
+    },
+    {
+      "name": "1053.txt",
+      "sha256": "59b0292183769c8e4cfc0513e6b4fb1d503e031704328e791ad88c5086d0e2bc"
+    },
+    {
+      "name": "1110.txt",
+      "sha256": "893772030541e6d15d3d1ae9263006307220746a19072f9e605d57bdd7b8bbf7"
+    }
+  ],
+  "hardware": {
+    "aic_cores": 20,
+    "aiv_cores": 40,
+    "l1_bytes": 524288,
+    "l2_bytes": 201326592,
+    "soc": "Ascend910B3",
+    "ub_bytes": 196608
+  },
+  "prospective_pass": false,
+  "qualification": "retrospective_complete_target_shape_holdout; architecture already exposed to these targets; not prospective blind validation",
+  "reference_model_sha256": "a02d1e8d968536373f736e72cb2c93a9846c835898bcd48942700fcf6d884f55",
+  "source_sha256": "a8a61869ac26c4551329118004a640734cfda532ffadb26829a8b7483373a31a",
+  "target": "FlashAttentionScore kernel Task Duration(us)",
+  "target_data_used_for_fit": false,
+  "training_shapes": [
+    "00685a929b794c189667a09b4770a3ffbe2f2ed3184f402470f467598f95e6c1",
+    "01f2605d049eb1b5533eee3813e7b67c64f515d120dbc5f767468a116bd13c2a",
+    "05c080beb7c1c6a6d281275cba5e9f9aa7619dceb90571cd58f3d92ef72c40c5",
+    "0ae148cde56ca2ae434100c488d82fd12463401a78e0d350bda6775e0312e540",
+    "0b9beb25c48fe6b518cd41c36d286671d447f2b826e204d8614bbf38906c8fce",
+    "0bb6fe9bb2d04b994f94ab8a27cc12bc059a0fbb97ba8e673203faaeee3582c9",
+    "0ced81f792636a7b534b270d558c222f9d272b7852387299e7a3c55222f02cdf",
+    "0d967486cee8199254a777fba58175024734f2318d3b8500a5d3bf8912eacab8",
+    "0dcf8e6664daefb98aecb0e4a2522ac13f777d09332f4e0f4ded74568ba5642d",
+    "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+    "11c9f27ac887cb2774b2518b8ca8d77e7947cf48fb1c12153a7672b90b8400b2",
+    "13d5e9b632a10eea2081cf8d187688f0c93bfb97443b3cc9f89312517c9085da",
+    "17e7caa23b579b89ea571b634d24636689abbfce904b62e7fb98460a9eb298e7",
+    "185d65fef26889d228696eadc6839968c33ab6530baa94ff6b3defb6e6404b60",
+    "193ed9a36d85792bcd6c1cce73a6d7e6eda34f100e3d72a51a03528c76873009",
+    "200ccecf9fceb903358e6c049419425cd4794c320186566984b8ba9d66f1a1ad",
+    "232f769f516f236087a0f54cc5a51e5fa93d2047fc93ab4ee3c3d3b796971e5c",
+    "26ec1f80ce039fc74d705ebcc4645b1b39548494ae9a3386d88433d9bdeaaec6",
+    "28c1437a910844b392a7df12667b8a5d811712933c53df8c34935edff33841e3",
+    "28c7a6d6dcb363ca3f358455d4f32a0790d65eab1437c4d25728a0073b4d16bd",
+    "2aa0a1877a96b67ca9303269681e40049a75b1e39e427d9b66519829269f0720",
+    "2b964727c463c9c0626c997fa31549f2566606fb6a9c14d5630065630edd8faf",
+    "2bb761dd74941eff99953b3bbbe12942e3418d3bd94e8569e096821462fadf97",
+    "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
+    "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+    "30d7d0e49e71bc23e93b7ba9505850ea92e6438aaabcd8bb08e815c138e571c7",
+    "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+    "37424210869e91e4f9483f3158f03913b5e95b65ec43cb561d68b34fc85a8bdd",
+    "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+    "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+    "5c2752afcb75b7e17f96da26acdae7fbae0068a650280f99a7f11dd80b2caf1b",
+    "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+    "6e74b201333b0993ea98913f1d67caaccb13152aedd4cdde6573db77a82f7d65",
+    "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+    "710e0456408bb5c98c5bffddf111bf27fdfe3812de622383da9cdd9f892599ee",
+    "85c9e8e5cb49f896165254f0b6d25c6bfea7031b7282c0a1dfd74c204e17967d",
+    "91e468ae4fdede5093d86db9455fde98ce001988dfcba1fa5d7c2d0ae271316d",
+    "94a061a3a1014f58dde625d89eed7d745238e95836d63f400adc88ae0366bd9e",
+    "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+    "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
+    "af6d88c9b9bc7b09628dbdad51f641b775688ab7f6355d298c66b911d94c69e6",
+    "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+    "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+    "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
+    "c0fec943f94a4f4822a4d89007ef27495179cda83d308dafa01736865f7fd261",
+    "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+    "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+    "d5b2913b415cf4251477154c2f51d085e15091c9fc6054881d22afdc12082673",
+    "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+    "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+    "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+    "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+    "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527",
+    "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+    "f9a0120fb943c6125fef77fed191d4ec0d7ed7fbe78f73510eeffdb797dac943"
+  ],
+  "validation_audit": {
+    "allowed_original_training_shapes": [
+      "00685a929b794c189667a09b4770a3ffbe2f2ed3184f402470f467598f95e6c1",
+      "01f2605d049eb1b5533eee3813e7b67c64f515d120dbc5f767468a116bd13c2a",
+      "05c080beb7c1c6a6d281275cba5e9f9aa7619dceb90571cd58f3d92ef72c40c5",
+      "0ae148cde56ca2ae434100c488d82fd12463401a78e0d350bda6775e0312e540",
+      "0b9beb25c48fe6b518cd41c36d286671d447f2b826e204d8614bbf38906c8fce",
+      "0bb6fe9bb2d04b994f94ab8a27cc12bc059a0fbb97ba8e673203faaeee3582c9",
+      "0ced81f792636a7b534b270d558c222f9d272b7852387299e7a3c55222f02cdf",
+      "0d967486cee8199254a777fba58175024734f2318d3b8500a5d3bf8912eacab8",
+      "0dcf8e6664daefb98aecb0e4a2522ac13f777d09332f4e0f4ded74568ba5642d",
+      "0fd43b178accb3e8d750e2128ac9087c695fd95dc5245c3a2b34631af8fab164",
+      "11c9f27ac887cb2774b2518b8ca8d77e7947cf48fb1c12153a7672b90b8400b2",
+      "13d5e9b632a10eea2081cf8d187688f0c93bfb97443b3cc9f89312517c9085da",
+      "17e7caa23b579b89ea571b634d24636689abbfce904b62e7fb98460a9eb298e7",
+      "185d65fef26889d228696eadc6839968c33ab6530baa94ff6b3defb6e6404b60",
+      "193ed9a36d85792bcd6c1cce73a6d7e6eda34f100e3d72a51a03528c76873009",
+      "200ccecf9fceb903358e6c049419425cd4794c320186566984b8ba9d66f1a1ad",
+      "232f769f516f236087a0f54cc5a51e5fa93d2047fc93ab4ee3c3d3b796971e5c",
+      "26ec1f80ce039fc74d705ebcc4645b1b39548494ae9a3386d88433d9bdeaaec6",
+      "28c1437a910844b392a7df12667b8a5d811712933c53df8c34935edff33841e3",
+      "28c7a6d6dcb363ca3f358455d4f32a0790d65eab1437c4d25728a0073b4d16bd",
+      "2aa0a1877a96b67ca9303269681e40049a75b1e39e427d9b66519829269f0720",
+      "2b964727c463c9c0626c997fa31549f2566606fb6a9c14d5630065630edd8faf",
+      "2bb761dd74941eff99953b3bbbe12942e3418d3bd94e8569e096821462fadf97",
+      "2f90b7057f247091e7d7b0565f89e67588cbdd33bcdcb09a3b51a8c9d8830a42",
+      "2f9ce4f44c1539adaeb025758af4f626c4c8f9d0e75f2e65e0fdb715cdeb31f3",
+      "30d7d0e49e71bc23e93b7ba9505850ea92e6438aaabcd8bb08e815c138e571c7",
+      "335314c2136d9b1b5ced7a3e1514b40814d34a9e407a694263eac0471e26951c",
+      "37424210869e91e4f9483f3158f03913b5e95b65ec43cb561d68b34fc85a8bdd",
+      "40c532b0d67795d6cb4968c8cd2d8907d6b76d3e4d33ce06e5c34ffdf7522df1",
+      "57c2156b34e0b7e888089d873bcf78065d0ad3381abd8f319e61adec4b60b9ce",
+      "5c2752afcb75b7e17f96da26acdae7fbae0068a650280f99a7f11dd80b2caf1b",
+      "675630f8b1e47c70d780f29498f5c43446eb0e4df8767be671e7d813e1193f05",
+      "6e74b201333b0993ea98913f1d67caaccb13152aedd4cdde6573db77a82f7d65",
+      "6f8d611f061e64dc29338d18e9ca5e70a640c2597362143e7ca70b81846da555",
+      "710e0456408bb5c98c5bffddf111bf27fdfe3812de622383da9cdd9f892599ee",
+      "85c9e8e5cb49f896165254f0b6d25c6bfea7031b7282c0a1dfd74c204e17967d",
+      "91e468ae4fdede5093d86db9455fde98ce001988dfcba1fa5d7c2d0ae271316d",
+      "94a061a3a1014f58dde625d89eed7d745238e95836d63f400adc88ae0366bd9e",
+      "9a146f6eba432b3e805cbf29cac3197f5edfae684f90f73958f986f5a47e8361",
+      "ac67cfda047969981d9fe02e4be0f2ccdae0dc112c14af9382a790e4b0a14a1b",
+      "af6d88c9b9bc7b09628dbdad51f641b775688ab7f6355d298c66b911d94c69e6",
+      "b19fd19417eb99f9d32fc7c261b879c0ba282b63f3545c6e14a67379f96db965",
+      "b2288a7ba37fa0c487aa945203d25c854f3f86f7c21d0387c3c06c83fed8932e",
+      "c075055ed4336932aebf3c3b0bfcdf24a5820f2d018054ecbf433879b6bf9188",
+      "c0fec943f94a4f4822a4d89007ef27495179cda83d308dafa01736865f7fd261",
+      "cc8d7e275e6c4e10d5e1ac4d8b503812c280be0845521aa5b36118db2faec920",
+      "d17ba6ab45bae010791856cb267b33af6c60b68b21677d09b3a26211cb1b238e",
+      "d5b2913b415cf4251477154c2f51d085e15091c9fc6054881d22afdc12082673",
+      "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+      "e049d7893bcd5159c025de564eb77d8e259a0bcae0246726a1edafdee3ef6394",
+      "e867d08739801dfe1af3344f9432b195883020008a73e5a3076175883c5eb1e0",
+      "f108fd86ee98e701e05d8031105098e0d6f60a1e8be8351a115eaa6fcf65b523",
+      "f1a073937a2cf4a536d846ac9c3fcfc815ae89f60efd593927e1bab20525b527",
+      "f7da85f5eb539408c1704fb4ca29d83f39552d6b5c8c7bcf7d1f70c07a3504b8",
+      "f9a0120fb943c6125fef77fed191d4ec0d7ed7fbe78f73510eeffdb797dac943"
+    ],
+    "excluded_metadata_configurations": [
+      {
+        "case": "same_ab_bnsd_b1_n32_nk32_s2048_s2048_d192_v128_drop0",
+        "reason": "actual tiling schedule is missing",
+        "shape_identity": "d9a66aeb086a17735ff7bb01d0baf84442c11df1cf352c232dd7966beabf2de8",
+        "sources": [
+          "20261027_150837_partial.txt"
+        ]
+      }
+    ],
+    "excluded_target_configurations": 143,
+    "excluded_target_measurements": 313,
+    "excluded_target_shapes": [
+      "0d4975e5fc7b5869f8c4ab9aa6d114898534498e0ef35b238363a87a3d0eb693",
+      "198593330a7304e96e8c183a3d583c6d4c4db002f7c647b2421fb86103a29a0f",
+      "26bf7b1944dee0a3a447c528bf7eaebaab96daed2e921731d96e866bc8f4c7bd",
+      "5953c8bceb907f7c1487302e4b3b0b937c057ae78192d469c73c3c508d21d16a",
+      "596cd87e2f6e8f6bd50940873ffae4828641a7f4969db3da377ff1424dac93bd",
+      "81852d7943b25a53ee286d8441398290cef24edec0fc09ee4142c8282ed44f51",
+      "e28431a47c10cff1249c8bf405ec1742c66a18ebb2a8f13e97262425bebbda82"
+    ],
+    "missing_original_training_shapes": [],
+    "source_files": [
+      {
+        "name": "20261027_203143.txt",
+        "sha256": "7d5da4e5ae43159c5ac86692212901c4b10b5f52a2860a2519246a4864d223de"
+      },
+      {
+        "name": "20261028_175018.txt",
+        "sha256": "007282f9054456421d05421327f0512f563235be8f743d17ab3a4fe626de9762"
+      },
+      {
+        "name": "20261029_024431.txt",
+        "sha256": "1d8d7d5092a9e1d33a418878a68cf2227fcef0db98639a10e89717349e3b74e9"
+      },
+      {
+        "name": "20261027_154809.txt",
+        "sha256": "ddc484267594fc797bd25012ed752d763de38cdb663fc19245a66a42aa47807e"
+      },
+      {
+        "name": "20261027_232931.txt",
+        "sha256": "387ad22f77dd45a1a8204cbd167139ea3dd5625d3c2b88b11a1c5838525651b0"
+      },
+      {
+        "name": "20261028_100603.txt",
+        "sha256": "9dcaad15a98f7388ce608432714c08fad735ad36891c6b83157bf3b2be4b4592"
+      },
+      {
+        "name": "1245.txt",
+        "sha256": "14096770d52bb9c5ed8135347548a465b52ee0a9c3cd3b376009d833f20e8a02"
+      },
+      {
+        "name": "1044.txt",
+        "sha256": "aba29b6818cdc2d8a89d9bc70c271e5e0c104ae6726b95a1fbfa53710c3a26f4"
+      },
+      {
+        "name": "0836.txt",
+        "sha256": "51c129597c004dfda45e6a04cda859ba8de298207493921caddf0aa5927bbe10"
+      },
+      {
+        "name": "search.txt",
+        "sha256": "4959a975467979695dbe09b71d77b5b2787260aa300dd71d7eeb85203ec6cf42"
+      },
+      {
+        "name": "358.txt",
+        "sha256": "3144bbe955a8d2dccc404983b5783977a9b448917f950beaa10c2829950b2b10"
+      },
+      {
+        "name": "New20Document283%29.txt",
+        "sha256": "3144bbe955a8d2dccc404983b5783977a9b448917f950beaa10c2829950b2b10"
+      },
+      {
+        "name": "20261027_150837_partial.txt",
+        "sha256": "8b7123521ead86de618bc1b42cff53e0ea79d81086dad5a4bce03886a24a9d74"
+      },
+      {
+        "name": "1053.txt",
+        "sha256": "59b0292183769c8e4cfc0513e6b4fb1d503e031704328e791ad88c5086d0e2bc"
+      },
+      {
+        "name": "1110.txt",
+        "sha256": "893772030541e6d15d3d1ae9263006307220746a19072f9e605d57bdd7b8bbf7"
+      }
+    ],
+    "target_training_overlap": 0,
+    "training_configurations": 93,
+    "training_rule": "All seven complete DeepSeek input shapes, every tiling and repeat excluded together. Only other shapes from the reference model calibration cohorts are eligible.",
+    "training_shapes": 55
+  },
+  "version": "fa_source_pipeline_v5"
+}
