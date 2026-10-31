@@ -12,6 +12,7 @@ import shutil
 import signal
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 from collections import Counter, defaultdict, deque
@@ -37,6 +38,7 @@ RESEARCH_FAMILIES = ("s1", "b", "b_drop")
 ALL_FAMILIES = ("same_ab", "s1", "b", "b_drop", "general", "varlen")
 EXTERNAL_VERSION = "fa_external_latency_v1"
 RUN_BUDGET_SECONDS = None
+HOST_READY = False
 KEY_REPORT_FIELDS = ("key_ub0", "key_ub1", "key_block", "key_dtype", "key_layout", "key_bmm1_format", "key_bmm2_source",
                      "key_l1_reuse", "key_matmul_policy", "key_s1_template", "key_s2_template", "key_d_template",
                      "key_has_drop_out", "key_has_attention_mask", "key_has_pse", "key_has_rope", "key_impl_mode",
@@ -128,6 +130,14 @@ REPORT_TILING = (
     "FA_S1_BASE", "FA_S2_BASE", "FA_N_RATIO", "FA_CORE_NUM", "FA_TOTAL_TASKS", "FA_SPLIT_FACTOR",
     "FA_BMM1_BASE_M", "FA_BMM1_BASE_N", "FA_BMM1_BASE_K", "FA_BMM2_BASE_M", "FA_BMM2_BASE_N", "FA_BMM2_BASE_K",
     "FA_BMM1_DEPTH_A1", "FA_BMM1_DEPTH_B1", "FA_BMM2_DEPTH_A1", "FA_BMM2_DEPTH_B1",
+    *(f"FA_BMM{stage}_{field}" for stage in (1, 2)
+      for field in ("DB_L0A", "DB_L0B", "DB_L0C", "STEP_M", "STEP_N", "STEP_KA", "STEP_KB", "ITERATE_ORDER")),
+    "FA_BLOCK_DIM", "FA_WORKSPACE_BYTES", "FA_S1_OUTER", "FA_S2_OUTER", "FA_S1_TAIL", "FA_S2_TAIL",
+    "FA_S1_VEC2_BASE", "FA_S1_VEC2_TAIL", "FA_S1_VEC2_OUTER", "FA_INPUT_QUE_BYTES", "FA_OUTPUT_QUE_BYTES",
+    "FA_D_BASE", "FA_D_TAIL", "FA_D_OUTER", "FA_B_OUTER", "FA_N2_OUTER", "FA_G_OUTER",
+    "FA_BMM1_RES_UB_SIZE", "FA_BMM2_RES_UB_SIZE", "FA_SOFTMAX_MAX_UB_SIZE", "FA_SOFTMAX_SUM_UB_SIZE",
+    "FA_SOFTMAX_EXP_UB_SIZE", "FA_API_TMP_BUFFER_BYTES", "FA_TMP_BUF_BYTES",
+    *(f"FA_SOFTMAX_{field}" for field in ("SRC_M", "SRC_K", "SPLIT_M", "SPLIT_K", "REDUCE_SIZE", "RANGE_M", "TAIL_M")),
 )
 
 
@@ -149,6 +159,14 @@ def finite(raw) -> float | None:
 
 @lru_cache(maxsize=2048)
 def profile_counters(folder: Path, key: int) -> dict:
+    cached = folder / "pmu_cache.json"
+    if cached.is_file():
+        saved = json.loads(cached.read_text())
+        log = folder / "profile.log"
+        if saved.get("tiling_key") == key and log.is_file() and saved.get("profile_sha256") == cost.sha256(log.read_text(errors="replace")):
+            result = saved["result"]
+            result["notes"] = set(result["notes"])
+            return result
     log = folder / "profile.log"
     if not log.is_file():
         return {"notes": {"missing_log"}, "samples": {}, "launches": 0, "freq": []}
@@ -289,9 +307,11 @@ def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
                         cross_validation.setdefault(case["case"], {}).update({
                             f"cv_{axis}_ape_percent": case.get("ape_percent", ""), "calibration_cv_pass": group["pass"],
                         })
-    hardware_fields = ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes")
+    hardware_fields = ("soc", "physical_npu_id", "aic_cores", "aiv_cores", "l1_bytes", "l0c_bytes", "l2_bytes", "ub_bytes")
     fields = (
-        "split", "family", *cost.INPUT_FIELDS, *hardware_fields, "priority", "tiling_key",
+        "split", "family", "collection_group", "shape_distance_log2", "prediction_status", "prediction_error",
+        "actual_branch_json", "pmu_complete", *cost.INPUT_FIELDS, *hardware_fields, "priority", "tiling_key",
+        *(f"predicted_{phase}_critical_us" for phase in ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")),
         "duration_us", "round1_us", "round2_us", "round3_us", "sample_count",
         "ci95_low_us", "ci95_high_us", "stable", "checked_elements", "max_abs_error",
         "status", "stage", "error", "family_error", "predicted_us", "ape_percent", "pass_10_percent",
@@ -313,6 +333,10 @@ def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
             result["family_error"] = family_errors.get(row["family"], "")
             result.update(model_scope="|".join(families), **cross_validation.get(name, {}))
             derived = row.get("derived_schedule") or {}
+            result.update({field: derived.get(field, "") for field in
+                           ("collection_group", "shape_distance_log2", "prediction_status", "prediction_error", "actual_branch_json", "pmu_complete")})
+            result.update({f"predicted_{phase}_critical_us": derived.get(f"predicted_{phase}_critical_us", "")
+                           for phase in ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")})
             result.update({field: derived.get(field, "") for field in ("case_wall_seconds", "host_wall_seconds", "build_wall_seconds", "profile_wall_seconds")})
             if row.get("tiling_key"):
                 result.update(decode_fa_key(int(row["tiling_key"])))
@@ -332,7 +356,11 @@ def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
             launches, rounds = 0, 0
             if row.get("tiling_key"):
                 for round_id in range(1, ROUNDS + 1):
-                    counters = profile_counters(directory / "cases" / name / f"round_{round_id}", int(row["tiling_key"]))
+                    try:
+                        counters = profile_counters(directory / "cases" / name / f"round_{round_id}", int(row["tiling_key"]))
+                    except Exception as error:
+                        notes.add("counter_parse_error:" + str(error)[:120])
+                        continue
                     notes.update(counters["notes"])
                     launches += counters["launches"]
                     rounds += int(counters["launches"] == REPEAT)
@@ -380,18 +408,24 @@ def select_shape(case: dict) -> None:
 
 
 def discover(params, directory: Path, hardware_trace: Path | None = None, timeout: int | None = None) -> tuple[int, int]:
-    fa.build_host()
+    global HOST_READY
+    if not HOST_READY:
+        fa.build_host()
+        HOST_READY = True
     trace = directory / "host_route.tsv"
     trace.unlink(missing_ok=True)
+    effective = directory / "host_effective.tsv"
+    effective.unlink(missing_ok=True)
     env = fa.run_env(params, None)
-    env.update(FA_ROUTE_TRACE=str(trace), FA_DISCOVER_ONLY="1", FA_PROFILE="0", FA_SKIP_BUILD="1")
+    env.update(FA_ROUTE_TRACE=str(trace), FA_EFFECTIVE_TILING_TRACE=str(effective), FA_DISCOVER_ONLY="1", FA_PROFILE="0", FA_SKIP_BUILD="1")
     if hardware_trace is not None:
         env["FA_HARDWARE_TRACE"] = str(hardware_trace)
     process = subprocess.run(["bash", "run.sh"], env=env, capture_output=True, text=True, timeout=timeout)
     (directory / "host.log").write_text(process.stdout + process.stderr)
-    if process.returncode:
-        raise RuntimeError(f"Host discovery failed; see {directory / 'host.log'}")
-    return fa.read_route(trace)
+    try:
+        return fa.read_route(trace)
+    except RuntimeError as error:
+        raise RuntimeError(f"Host discovery failed; see {directory / 'host.log'}") from error
 
 
 def hardware_profile(directory: Path, npu_id: int) -> dict:
@@ -404,7 +438,7 @@ def hardware_profile(directory: Path, npu_id: int) -> dict:
     trace = directory / "hardware_runtime.json"
     seed = {"inputs": dict(zip(cost.INPUT_FIELDS, (1, 1, 1, 16, 16, 64, 64, "FP16", "BNSD", 0)))}
     select_shape(seed)
-    discover(fa.shape_params(), directory, trace)
+    discover(fa.shape_params(), directory, trace, timeout=300)
     hardware = json.loads(trace.read_text())
     sdk = Path(os.environ.get("ASCEND_HOME_PATH", "/usr/local/Ascend/ascend-toolkit/latest")).resolve()
     name = hardware["soc"] + ".ini"
@@ -537,10 +571,11 @@ def verify_case_schedule(case: dict, hardware: dict, priority: int, effective: d
         raise RuntimeError("official Host tiling trace is incomplete")
 
 
-def run_case_process(env: dict, log, timeout: int | None = None):
+def run_case_process(env: dict, log, timeout: int | None = None, command=None):
+    command = command or ["bash", "run.sh"]
     if timeout is None:
-        return subprocess.run(["bash", "run.sh"], env=env, stdout=log, stderr=subprocess.STDOUT, text=True)
-    process = subprocess.Popen(["bash", "run.sh"], env=env, stdout=log, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        return subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT, text=True, start_new_session=True)
     try:
         code = process.wait(timeout=timeout)
     except BaseException as error:
@@ -560,7 +595,7 @@ def run_case_process(env: dict, log, timeout: int | None = None):
         if isinstance(error, subprocess.TimeoutExpired):
             raise RuntimeError(f"NPU/profile timeout after {timeout}s; see {log.name}; continuing with the next case") from error
         raise
-    return subprocess.CompletedProcess(["bash", "run.sh"], code)
+    return subprocess.CompletedProcess(command, code)
 
 
 def recover_profile(case: dict, params, key: int, priority: int, hardware: dict, summary: Path) -> dict | None:
@@ -698,6 +733,9 @@ def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path
         priority, key = discovered_route if discovered_route is not None else discover(params, folder, timeout=case.get("timeout_seconds"))
         row["derived_schedule"]["host_wall_seconds"] = time.monotonic() - phase_started + case.get("probe_host_wall_seconds", 0)
         row.update(priority=priority, tiling_key=key)
+        host_effective = fa.read_effective(folder / "host_effective.tsv")
+        if host_effective is not None:
+            row["effective_tiling"] = host_effective
         if priority != case["expected"]:
             raise RuntimeError(f"official route={priority}, input-derived route={case['expected']}")
         stage = "build"
@@ -707,7 +745,14 @@ def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path
             if build_failures is not None and identity in build_failures:
                 raise RuntimeError(f"this run already failed to build {identity}: {build_failures[identity]}")
             try:
-                fa.build(key)
+                if case.get("build_timeout_seconds"):
+                    print(f"BUILD CHECK: key={key} dtype={case['inputs']['dtype']} log={folder / 'build.log'}", flush=True)
+                    with (folder / "build.log").open("w") as log:
+                        process = run_case_process(fa.run_env(params, key), log, case["build_timeout_seconds"], command=["bash", "build.sh"])
+                    if process.returncode:
+                        raise RuntimeError(f"build failed for {identity}; see {folder / 'build.log'}")
+                else:
+                    fa.build(key)
             except Exception as error:
                 if build_failures is not None:
                     build_failures[identity] = str(error)
@@ -1401,75 +1446,14 @@ def collect_external(directory: Path, hardware: dict, signature: str, ensured: s
     return result
 
 def main() -> None:
-    run_started = time.monotonic()
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=int, default=4)
     parser.add_argument("--report-only", action="store_true")
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent
-    os.chdir(root)
-    if args.report_only:
-        directory = root / "output" / VERSION
-        external = directory / "external"
-        families = ALL_FAMILIES if (external / "manifest.json").is_file() else RESEARCH_FAMILIES if (directory / "family_validation_report.json").is_file() else MODEL_FAMILIES
-        if not (external / "manifest.json").is_file() or not (directory / "diagnostics.csv").is_file():
-            text_report(directory, families)
-        if families != MODEL_FAMILIES and not (external / "manifest.json").is_file():
-            family_models.pipeline_report(directory / "diagnostics.csv")
-        if (external / "predictions_before_measurement.json").is_file():
-            payload = json.loads((external / "predictions_before_measurement.json").read_text())
-            if "route_model" not in payload and family_models.ROUTE_MODEL_PATH.is_file():
-                payload["route_model"] = json.loads(family_models.ROUTE_MODEL_PATH.read_text())
-            plan = json.loads((external / "manifest.json").read_text())["plan"]
-            external_report(directory, external, plan, payload)
-        return
-    if hasattr(os, "sched_getaffinity"):
-        allowed = sorted(os.sched_getaffinity(0))
-        os.sched_setaffinity(0, set(allowed[:2]))
-    os.environ["FA_BUILD_JOBS"] = "1"
-    fa.NPU_ID = args.id
-    fa.PROFILE_WARMUP = WARMUP
-    fa.PROFILE_REPEAT = REPEAT
-    directory = root / "output" / VERSION
-    directory.mkdir(parents=True, exist_ok=True)
-    hardware = hardware_profile(directory, args.id)
-    full_plan = cost.design(hardware)
-    design_check = cost.validate_design(full_plan, hardware)
-    protocol = {
-        "version": VERSION, "hardware": hardware, "plan": full_plan, "rounds": ROUNDS, "repeat": REPEAT,
-        "target": "msprof OpBasicInfo.csv Task Duration(us)", "error_limit": cost.RELATIVE_ERROR_LIMIT,
-        "launcher_warmup": WARMUP, "profiler_warmup": 10,
-        "numerical_rtol": 0.01, "numerical_atol": 1e-4, "stability_limit": 0.03,
-        "input_pattern": "uint32 hash with independent Q/K/V salts; FP16-representable values in [-1,1)",
-        "cost_source_sha256": cost.sha256({"source": Path(cost.__file__).read_text()}),
-        "launcher_sha256": cost.sha256({"source": Path("fa_launcher.cpp").read_text()}),
-    }
-    signature = cost.sha256({"protocol": protocol, "model_families": MODEL_FAMILIES})
-    manifest = directory / "manifest.json"
-    measurement_protocol = {name: value for name, value in protocol.items() if name not in ("cost_source_sha256", "plan")}
-    if manifest.is_file():
-        previous = json.loads(manifest.read_text())
-        saved = {name: value for name, value in previous.items() if name not in ("cost_source_sha256", "plan")}
-        if cost.sha256(saved) != cost.sha256(measurement_protocol):
-            raise RuntimeError("the existing input-latency dataset uses a different measurement protocol")
-        old_cases = {case["name"]: case for case in previous["plan"]}
-        new_cases = {case["name"]: case for case in full_plan}
-        if any(name not in new_cases or cost.sha256(case) != cost.sha256(new_cases[name]) for name, case in old_cases.items()):
-            raise RuntimeError("an existing measurement shape or split has changed")
-        if any(case["split"] != "calibration" for name, case in new_cases.items() if name not in old_cases):
-            raise RuntimeError("an existing dataset can only be extended with calibration inputs")
-    if not manifest.is_file():
-        cost.save_json(manifest, protocol)
-    print("MODE: FA execution paths not covered by successful measurements", flush=True)
-    if not (directory / "diagnostics.csv").is_file():
-        text_report(directory, ALL_FAMILIES)
-    result = collect_external(directory, hardware, signature, set())
-    model_report = result.get("route_model", {})
-    if model_report.get("prospective", {}).get("count") and not model_report.get("fresh_blind_pass"):
-        print("PREDICTION ACCURACY FAIL: the full collection finished; prospective latency predictions did not all meet 10%", flush=True)
-        raise SystemExit(1)
-    if not result["coverage_complete"] and not result["stopped_for_time_budget"]:
-        raise SystemExit(1)
+    os.chdir(Path(__file__).resolve().parent)
+    import fa_collection_plan
+    fa_collection_plan.run(sys.modules[__name__], args.id, args.report_only)
+
 
 if __name__ == "__main__":
     main()
