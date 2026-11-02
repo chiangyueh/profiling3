@@ -1384,6 +1384,27 @@ def build_models(paths: list[Path], output_dir: Path, sameab_model: Path) -> dic
     return report
 
 
+def route_error_distribution(rows: list[dict]) -> dict:
+    result = route_metrics(rows)
+    errors = [float(row["ape_percent"]) for row in rows if row.get("ape_percent") is not None]
+    limits = (("at_most_10", 0, 10), ("over_10_at_most_20", 10, 20),
+              ("over_20_at_most_30", 20, 30), ("over_30", 30, math.inf))
+    bands = {}
+    for name, lower, upper in limits:
+        count = sum((value >= 0 if lower == 0 else value > lower) and value <= upper for value in errors)
+        bands[name] = {"count": count, "percent": 100 * count / len(errors) if errors else None}
+    predicted = [row for row in rows if row.get("ape_percent") is not None]
+    signed = [100 * (float(row["predicted_us"]) / float(row["duration_us"]) - 1) for row in predicted]
+    result.update(median_ape_percent=statistics.median(errors) if errors else None,
+                  median_signed_error_percent=statistics.median(signed) if signed else None,
+                  p90_ape_percent=float(np.percentile(errors, 90)) if errors else None,
+                  error_bands=bands,
+                  exceedance={str(limit): {"count": sum(value > limit for value in errors),
+                                          "percent": 100 * sum(value > limit for value in errors) / len(errors) if errors else None}
+                              for limit in (10, 20, 30)})
+    return result
+
+
 def evaluate_frozen_routes(paths: list[Path], output_dir: Path, model_path: Path) -> dict:
     artifact = json.loads(model_path.read_text())
     model_sha = input_cost.sha256(artifact)
@@ -1437,7 +1458,9 @@ def evaluate_frozen_routes(paths: list[Path], output_dir: Path, model_path: Path
             actual = float(raw["duration_us"])
             error = 100 * abs(predicted / actual - 1)
             result.update(evaluation_status="predicted", predicted_us=predicted, ape_percent=error,
-                          pass_10_percent=error <= 10, evaluation_error="")
+                          pass_10_percent=error <= 10, evaluation_error="",
+                          error_band="at_most_10" if error <= 10 else "over_10_at_most_20" if error <= 20
+                          else "over_20_at_most_30" if error <= 30 else "over_30")
         except (ValueError, RuntimeError, KeyError) as error:
             result.update(evaluation_error=str(error))
         predictions.append(result)
@@ -1445,6 +1468,10 @@ def evaluate_frozen_routes(paths: list[Path], output_dir: Path, model_path: Path
         raise ValueError("no numerically checked records with complete PMU data")
     report = {"input_rows_excluded": dict(excluded), "valid_shapes": len(predictions),
               "coefficient_fit_performed": False, "npu_measurements_performed": False,
+              "primary_metric": "median absolute percentage error (MdAPE)",
+              "error_band_denominator": "all numerically valid predictions in each group; unstable measurements retained",
+              "model_structure": {"same_ab": "research source-operation graph; resource and transfer dependencies still under audit",
+                                  "other_branches": "legacy four-stage approximation with branch scheduling and reuse switches; not complete per-kernel execution graphs"},
               "route_model_sha256": model_sha,
               "evaluation": "saved SameAB forecasts plus existing route development model; other branch predictions were computed after measurement",
               "groups": {}}
@@ -1452,13 +1479,15 @@ def evaluate_frozen_routes(paths: list[Path], output_dir: Path, model_path: Path
         selected = [row for row in predictions if (row.get("collection_group") or row["family"]) == group]
         good = [row for row in selected if row["evaluation_status"] == "predicted"]
         stable = [row for row in good if str(row.get("stable", "")).lower() == "true"]
-        report["groups"][group] = {"all": route_metrics(good), "stable_only": route_metrics(stable),
+        report["groups"][group] = {"all": route_error_distribution(good), "stable_only": route_error_distribution(stable),
                                    "unavailable": len(selected) - len(good),
                                    "previously_exposed_inputs": sum(row["previously_exposed_input"] for row in selected)}
         metrics = report["groups"][group]["all"]
-        print(f"{group}: predicted={len(good)}/{len(selected)} MAPE={metrics['mape_percent']}% max={metrics['max_ape_percent']}% within10={metrics['pass_10_percent']}", flush=True)
+        percentage = lambda value: f"{value:.2f}%" if value is not None else "unavailable"
+        bands = " ".join(f"{name}={item['count']}/{len(good)}({percentage(item['percent'])})" for name, item in metrics["error_bands"].items())
+        print(f"{group}: predicted={len(good)}/{len(selected)} MdAPE={percentage(metrics['median_ape_percent'])} max={percentage(metrics['max_ape_percent'])} {bands}", flush=True)
     output_dir.mkdir(parents=True, exist_ok=True)
-    extra = ("evaluation_status", "evaluation_mode", "evaluated_model_sha256", "previously_exposed_input", "evaluation_error")
+    extra = ("evaluation_status", "evaluation_mode", "evaluated_model_sha256", "previously_exposed_input", "evaluation_error", "error_band")
     fields = list(dict.fromkeys(columns + list(extra)))
     destination = output_dir / "valid_predictions.csv"
     with destination.open("w", newline="") as stream:
