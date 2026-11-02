@@ -23,8 +23,10 @@ import fa_latency_model as source
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "fa_branch_execution_v2"
+VERSION = "fa_branch_execution_v3"
 MODEL = ROOT / "fa_branch_model.json"
+PIPES = dict(source.PIPES)
+PIPES["vector"] = (PIPES["vector"][0], PIPES["vector"][1] + ("scale_k", "duplicate_k"))
 FILES = {"b": ("flash_attention_score_bn2gs1s2_b.h", 544),
          "s1": ("flash_attention_score_s1_bn2gs1.h", 880),
          "general": ("flash_attention_score_s1s2_bn2gs1.h", 770),
@@ -38,6 +40,7 @@ FILES = {"b": ("flash_attention_score_bn2gs1s2_b.h", 544),
 def signature():
     return source.cost.sha256({"version": VERSION, "python": Path(__file__).read_text(),
                               "matmul_trace": (ROOT / "fa_branch_matmul_tiling.cpp").read_text(),
+                              "dependency_graph": (ROOT / "fa_branch_graph.cpp").read_text(),
                               "primitives": source.source_hash(), "evidence": source.source_evidence()})
 
 
@@ -94,14 +97,69 @@ def _fake():
             "rows": 0, "columns": 0, "fake": True}
 
 
+def matmul_cache_trace(p, mm, stage, rows, columns, shared=False, carried=False, q_carried=False):
+    ceil, align = source.cost.ceil_div, source.cost.align
+    m,n,k = rows, columns if stage == 0 else p['DV'], p['D'] if stage == 0 else columns
+    bm,bn,bk=(mm[name] for name in ('base_m','base_n','base_k'))
+    mt,nt,kt=ceil(m,bm),ceil(n,bn),ceil(k,bk)
+    sm,sn=max(1,mm['step_m']),max(1,mm['step_n'])
+    order=mm['iterate_order']
+    def capacity(depth,major):
+        if depth>2:
+            return depth if depth>=kt*major else depth-2
+        return 0 if depth<kt*major or kt==1 and depth==2 else depth
+    ac,bc=capacity(mm['depth_a1'],sm),capacity(mm['depth_b1'],sn)
+    astream=max(1,mm['depth_a1']-ac); bstream=max(1,mm['depth_b1']-bc)
+    ap,bp=0,0
+    trace=[]
+    outer=range(0,mt,sm) if order==1 else range(0,nt,sn)
+    for major in outer:
+        if order==1:ap=0
+        else:bp=0
+        minor=range(0,nt,sn) if order==1 else range(0,mt,sm)
+        for secondary in minor:
+            first=range(secondary,min(secondary+sn,nt)) if order==1 else range(secondary,min(secondary+sm,mt))
+            for i in first:
+                if order==1:bp=0
+                else:ap=0
+                inner=range(major,min(major+sm,mt)) if order==1 else range(major,min(major+sn,nt))
+                for j in inner:
+                    mi,ni=(j,i) if order==1 else (i,j)
+                    parts=[]
+                    for ki in range(kt):
+                        ai=(mi*kt+ki)%(sm*kt) if order==1 else ki
+                        bi=ki if order==1 else (ni*kt+ki)%(sn*kt)
+                        amiss=not(ai<ac and ai<ap) and not q_carried
+                        bmiss=not(bi<bc and bi<bp) and not(shared or carried)
+                        if amiss and ai<ac:ap+=1
+                        if bmiss and bi<bc:bp+=1
+                        ak=align(min(bk,k-ki*bk))
+                        ar,br=min(bm,m-mi*bm),min(bn,n-ni*bn)
+                        ar_bytes=2*ar*ak if amiss else 0
+                        br_bytes=2*br*ak if bmiss else 0
+                        factor=p['B'] if p['layout']=='SBH' else 1
+                        astride=p['D']*(p['N1']*factor if p['layout']!='BNSD' else 1)
+                        bwidth=p['D'] if stage==0 else p['DV']
+                        bstride=bwidth*(p['N2']*factor if p['layout']!='BNSD' else 1)
+                        gap=(max(0,ar-1)*max(0,astride-p['D'])*2 if amiss and stage==0 else 0)
+                        gap+=max(0,br-1)*max(0,bstride-bwidth)*2 if bmiss else 0
+                        parts.append({'read_kb':(ar_bytes+br_bytes)/1024,'loads':int(amiss)+int(bmiss),'address_gap_kb':gap/1024,
+                                      'a_slot':ai if ai<ac else ac+ki%astream,'b_slot':bi if bi<bc else bc+ki%bstream,
+                                      'a_miss':amiss,'b_miss':bmiss,'a_cached':ai<ac,'b_cached':bi<bc})
+                    trace.append(parts)
+    return trace
+
+
 class Work:
-    def __init__(self, inputs, hardware):
+    def __init__(self, inputs, hardware, calibration_geometry=None):
         self.p = source.cost.normalize(inputs)
         self.s = source.schedule(self.p, hardware)
         if self.p["layout"] == "TND" and not self.s["same_ab"]:
             self.s["l1"] = self.s["s1_base"] <= 128 and max(self.p["D"], self.p["DV"]) <= 256
         self.hardware = hardware
         self.mm = geometry(tuple(source.mm_requests(self.p, self.s, hardware)))
+        if calibration_geometry is not None:
+            self.mm = [{**mm, **calibration_geometry[i]} for i, mm in enumerate(self.mm)]
         a, b = self.mm
         static = (self.p["dtype"] == "BF16" and not self.p["has_drop_mask"]
                   and self.p["layout"] in ("BSND", "SBH") and self.s["family"] in ("b", "s1"))
@@ -147,6 +205,11 @@ class Work:
                     job["k_slices"] = [source.cost.align(part) / sum(map(source.cost.align, parts)) for part in parts]
             if p["layout"] == "TND" and s["l1"] and stage == 0:
                 job["output_group_tiles"] = source.cost.ceil_div(rows, self.mm[stage]["base_m"]) * source.cost.ceil_div(256, self.mm[stage]["base_n"])
+            if not batch_mode and not (p["layout"] == "TND" and s["l1"]) and s["policy"] == "NORMAL":
+                trace = matmul_cache_trace(p, self.mm[stage], stage, rows, columns, shared, carried, q_carried)
+                job["cache_trace"] = trace
+                for name in ("read_kb", "loads", "address_gap_kb"):
+                    job[name] = sum(part[name] for output in trace for part in output)
             cubes.append(job)
             sharing.append((shared, carried, q_carried))
             self.previous[group, stage, "pair", offset] = key
@@ -157,6 +220,7 @@ class Work:
                 vectors.append(({}, {}))
                 continue
             v1, v2 = source.vector_job(p, s, owned, columns, offset == 0, offset + columns == p["S2"])
+            v1["scale_k"] = v1["cast_k"]
             if batch_mode:
                 v1, v2 = ({key: value * heads for key, value in v.items()} for v in (v1, v2))
             vectors.append((v1, v2))
@@ -220,8 +284,8 @@ def varlen_work(work):
     return [workers[first:first + width] for first in range(0, len(workers), width)]
 
 
-def workload(inputs, hardware):
-    work = Work(inputs, hardware)
+def workload(inputs, hardware, calibration_geometry=None):
+    work = Work(inputs, hardware, calibration_geometry)
     name = implementation(work.p, work.s)
     work.pairs = (batch_work(work) if name == "b" else s1_work(work) if name == "s1"
                   else general_work(work) if name == "general" else varlen_work(work))
@@ -230,19 +294,28 @@ def workload(inputs, hardware):
     return work
 
 
+def adapter_jobs(work):
+    jobs=source.adapter_jobs(work.p,work.s,work.hardware)
+    if not jobs:return []
+    count=work.p['B']*work.p['N1']*work.p['S1']*work.p['S2']
+    single=source.cost.ceil_div(source.cost.ceil_div(count,2048),int(work.hardware['aiv_cores']))*2048
+    base=min(single,source.cost.ceil_div(int(work.hardware['ub_bytes']),6)//2048*2048)
+    return [{**job,'cast_k':job['unpack_k'],'duplicate_k':base/1000} for job in jobs]
+
+
 def active_features(work):
-    totals = {pipe: Counter() for pipe in source.PIPES}
+    totals = {pipe: Counter() for pipe in PIPES}
     same = work.s["same_ab"]
     for pair in work.pairs:
         for tasks in pair:
             for task in tasks:
                 for job in task["cube"]:
                     for pipe in ("cube", "mte1", "mte2", "fixpipe", "cscalar"):
-                        totals[pipe].update({name: job.get(name, 0) for name in source.PIPES[pipe][1]})
+                        totals[pipe].update({name: job.get(name, 0) for name in PIPES[pipe][1]})
                 for owner in task["vector"]:
                     for job in owner:
                         for pipe in ("vector", "vmte2", "vmte3", "vscalar"):
-                            totals[pipe].update({name: job.get(name, 0) for name in source.PIPES[pipe][1]})
+                            totals[pipe].update({name: job.get(name, 0) for name in PIPES[pipe][1]})
     aiv = sum(2 if same else len(pair) for pair in work.pairs)
     aic = len(work.pairs)
     if work.s["drop_adapter"]:
@@ -251,9 +324,9 @@ def active_features(work):
     totals["vscalar"]["workers"] = aiv
     for pipe, workers in (("cscalar", aic), ("vscalar", aiv)):
         totals[pipe]["batch_entries"] = work.p["B"] * workers if work.p["layout"] == "TND" else 0
-    for job in source.adapter_jobs(work.p, work.s, work.hardware):
+    for job in adapter_jobs(work):
         for pipe in ("vector", "vmte2", "vmte3", "vscalar"):
-            totals[pipe].update({name: job.get(name, 0) for name in source.PIPES[pipe][1]})
+            totals[pipe].update({name: job.get(name, 0) for name in PIPES[pipe][1]})
     totals["vscalar"]["adapter_workers"] = aiv if work.s["drop_adapter"] else 0
     return {pipe: dict(values) for pipe, values in totals.items()}
 
@@ -306,364 +379,542 @@ def varlen_l1_program(tasks, peer):
     return program
 
 
-class PairExecutor:
-    def __init__(self, work, workers, costs, start, same=False):
-        self.work, self.costs, self.same = work, costs, same
-        self.workers = [workers[0], workers[0]] if same else workers
-        self.name = implementation(work.p, work.s)
-        self.controlled = same or self.name == "varlen_l1"
-        self.programs = []
-        for owner, tasks in enumerate(self.workers):
-            if self.controlled:
-                self.programs.append(varlen_l1_program(tasks, self.workers[1 - owner] if len(self.workers) == 2 else []))
-            else:
-                builder = {"b": batch_program, "s1": s1_program, "general": general_program, "varlen_gm": varlen_gm_program}[self.name]
-                self.programs.append(builder(tasks))
-        self.position = [0] * len(self.workers)
-        self.blocked, self.ready, self.finished = {}, set(), {}
-        self.vector_ready = set()
-        self.issue_remaining = Counter()
-        self.events, self.queues, self.busy, self.flows, self.remaining = [], defaultdict(deque), set(), {}, {}
-        self.call_waiting, self.call_remaining = {}, Counter()
-        self.serial, self.flow_id = 0, 0
-        self.l0c_used = 0
-        self.l0ab_used = 0
-        self.live_c, self.live_ab = Counter(), Counter()
-        self.live_l1 = Counter()
-        self.l1_bytes = 0
-        self.c_bytes, self.a_bytes, self.b_bytes = 0, 0, 0
-        self.l0c_limit = int(work.hardware.get("l0c_bytes", 131072))
-        self.ub_bytes, self.ub_live = Counter(), Counter()
-        self.max_resource_bytes = Counter()
-        self.pipeline = []
-        self.pipeline_position = 0
-        self.phase_active = Counter()
-        self.event_counts = Counter()
-        self.service_cache = {}
-        if self.controlled:
-            owners = (0,) if same else range(len(self.workers))
-            for step in range(max(map(len, self.workers)) + 1):
-                self.pipeline.extend((owner, step, 0) for owner in owners if step < len(self.workers[owner]))
-                self.pipeline.extend((owner, step - 1, 2) for owner in owners if 0 <= step - 1 < len(self.workers[owner]))
-        self.start = start
-        self.last_event = start
-
-    def service(self, job, pipe):
-        key = id(job), pipe
-        if key not in self.service_cache:
-            self.service_cache[key] = sum(job.get(name, 0) * value for name, value in self.costs[pipe]["coefficients"].items())
-        return self.service_cache[key]
-
-    def key(self, owner, task, stage):
-        return (0 if self.same else owner), task, stage
-
-    def pump(self, resource, now):
-        if resource in self.busy or not self.queues[resource]:
-            return
-        pipe = resource[0]
-        flow = self.queues[resource][0]
-        item = self.flows[flow]
-        group = item["group"]
-        output = item["output"]
-        if pipe == "mte2" and group[2] == 2 and not self.workers[group[0]][group[1]].get("fake"):
-            required = range(2) if self.same else (group[0],)
-            if any((peer, group[1]) not in self.vector_ready for peer in required):
-                return
-        if pipe == "cube" and not output.get("c_allocated") and (self.c_bytes + item["c_bytes"] > self.l0c_limit
-                               or self.live_c[group] >= item["db_l0c"]):
-            return
-        if pipe == "mte1" and (self.a_bytes + item["a_bytes"] > 65536
-                               or self.b_bytes + item["b_bytes"] > 65536
-                               or self.live_ab[group] >= item["db_l0ab"]):
-            return
-        owner = resource[1]
-        if pipe == "vmte2" and (self.ub_live[owner] >= 2
-                                or self.ub_bytes[owner] + item["ub_bytes"] > self.work.hardware["ub_bytes"]):
-            return
-        if pipe == "mte2" and (self.l1_bytes + item["l1_bytes"] > self.work.hardware["l1_bytes"]
-                               or self.live_l1[group] >= item["l1_slots"]):
-            return
-        self.queues[resource].popleft()
-        if pipe == "cube" and not output.get("c_allocated"):
-            self.l0c_used += 1
-            output["c_allocated"] = True
-            self.live_c[group] += 1
-            self.c_bytes += item["c_bytes"]
-            self.max_resource_bytes["l0c"] = max(self.max_resource_bytes["l0c"], self.c_bytes)
-        if pipe == "mte1":
-            self.l0ab_used += 1
-            self.live_ab[group] += 1
-            self.a_bytes += item["a_bytes"]
-            self.b_bytes += item["b_bytes"]
-            self.max_resource_bytes["l0a"] = max(self.max_resource_bytes["l0a"], self.a_bytes)
-            self.max_resource_bytes["l0b"] = max(self.max_resource_bytes["l0b"], self.b_bytes)
-        if pipe == "vmte2":
-            self.ub_live[owner] += 1
-            self.ub_bytes[owner] += item["ub_bytes"]
-            self.max_resource_bytes["ub"] = max(self.max_resource_bytes["ub"], self.ub_bytes[owner])
-        if pipe == "mte2":
-            self.l1_bytes += item["l1_bytes"]
-            self.live_l1[group] += 1
-            self.max_resource_bytes["l1"] = max(self.max_resource_bytes["l1"], self.l1_bytes)
-        self.busy.add(resource)
-        self.serial += 1
-        duration = item["steps"][item["position"]][1]
-        heapq.heappush(self.events, (now + duration, self.serial, flow))
-
-    def enqueue(self, flow, now):
-        item = self.flows[flow]
-        resource = item["steps"][item["position"]][0]
-        self.queues[resource].append(flow)
-        self.pump(resource, now)
-
-    def launch(self, owner, task, stage, now):
-        cube = stage in (0, 2)
-        unit = self.workers[owner][task]
-        job = unit["cube"][stage // 2] if cube else unit["vector"][owner if self.same else 0][stage // 2]
-        count = max(1, int(job.get("stores" if cube else "chunks", 0)))
-        pipes = ("cscalar", "mte2", "mte1", "cube", "fixpipe") if cube else ("vscalar", "vmte2", "vector", "vmte3")
-        group = owner, task, stage
-        self.remaining[group] = count
-        if not cube:
-            self.issue_remaining[group] = count
-        phase = ("bmm1", "vec1", "bmm2", "vec2")[stage]
-        durations = {}
-        for pipe in pipes:
-            duration = self.service(job, pipe) / count
-            self.phase_active[phase, pipe] += duration * count
-            durations[pipe] = duration
-        if unit.get("fake"):
-            count = self.remaining[group] = 1
-            if cube:
-                self.event_counts["fake_matmul_messages"] += 1
-        self.event_counts["matmul_calls" if cube else "vector_chunks"] += int(job.get("calls", 1)) if cube else count
-        held = defaultdict(list)
-        mm = self.work.mm[stage // 2]
-        a_bytes, b_bytes = mm["base_m"] * mm["base_k"] * 2, mm["base_n"] * mm["base_k"] * 2
-        manual_l1 = self.work.p["layout"] == "TND" and self.work.s["l1"]
-        l1_slots = 2 if manual_l1 else max(1, min(mm["depth_a1"], mm["depth_b1"]))
-        if self.name == "b":
-            l1_slots = max(1, self.work.hardware["l1_bytes"] // (a_bytes + b_bytes))
-        common = {"group": group, "c_bytes": mm["base_m"] * mm["base_n"] * 4,
-            "a_bytes": a_bytes, "b_bytes": b_bytes, "l1_bytes": a_bytes + b_bytes, "l1_slots": l1_slots,
-            "db_l0c": max(1, mm["db_l0c"]), "db_l0ab": max(1, min(mm["db_l0a"], mm["db_l0b"])),
-            "ub_bytes": max(32, math.ceil((job.get("read_kb", 0) + job.get("write_kb", 0)) * 1024 / count))}
-        for output_index in range(count):
-            api_call = output_index // max(1, int(job.get("output_group_tiles", count)))
-            output = {"c_allocated": False}
-            template = {**common, "output": output, "position": 0, "api_call": api_call}
-            if cube and not unit.get("fake"):
-                fractions = job.get("k_slices") or job.get("pipeline_k_slices") or [1.0]
-                output["remaining_parts"] = len(fractions)
-                self.flow_id += 1
-                output["fix_flow"] = self.flow_id
-                self.flows[self.flow_id] = {**template, "steps": [(("fixpipe", 0), durations["fixpipe"])]}
-                pending = []
-                for fraction in fractions:
-                    self.flow_id += 1
-                    steps = [((pipe, 0), durations[pipe] * fraction) for pipe in ("cscalar", "mte2", "mte1", "cube")]
-                    self.flows[self.flow_id] = {**template, "steps": steps, "cube_part": True}
-                    pending.append(self.flow_id)
-                self.event_counts["k_tiles"] += len(fractions)
-            else:
-                self.flow_id += 1
-                steps = [((pipe, owner), durations[pipe]) for pipe in pipes]
-                if unit.get("fake"):
-                    steps = [(("cscalar", 0), durations["cscalar"])] if cube else [(("vscalar", owner), 0.0)]
-                self.flows[self.flow_id] = {**template, "steps": steps}
-                pending = [self.flow_id]
-            self.call_remaining[group, api_call] += 1
-            if api_call:
-                held[api_call].extend(pending)
-            else:
-                for flow in pending:
-                    self.enqueue(flow, now)
-        self.call_waiting[group] = held
-
-    def pump_controller(self, now):
-        while self.pipeline_position < len(self.pipeline):
-            owner, task, stage = self.pipeline[self.pipeline_position]
-            required = range(2) if self.same else (owner,)
-            if stage == 2 and any((peer, task) not in self.vector_ready for peer in required):
-                return
-            self.launch(owner, task, stage, now)
-            self.pipeline_position += 1
-
-    def advance(self, owner, now):
-        program = self.programs[owner]
-        while self.position[owner] < len(program):
-            kind, task, stage = program[self.position[owner]]
-            key = self.key(1 - owner if kind == "peer_wait" else owner, task, stage)
-            if kind in ("wait", "peer_wait") and key not in self.ready:
-                self.blocked[owner] = key
-                return
-            self.position[owner] += 1
-            if kind == "launch":
-                self.launch(owner, task, stage, now)
-            elif kind == "vector":
-                self.launch(owner, task, stage, now)
-                return
-        self.finished[owner] = now
-
-    def run(self):
-        if self.controlled:
-            self.pump_controller(self.start)
-        for owner in range(len(self.workers)):
-            self.advance(owner, self.start)
-        while self.events:
-            now, _, flow = heapq.heappop(self.events)
-            self.last_event = now
-            item = self.flows[flow]
-            resource = item["steps"][item["position"]][0]
-            self.busy.remove(resource)
-            if resource[0] == "fixpipe":
-                self.l0c_used -= 1
-                self.live_c[item["group"]] -= 1
-                self.c_bytes -= item["c_bytes"]
-            if resource[0] == "cube":
-                self.l0ab_used -= 1
-                self.live_ab[item["group"]] -= 1
-                self.a_bytes -= item["a_bytes"]
-                self.b_bytes -= item["b_bytes"]
-            if resource[0] == "mte1":
-                self.l1_bytes -= item["l1_bytes"]
-                self.live_l1[item["group"]] -= 1
-            if resource[0] == "vmte3":
-                self.ub_live[resource[1]] -= 1
-                self.ub_bytes[resource[1]] -= item["ub_bytes"]
-            self.pump(resource, now)
-            self.pump(("cube", 0), now)
-            self.pump(("mte1", 0), now)
-            self.pump(("mte2", 0), now)
-            if resource[0] == "vscalar":
-                group = item["group"]
-                self.issue_remaining[group] -= 1
-                if not self.issue_remaining[group]:
-                    del self.issue_remaining[group]
-                    self.advance(group[0], now)
-            if resource[0] == "vmte3":
-                self.pump(("vmte2", resource[1]), now)
-            item["position"] += 1
-            if item["position"] < len(item["steps"]):
-                self.enqueue(flow, now)
-                continue
-            group = item["group"]
-            self.flows.pop(flow)
-            if item.get("cube_part"):
-                item["output"]["remaining_parts"] -= 1
-                if not item["output"]["remaining_parts"]:
-                    self.enqueue(item["output"]["fix_flow"], now)
-                continue
-            api_call = item["api_call"]
-            self.call_remaining[group, api_call] -= 1
-            if not self.call_remaining[group, api_call]:
-                for waiting in self.call_waiting[group].pop(api_call + 1, []):
-                    self.enqueue(waiting, now)
-            self.remaining[group] -= 1
-            if self.remaining[group]:
-                continue
-            self.remaining.pop(group)
-            owner, task, stage = group
-            if stage in (0, 2):
-                key = self.key(owner, task, stage)
-                self.ready.add(key)
-                for peer in list(self.blocked):
-                    if self.blocked.get(peer) == key:
-                        self.blocked.pop(peer)
-                        self.advance(peer, now)
-            else:
-                if stage == 1:
-                    self.vector_ready.add((owner, task))
-                    if self.controlled:
-                        self.pump_controller(now)
-                    self.pump(("mte2", 0), now)
-        if (len(self.finished) != len(self.workers) or self.flows or self.blocked or self.l0c_used or self.l0ab_used
-                or self.l1_bytes or self.busy or any(self.queues.values()) or self.issue_remaining or self.remaining
-                or any(self.ub_live.values()) or any(self.ub_bytes.values()) or any(self.call_remaining.values())):
-            raise RuntimeError(f"undrained {self.name} program: workers={len(self.finished)}/{len(self.workers)} blocked={self.blocked}")
-        return {"predicted_us": max(self.last_event, max(self.finished.values())), "phase_pipe_active_us": {f"{a}.{b}": v for (a, b), v in self.phase_active.items()},
-                "execution_events": dict(self.event_counts), "l0c_capacity_bytes": self.l0c_limit,
-                "max_resource_bytes": dict(self.max_resource_bytes)}
+def release_graph_pages(graph):
+    import mmap
+    for name in ('a','b','which','templates'):
+        mapping=getattr(graph[name],'_mmap',None)
+        if mapping is not None and hasattr(mapping,'madvise'):
+            mapping.madvise(mmap.MADV_DONTNEED)
 
 
-def adapter_time(work, costs):
-    completions = []
-    for job in source.adapter_jobs(work.p, work.s, work.hardware):
-        durations = {pipe: sum(job.get(name, 0) * rate for name, rate in costs[pipe]["coefficients"].items())
-                     for pipe in ("vscalar", "vmte2", "vector", "vmte3")}
-        completions.append(sum(durations.values()))
-    return max(completions, default=0.0) + (costs["vscalar"]["coefficients"].get("adapter_workers", 0) if completions else 0)
+def graph_time(graph,rates,gradient=False):
+    result=source.graph_time(graph,rates,gradient)
+    release_graph_pages(graph)
+    return result
 
 
-def predict_work(work, model):
-    key = cost_class(work.p, work.s)
-    if key not in model["classes"]:
-        raise ValueError(f"no measured primitive costs for {key}")
-    costs = model["classes"][key]["pipes"]
-    for pipe, values in active_features(work).items():
-        missing = [name for name, value in values.items() if value > 0 and name not in costs[pipe]["observed_features"]]
-        if missing:
-            raise ValueError(f"unmeasured primitive costs: {key}/{pipe}/" + ",".join(missing))
-    prefix = adapter_time(work, costs)
-    startup = max(costs[pipe]["coefficients"].get("workers", 0)
-                  + (work.p["B"] * costs[pipe]["coefficients"].get("batch_entries", 0)
-                     if work.p["layout"] == "TND" else 0) for pipe in ("cscalar", "vscalar"))
-    cache, results = {}, []
-    for pair in work.pairs:
-        identity = tuple(tuple(id(job) for job in tasks) for tasks in pair)
-        if identity not in cache:
-            cache[identity] = PairExecutor(work, pair, costs, prefix + startup, work.s["same_ab"]).run()
-        results.append(cache[identity])
-    result = max(results, key=lambda value: value["predicted_us"])
-    return {**result, "adapter_us": prefix, "startup_us": startup,
-            "implementation": implementation(work.p, work.s), "cost_class": key,
-            "phase_pipe_active_scope": "sum on the critical Cube/Vector pair; neither whole-device sums nor stage wall times",
-            "matmul": work.mm, "schedule": work.s,
-            "calibration_sdk_api_sha256": model.get("sdk_api_sha256"), "prediction_sdk_api_sha256": tiler()[1],
-            "sdk_api_matches_calibration": model.get("sdk_api_sha256") == tiler()[1],
-            "unidentified_pipe_terms": [pipe for pipe, data in costs.items() if data["rank"] < data["terms"]],
-            "target": "kernel task duration; PMU active sums are not standalone stage wall times"}
+def parameter_names():
+    return tuple((pipe, name) for pipe, (_, names) in PIPES.items() for name in names)
 
 
-def predict(inputs, model):
-    if model.get("version") != VERSION or model.get("source_sha256") != signature():
-        raise ValueError("branch model and execution code differ")
-    return predict_work(workload(inputs, model["hardware"]), model)
+class BranchGraph:
+    def __init__(self, work):
+        self.work = work
+        self.names = parameter_names()
+        self.columns = {key: i for i, key in enumerate(self.names)}
+        self.templates, self.template_ids, self.phases = [], {}, []
+        self.left, self.right, self.labels = [], [], []
+        self.tails, self.buffers = {}, {}
+        self.zero = self.template('cscalar', {}, 'startup')
+        self.phase_features = defaultdict(lambda: defaultdict(Counter))
+        self.events = Counter()
+
+    def template(self, pipe, values, phase, divisor=1):
+        row = [0.0] * len(self.names)
+        for name in PIPES[pipe][1]:
+            row[self.columns[pipe, name]] = float(values.get(name, 0)) / divisor
+        key = phase, tuple(row)
+        if key not in self.template_ids:
+            self.template_ids[key] = len(self.templates)
+            self.templates.append(key[1])
+            self.phases.append(phase)
+        return self.template_ids[key]
+
+    def node(self, deps=(), label=None):
+        deps = list(dict.fromkeys(d for d in deps if d >= 0))
+        while len(deps) > 2:
+            deps.append(self.node(deps[:2]))
+            deps = deps[2:]
+        at = len(self.left)
+        self.left.append(deps[0] if deps else -1)
+        self.right.append(deps[1] if len(deps) > 1 else -1)
+        self.labels.append(self.zero if label is None else label)
+        return at
+
+    def resolve(self, at, deps):
+        self.left[at] = self.node(deps)
+
+    def operation(self, pipe, owner, values, phase, deps=(), reads=(), writes=(), divisor=1):
+        key = pipe, owner
+        deps = list(deps) + [self.tails.get(key, -1)]
+        names = list(reads) + list(writes)
+        for buf in names:
+            writer, readers = self.buffers.get((owner, buf), (-1, []))
+            deps.append(writer)
+            if buf in writes:
+                deps.extend(readers)
+        result = self.node(deps, self.template(pipe, values, phase, divisor))
+        self.tails[key] = result
+        for buf in reads:
+            writer, readers = self.buffers.get((owner, buf), (-1, []))
+            self.buffers[owner, buf] = writer, readers + [result]
+        for buf in writes:
+            self.buffers[owner, buf] = result, []
+        return result
+
+    def vector(self, owner, unit, stage, launch):
+        phase = 'vec1' if stage == 1 else 'vec2'
+        job = unit['vector'][owner if self.work.s['same_ab'] else 0][stage // 2]
+        if unit.get('fake') or not job.get('chunks'):
+            return launch, launch
+        chunks = int(job['chunks'])
+        name = implementation(self.work.p, self.work.s)
+        b_or_s1 = name in ('b', 's1')
+        if stage == 1:
+            inp, calc, out = 'stage1Pong', 'stage1Ping', 'vec1Output'
+            pre_names, post_names = ('scale_k', 'nz2nd_k'), ('cast_k', 'nd2nz_k')
+        elif b_or_s1:
+            inp, calc, out = 'stage1Ping', 'stage1Pong', 'commonOutput'
+            pre_names, post_names = ('nz2nd_k',), ('cast_k', 'nd2nz_k')
+        else:
+            inp, calc, out = 'common', 'stage2', 'stage2'
+            pre_names, post_names = ('nz2nd_k',), ('cast_k', 'nd2nz_k')
+        pre = {key: job.get(key, 0) for key in pre_names}
+        main = {key: value for key, value in job.items() if key not in pre_names + post_names}
+        post = {key: job.get(key, 0) for key in post_names}
+        issued, finished = launch, launch
+        for chunk in range(chunks):
+            issued = self.operation('vscalar', owner, job, phase, (issued,), divisor=chunks)
+            read_deps = [issued, launch]
+            if stage == 3 and not b_or_s1:
+                read_deps.append(self.tails.get(('vmte3', owner), -1))
+            loaded = self.operation('vmte2', owner, job, phase, read_deps, writes=(inp,), divisor=chunks)
+            prefix = self.operation('vector', owner, pre, phase, (loaded,), reads=(inp,), writes=(calc,), divisor=chunks)
+            middle = self.operation('vector', owner, main, phase, (prefix,), reads=(calc,), writes=(calc, 'common'), divisor=chunks)
+            cast = self.operation('vector', owner, post, phase, (middle,), reads=(calc,), writes=(out,), divisor=chunks)
+            finished = self.operation('vmte3', owner, job, phase, (cast,), reads=(out,), divisor=chunks)
+        if stage == 3:
+            self.tails['vmte2', owner] = self.node((self.tails.get(('vmte2', owner), -1), finished))
+        self.events['vector_chunks'] += chunks if not unit.get('fake') else 0
+        return issued, finished
+
+    def cube(self, owner, unit, stage, launch, slot_state):
+        phase = 'bmm1' if stage == 0 else 'bmm2'
+        job, mm = unit['cube'][stage // 2], self.work.mm[stage // 2]
+        if unit.get('fake'):
+            self.events['fake_matmul_messages'] += 1
+            return self.operation('cscalar', 0, job, phase, (launch,))
+        count = max(1, int(job['stores']))
+        slices = job.get('k_slices') or job.get('pipeline_k_slices') or [1.0]
+        a_count = max(1, mm['depth_a1'] // max(1, mm['step_m']))
+        b_count = max(1, mm['depth_b1'] // max(1, mm['step_n']))
+        ab_count = max(1, min(mm['db_l0a'], mm['db_l0b']))
+        c_count = max(1, min(mm['db_l0c'], self.work.hardware.get('l0c_bytes', 131072) // (mm['base_m'] * mm['base_n'] * 4)))
+        api_size = max(1, int(job.get('output_group_tiles', count)))
+        last_api = self.node((launch, self.tails.get(('mte1',0),-1)))
+        prior_fix = self.tails.get(('fixpipe',0),-1)
+        fixed = []
+        operand_data = {}
+        for output in range(count):
+            if output and output % api_size == 0:
+                last_api = fixed[-1]
+            partial = launch
+            for k, fraction in enumerate(slices):
+                issued = self.operation('cscalar', 0, job, phase, (launch,), divisor=count / fraction)
+                a_slot = (stage, 'a1', (output * len(slices) + k) % a_count)
+                b_slot = (stage, 'b1', (output * len(slices) + k) % b_count)
+                l0_slot = ('ab0', (output * len(slices) + k) % ab_count)
+                c_slot = ('c0', output % c_count)
+                transfer = job.get('cache_trace')
+                values = transfer[output][k] if transfer else job
+                if transfer:
+                    a_slot=(stage,'a1',values['a_slot'])
+                    b_slot=(stage,'b1',values['b_slot'])
+                dependencies = [issued, last_api]
+                for operand, slot in (("a",a_slot),("b",b_slot)):
+                    if not transfer or values[operand+"_miss"]:
+                        dependencies.append(slot_state.get(slot,-1))
+                    else:
+                        dependencies.append(operand_data.get(slot,last_api))
+                if not transfer or values['loads']:
+                    loaded = self.operation('mte2',0,values,phase,dependencies,divisor=1 if transfer else count/fraction)
+                else:
+                    loaded = self.node(dependencies)
+                for operand,slot in (("a",a_slot),("b",b_slot)):
+                    if not transfer or values[operand+"_miss"]:
+                        operand_data[slot]=loaded
+                moved = self.operation('mte1', 0, job, phase, (loaded, slot_state.get(l0_slot, -1)), divisor=count / fraction)
+                slot_state[a_slot] = slot_state[b_slot] = moved
+                computed = self.operation('cube', 0, job, phase, (moved, partial, prior_fix if output==0 and k==0 else -1, slot_state.get(c_slot, -1) if k == 0 else -1), divisor=count / fraction)
+                slot_state[l0_slot] = computed
+                partial = computed
+            stored = self.operation('fixpipe', 0, job, phase, (partial,), divisor=count)
+            slot_state[c_slot] = stored
+            fixed.append(stored)
+        self.events['matmul_calls'] += int(job.get('calls', 1))
+        self.events['k_tiles'] += count * len(slices)
+        return fixed[-1]
+
+    def pair(self, pair, prefix):
+        self.tails, self.buffers = {}, {}
+        same = self.work.s['same_ab']
+        workers = [pair[0], pair[0]] if same else pair
+        controlled = same or implementation(self.work.p, self.work.s) == 'varlen_l1'
+        launches, done, vec_done = {}, {}, {}
+        for owner, tasks in enumerate(workers):
+            for task in range(len(tasks)):
+                for stage in (0, 2):
+                    key = (0 if same else owner), task, stage
+                    if key not in done:
+                        launches[key], done[key] = self.node(), self.node()
+                for stage in (1, 3):
+                    vec_done[owner, task, stage] = self.node()
+        init = {'workers': 1, 'batch_entries': self.work.p['B'] if self.work.p['layout'] == 'TND' else 0}
+        startup = self.operation('cscalar', 0, init, 'startup', (prefix,))
+        self.tails['cscalar', 0] = startup
+        for owner in range(len(workers)):
+            self.operation('vscalar', owner, init, 'startup', (prefix,))
+        client_messages = [[] for _ in workers]
+        for owner, tasks in enumerate(workers):
+            previous = self.tails['vscalar', owner]
+            program = varlen_l1_program(tasks, workers[1-owner] if len(workers)==2 else []) if controlled else _stages(len(tasks))
+            for kind, task, stage in program:
+                key = (0 if same else 1-owner if kind=='peer_wait' else owner), task, stage
+                if kind in ('wait', 'peer_wait'):
+                    previous = self.node((previous, done[key]))
+                elif kind == 'launch':
+                    self.resolve(launches[key], (previous,))
+                    client_messages[owner].append(key)
+                else:
+                    issued, end = self.vector(owner, tasks[task], stage, previous)
+                    self.resolve(vec_done[owner, task, stage], (end,))
+                    previous = issued
+            self.tails['vscalar', owner] = previous
+        if controlled:
+            owners = (0,) if same else range(len(workers))
+            messages = []
+            for step in range(max(map(len, workers)) + 1):
+                messages.extend((owner,step,0) for owner in owners if step<len(workers[owner]))
+                messages.extend((owner,step-1,2) for owner in owners if 0<=step-1<len(workers[owner]))
+        else:
+            messages = [items[index] for index in range(max(map(len,client_messages))) for items in client_messages if index<len(items)]
+        slots = {}
+        for owner, task, stage in messages:
+            key = owner, task, stage
+            dependencies = [startup]
+            if not controlled:
+                dependencies.append(launches[key])
+            if stage == 2:
+                dependencies.extend(vec_done[peer,task,1] for peer in (range(2) if same else (owner,)))
+            launch = self.node(dependencies)
+            end = self.cube(owner, workers[owner][task], stage, launch, slots)
+            self.resolve(done[key], (end,))
+        return self.node(list(self.tails.values()))
+
+    def build(self):
+        prefix = self.node()
+        adapter_ends = []
+        adapter_cache = {}
+        for job in adapter_jobs(self.work):
+            identity = tuple(sorted(job.items()))
+            if identity not in adapter_cache:
+                self.tails, self.buffers = {}, {}
+                chunks = max(1, int(job['chunks']))
+                self.operation('vector',0,{'duplicate_k':job['duplicate_k']},'drop_adapter',(prefix,),writes=('adapterOnes',))
+                for _ in range(chunks):
+                    issue = self.operation('vscalar',0,job,'drop_adapter',(prefix,),divisor=chunks)
+                    read = self.operation('vmte2',0,job,'drop_adapter',(issue,),writes=('adapterInput',),divisor=chunks)
+                    selected = self.operation('vector',0,{'unpack_k':job['unpack_k'],'chunks':job['chunks']},'drop_adapter',(read,),reads=('adapterInput',),writes=('adapterSelect',),divisor=chunks)
+                    compute = self.operation('vector',0,{'cast_k':job['cast_k']},'drop_adapter',(selected,),reads=('adapterSelect',),writes=('adapterOutput',),divisor=chunks)
+                    end = self.operation('vmte3',0,job,'drop_adapter',(compute,),reads=('adapterOutput',),divisor=chunks)
+                adapter_cache[identity] = end
+            adapter_ends.append(adapter_cache[identity])
+        if adapter_ends:
+            prefix = self.node(adapter_ends)
+            prefix = self.node((prefix,),self.template('vscalar',{'adapter_workers':1},'drop_adapter'))
+        roots, seen = [], set()
+        for pair in self.work.pairs:
+            identity = tuple(tuple(id(job) for job in tasks) for tasks in pair)
+            if identity not in seen:
+                seen.add(identity)
+                roots.append(self.pair(pair,prefix))
+        root = self.node(roots)
+        a,b,which = (np.asarray(x,dtype=np.int32) for x in (self.left,self.right,self.labels))
+        order = np.empty(len(a),dtype=np.int32)
+        if source.graph_engine().fa_latency_order(len(a),a.ctypes.data,b.ctypes.data,order.ctypes.data)!=len(a):
+            raise RuntimeError('branch source dependency graph contains a cycle')
+        inverse=np.empty(len(a),dtype=np.int32);inverse[order]=np.arange(len(a),dtype=np.int32)
+        a=np.where(a[order]>=0,inverse[np.maximum(a[order],0)],-1).astype(np.int32)
+        b=np.where(b[order]>=0,inverse[np.maximum(b[order],0)],-1).astype(np.int32)
+        return {'a':np.ascontiguousarray(a),'b':np.ascontiguousarray(b),'which':np.ascontiguousarray(which[order]),
+                'root':int(inverse[root]),'templates':np.asarray(self.templates,dtype=np.float64),
+                'phases':self.phases,'execution_events':dict(self.events)}
+
+
+@lru_cache(maxsize=1)
+def compact_engine():
+    import ctypes
+    cpp=ROOT/'fa_branch_graph.cpp';folder=ROOT/'out/fa_branch_host';folder.mkdir(parents=True,exist_ok=True)
+    library=folder/'graph_compact.so';marker=folder/'graph_compact.signature'
+    key=hashlib.sha256(cpp.read_bytes()).hexdigest()+os.uname().machine
+    if not library.is_file() or not marker.is_file() or marker.read_text()!=key:
+        result=subprocess.run(['g++','-O2','-std=c++17','-shared','-fPIC',str(cpp),'-o',str(library)+'.tmp'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=60)
+        if result.returncode:raise RuntimeError('CPU graph compactor build failed: '+result.stdout[-1000:])
+        Path(str(library)+'.tmp').replace(library);marker.write_text(key)
+    engine=ctypes.CDLL(str(library));engine.fa_compact_graph.argtypes=[ctypes.c_int]*2+[ctypes.c_void_p]*8
+    engine.fa_compact_graph.restype=ctypes.c_int
+    return engine
+
+
+def compact_graph(graph):
+    import ctypes
+    n=len(graph['a']);zero=np.ascontiguousarray(np.all(graph['templates']==0,axis=1),dtype=np.uint8)
+    a,b,labels=(np.empty(n,dtype=np.int32) for _ in range(3));root=ctypes.c_int()
+    count=compact_engine().fa_compact_graph(n,graph['root'],graph['a'].ctypes.data,graph['b'].ctypes.data,
+        graph['which'].ctypes.data,zero.ctypes.data,a.ctypes.data,b.ctypes.data,labels.ctypes.data,ctypes.byref(root))
+    if count<=0 or root.value<0:raise ValueError('dependency graph compaction failed')
+    return {**graph,'a':a[:count].copy(),'b':b[:count].copy(),'which':labels[:count].copy(),'root':root.value}
+
+
+def compact_graph_cache(binary,manifest,saved):
+    key=hashlib.sha256((ROOT/'fa_branch_graph.cpp').read_bytes()).hexdigest()
+    if saved.get('compactor_sha256')==key:return saved
+    unique={}
+    for row in saved['samples']:
+        for name in ('graph','input_graph'):
+            desc=row[name];identity=desc['arrays']['a']['offset']
+            unique.setdefault(identity,desc)
+    replacements={}
+    with binary.open('r+b') as stream:
+        for index,(offset,description) in enumerate(sorted(unique.items()),1):
+            graph={k:v for k,v in description.items() if k!='arrays'}
+            graph.update({n:np.memmap(binary,mode='r',dtype=d['dtype'],offset=d['offset'],shape=tuple(d['shape'])) for n,d in description['arrays'].items()})
+            compressed=compact_graph(graph)
+            rates=np.arange(1,len(parameter_names())+1,dtype=float)/100
+            before=graph_time(graph,rates);after=graph_time(compressed,rates)
+            if not math.isclose(before,after,rel_tol=1e-11,abs_tol=1e-8):raise ValueError('compaction changed source graph latency')
+            replacement={k:v for k,v in compressed.items() if k not in ('a','b','which','templates')};replacement['arrays']={}
+            for name in ('a','b','which','templates'):
+                values=np.asarray(compressed[name]);padding=(-stream.tell())%8;stream.write(bytes(padding));position=stream.tell()
+                if name=='templates':values=values.copy()
+                values.tofile(stream);replacement['arrays'][name]={'offset':position,'shape':values.shape,'dtype':str(values.dtype)}
+            replacements[offset]=replacement
+            if index%100==0:print(f'BRANCH GRAPH COMPACT {index}/{len(unique)} bytes={stream.tell()}',flush=True)
+            del graph,compressed
+        stream.truncate(stream.tell())
+    for row in saved['samples']:
+        for name in ('graph','input_graph'):row[name]=replacements[row[name]['arrays']['a']['offset']]
+    saved['compactor_sha256']=key;source.cost.save_json(manifest,saved)
+    return saved
+
+
+def branch_graph(work):
+    return compact_graph(BranchGraph(work).build())
+
+
+def primitive_class(pipe, key):
+    impl,dtype,layout,path,fmt,policy=key.split('|')
+    vector_function={'varlen_gm':'general','varlen_l1':'general','varlen_same_ab':'same_ab'}.get(impl,impl)
+    if pipe in ('cube','mte1'):
+        return pipe,dtype,policy
+    if pipe=='fixpipe':
+        return pipe,policy
+    if pipe=='vector':
+        return pipe,vector_function,dtype
+    if pipe=='cscalar':
+        api='batch' if impl=='b' else 'direct_same_ab' if impl in ('same_ab','varlen_same_ab') else 'manual_l1' if impl=='varlen_l1' else 'normal'
+        return pipe,api,policy,fmt
+    if pipe=='vscalar':
+        return pipe,vector_function,'direct' if impl in ('same_ab','varlen_same_ab','varlen_l1') else 'kfc',policy
+    api='batch' if impl=='b' else 'normal' if impl in ('general','s1','varlen_gm') else impl
+    return pipe,api,layout,policy
+
+
+def primitive_priors(samples):
+    from scipy.optimize import nnls
+    pooled=defaultdict(list)
+    for row in samples:
+        for pipe in PIPES:
+            if row['targets'].get(pipe,0)>0:
+                pooled[primitive_class(pipe,row['cost_class'])].append(row)
+    result={}
+    for key,rows in pooled.items():
+        pipe=key[0];names=PIPES[pipe][1]
+        x=np.array([[r['features'][pipe].get(n,0) for n in names] for r in rows],dtype=float)
+        y=np.array([r['targets'][pipe] for r in rows],dtype=float)
+        scales=np.maximum(np.max(x/y[:,None],axis=0),1e-30)
+        active=np.any(x>0,axis=0)
+        rates=np.zeros(len(names))
+        if np.any(active):
+            weights=np.sqrt(np.array([r.get('pmu_weight',1) for r in rows]))
+            solution,_=nnls((x/y[:,None]/scales)[:,active]*weights[:,None],weights,maxiter=10000)
+            rates[active]=solution/scales[active]
+        bounds=np.full(len(names),np.inf)
+        if pipe in ('cscalar','vscalar'):
+            for i,name in enumerate(names):
+                good=x[:,i]>0
+                if np.any(good):bounds[i]=np.min(y[good]/x[good,i])
+        result[key]={'names':names,'rates':rates,'upper':bounds,'observed':[n for n,a in zip(names,active) if a],
+                     'inputs':sorted({r['input_sha256'] for r in rows}),'matrix':x,'targets':y}
+    return result
 
 
 def fit_costs(samples, hardware):
-    try:
-        from scipy.optimize import nnls
-    except ImportError:
-        def nnls(matrix, targets, maxiter=10000):
-            solution = source.legacy.pipeline_nnls(matrix.tolist(), targets.tolist())["weights"]
-            values = np.asarray(solution, dtype=float)
-            return values, float(np.linalg.norm(matrix @ values - targets))
-    model = {"version": VERSION, "source_sha256": signature(), "hardware": hardware, "classes": {},
-             "latency_used_for_cost_fit": False, "calibration_target": "per-pipe PMU active sums only",
-             "coefficient_interpretation": "effective primitive costs; aggregate counters do not uniquely identify every instruction cost"}
-    by_class = defaultdict(list)
-    for item in samples:
-        by_class[item["cost_class"]].append(item)
-    for key, rows in by_class.items():
-        entry = {"pipes": {}, "calibration_inputs": [row["input_sha256"] for row in rows]}
-        for pipe, (_, names) in source.PIPES.items():
-            good = [row for row in rows if row["targets"].get(pipe, 0) > 0]
-            matrix = np.asarray([[row["features"][pipe].get(name, 0) for name in names] for row in good], dtype=float).reshape((-1, len(names)))
-            targets = np.asarray([row["targets"][pipe] for row in good], dtype=float)
-            active = np.any(matrix != 0, axis=0)
-            rates = np.zeros(len(names))
-            if np.any(active):
-                normalized = matrix[:, active] / targets[:, None]
-                scales = np.maximum(np.max(np.abs(normalized), axis=0), 1e-30)
-                solution, _ = nnls(normalized / scales, np.ones(len(good)), maxiter=10000)
-                rates[active] = solution / scales
-            entry["pipes"][pipe] = {"coefficients": dict(zip(names, map(float, rates))),
-                                     "rank": int(np.linalg.matrix_rank(matrix[:, active])) if np.any(active) else 0,
-                                     "terms": int(sum(active)), "samples": len(good),
-                                     "observed_features": [name for name, seen in zip(names, active) if seen]}
-        model["classes"][key] = entry
+    from scipy.optimize import least_squares
+    names=parameter_names();positions={key:i for i,key in enumerate(names)}
+    priors=primitive_priors(samples)
+    grouped=defaultdict(list)
+    for row in samples:grouped[row['cost_class']].append(row)
+    keys=set(grouped)
+    model={'version':VERSION,'source_sha256':signature(),'hardware':hardware,'classes':{},
+           'latency_used_for_cost_fit':True,'calibration_target':'training kernel latency and training PMU; Scalar PMU is an upper constraint',
+           'coefficient_interpretation':'nonnegative operation costs on branch-specific dependency graphs; no per-shape lookup or total-time correction factor'}
+    for key in sorted(keys):
+        rows=grouped[key]
+        initial=np.zeros(len(names));scales=np.ones(len(names));upper=np.full(len(names),np.inf)
+        pipe_info={}
+        for pipe,(_,fields) in PIPES.items():
+            parent=priors.get(primitive_class(pipe,key))
+            if parent is None:continue
+            local=np.array([[r['features'][pipe].get(n,0) for n in fields] for r in rows],dtype=float)
+            seen=np.any(parent['matrix']!=0,axis=0)
+            rank=int(np.linalg.matrix_rank(parent['matrix'][:,seen]/np.maximum(np.max(parent['matrix'][:,seen],axis=0),1e-30))) if any(seen) else 0
+            pipe_info[pipe]={'rank':rank,'terms':int(sum(seen)),'samples':len(parent['inputs']),
+                             'observed_features':list(parent['observed']),'primitive_calibration_class':list(primitive_class(pipe,key)),
+                             'primitive_calibration_input_count':len(parent['inputs'])}
+            budget=statistics.median(parent['targets'])/max(1,sum(seen))
+            maxima=np.maximum(np.max(parent['matrix'],axis=0),1e-12)
+            for j,n in enumerate(fields):
+                i=positions[pipe,n];initial[i]=parent['rates'][j];scales[i]=max(initial[i],budget/maxima[j],1e-12)
+                if pipe in ('cscalar','vscalar'):upper[i]=parent['upper'][j]
+        active=np.flatnonzero(np.any(np.vstack([r['graph']['templates'] for r in rows])!=0,axis=0))
+        limits=upper[active]/scales[active]
+        start=np.minimum(initial[active]/scales[active],limits*.95)
+        timing=np.array([r['duration_us'] for r in rows])
+        matrices=[];upper_only=[];counter_weights=[]
+        for row in rows:
+            for pipe in PIPES:
+                target=row['targets'].get(pipe,0)
+                if target<=0:continue
+                vec=np.zeros(len(names))
+                for n,value in row['features'][pipe].items():
+                    if (pipe,n) in positions:vec[positions[pipe,n]]=value/target
+                matrices.append(vec);upper_only.append(pipe in ('cscalar','vscalar'));counter_weights.append(math.sqrt(row.get('pmu_weight',1)/len(PIPES)))
+        counters=np.array(matrices);upper_only=np.array(upper_only);counter_weights=np.array(counter_weights)
+        scalar_rows={}
+        for pipe in ('cscalar','vscalar'):
+            fields=PIPES[pipe][1];indexes=[positions[pipe,n] for n in fields]
+            scalar_rows[pipe]=(indexes,np.array([[r['features'][pipe].get(n,0)/r['targets'][pipe] for n in fields] for r in rows if r['targets'].get(pipe,0)>0]))
+        def effective_rates(parameters):
+            rates=np.zeros(len(names));rates[active]=parameters*scales[active]
+            derivative=np.zeros((len(names),len(active)));derivative[active,np.arange(len(active))]=scales[active]
+            for indexes,matrix in scalar_rows.values():
+                if not len(matrix):continue
+                ratios=matrix@rates[indexes];at=int(np.argmax(ratios));ratio=ratios[at]
+                if ratio>1:
+                    original=rates[indexes].copy();normalization=matrix[at]@derivative[indexes]
+                    derivative[indexes]=derivative[indexes]/ratio-np.outer(original,normalization)/ratio**2
+                    rates[indexes]=original/ratio
+            return rates,derivative
+        last={}
+        def residual(parameters):
+            if 'x' in last and np.array_equal(parameters,last['x']):return last['r']
+            rates,rate_jacobian=effective_rates(parameters)
+            predictions=[];jac=[]
+            for row in rows:
+                val,deriv=graph_time(row['graph'],rates,True);predictions.append(val);jac.append(deriv@rate_jacobian)
+            times=np.array(predictions)/timing-1
+            time_jac=np.array(jac)/timing[:,None]
+            pmu=counters@rates-1;pmu_jac=counters@rate_jacobian
+            disabled=upper_only&(pmu<=0);pmu[disabled]=0;pmu_jac[disabled]=0
+            weight=counter_weights
+            regularization=1/math.sqrt(max(1,len(rows)))
+            values=np.concatenate((times,weight*pmu,regularization*(parameters-start)))
+            derivatives=np.vstack((time_jac,weight[:,None]*pmu_jac,regularization*np.eye(len(active))))
+            last.update(x=parameters.copy(),r=values,j=derivatives)
+            return values
+        optimum=least_squares(residual,start,jac=lambda x:(residual(x),last['j'])[1],bounds=(np.zeros(len(active)),limits),
+                              loss='soft_l1',f_scale=.05,max_nfev=100,ftol=1e-7,xtol=1e-7,gtol=1e-7)
+        rates,_=effective_rates(optimum.x)
+        pipes={}
+        for pipe,(_,fields) in PIPES.items():
+            data=pipe_info.get(pipe,{'rank':0,'terms':0,'samples':0,'observed_features':[]})
+            data['coefficients']={n:float(rates[positions[pipe,n]]) for n in fields};pipes[pipe]=data
+        model['classes'][key]={'pipes':pipes,'rates':rates.tolist(),'calibration_inputs':[r['input_sha256'] for r in rows],
+                               'optimization_success':bool(optimum.success),'optimization_evaluations':int(optimum.nfev),
+                               'scalar_counter_scope':'strict training inequality: useful issue service <= measured busy including polling',
+                               'parameter_names':[list(x) for x in names]}
+    for parent_key,parent in priors.items():
+        if parent_key[0] not in ('cscalar','vscalar'):continue
+        selected=[(entry,len(entry['calibration_inputs'])) for key,entry in model['classes'].items() if primitive_class(parent_key[0],key)==parent_key]
+        for index,name in enumerate(parent['names']):
+            values=sorted((entry['pipes'][parent_key[0]]['coefficients'][name],weight) for entry,weight in selected)
+            if values:
+                middle=sum(weight for _,weight in values)/2;accumulated=0
+                for value,weight in values:
+                    accumulated+=weight
+                    if accumulated>=middle:
+                        parent['rates'][index]=value
+                        break
+    model['primitive_priors']={json.dumps(key):{'rates':entry['rates'].tolist(),'names':list(entry['names']),
+                                             'observed_features':entry['observed'],'calibration_inputs':entry['inputs'],
+                                             'rank':int(np.linalg.matrix_rank(entry['matrix'][:,np.any(entry['matrix']>0,axis=0)])),'terms':len(entry['observed'])}
+                               for key,entry in priors.items()}
     return model
+
+
+def graph_entry(model, key):
+    if key in model['classes']:
+        return model['classes'][key]
+    pipes={}
+    for pipe,(_,fields) in PIPES.items():
+        parent=model['primitive_priors'].get(json.dumps(primitive_class(pipe,key)))
+        if parent is None:
+            raise ValueError('unmeasured source operation class: '+str(primitive_class(pipe,key)))
+        pipes[pipe]={'coefficients':dict(zip(parent['names'],parent['rates'])),'observed_features':parent['observed_features'],
+                     'rank':parent['rank'],'terms':parent['terms'],'samples':len(parent['calibration_inputs'])}
+    return {'pipes':pipes,'rates':[pipes[pipe]['coefficients'].get(name,0) for pipe,name in parameter_names()],
+            'calibration_inputs':[],'cost_scope':'source-matched primitives, no direct execution-class latency samples'}
+
+
+def phase_features(work):
+    result=defaultdict(lambda:defaultdict(Counter))
+    for pair in work.pairs:
+        for tasks in pair:
+            for task in tasks:
+                for stage,job in enumerate(task['cube']):
+                    for pipe in ('cube','mte1','mte2','fixpipe','cscalar'):
+                        result[('bmm1','bmm2')[stage]][pipe].update({n:job.get(n,0) for n in PIPES[pipe][1]})
+                for owner in task['vector']:
+                    for stage,job in enumerate(owner):
+                        for pipe in ('vector','vmte2','vmte3','vscalar'):
+                            result[('vec1','vec2')[stage]][pipe].update({n:job.get(n,0) for n in PIPES[pipe][1]})
+    totals=active_features(work)
+    for pipe in ('cscalar','vscalar'):
+        result['startup'][pipe].update({n:totals[pipe].get(n,0) for n in ('workers','batch_entries')})
+    for job in adapter_jobs(work):
+        for pipe in ('vector','vmte2','vmte3','vscalar'):
+            result['drop_adapter'][pipe].update({n:job.get(n,0) for n in PIPES[pipe][1]})
+    result['drop_adapter']['vscalar']['adapter_workers']=totals['vscalar'].get('adapter_workers',0)
+    return result
+
+
+def predict_work(work, model, graph=None):
+    key=cost_class(work.p,work.s);entry=graph_entry(model,key)
+    for pipe,values in active_features(work).items():
+        missing=[n for n,val in values.items() if val>0 and n not in entry['pipes'][pipe]['observed_features']]
+        if missing:raise ValueError('unmeasured primitive: '+key+'/'+pipe+'/'+','.join(missing))
+    graph=branch_graph(work) if graph is None else graph
+    predicted=graph_time(graph,entry['rates'])
+    critical=source.critical_phases(graph,entry['rates'])
+    demands={f'{phase}.{pipe}':sum(value*entry['pipes'][pipe]['coefficients'].get(n,0) for n,value in values.items())
+             for phase,pipes in phase_features(work).items() for pipe,values in pipes.items()}
+    return {'predicted_us':predicted,'critical_path_phase_us':critical,'phase_pipe_active_us':demands,
+            'phase_pipe_active_scope':'whole-device source-operation service sums; not isolated stage wall times; Scalar excludes modeled polling',
+            'adapter_us':critical.get('drop_adapter',0),'startup_us':critical.get('startup',0),
+            'implementation':implementation(work.p,work.s),'cost_class':key,'schedule':work.s,'matmul':work.mm,
+            'execution_events':graph['execution_events'],'max_resource_bytes':{},
+            'calibration_sdk_api_sha256':model.get('sdk_api_sha256'),'prediction_sdk_api_sha256':tiler()[1],
+            'sdk_api_matches_calibration':model.get('sdk_api_sha256')==tiler()[1],
+            'unidentified_pipe_terms':[p for p,x in entry['pipes'].items() if x['rank']<x['terms']],
+            'direct_class_calibration_samples':len(entry['calibration_inputs']),
+            'target':'kernel Task Duration(us); source-directed FIFO and buffer hazards; training-only calibrated operation costs'}
+
+
+def predict(inputs, model):
+    if model.get('version')!=VERSION or model.get('source_sha256')!=signature():
+        raise ValueError('branch model and execution code differ')
+    return predict_work(workload(inputs,model['hardware']),model)
 
 
 def _number(value):
@@ -690,7 +941,7 @@ def records(paths, audit=None):
                 if (_number(row.get("duration_us")) or 0) <= 0:
                     counts["no_latency"] += 1
                     continue
-                if any(_number(row.get(target)) is None for target, _ in source.PIPES.values()):
+                if any(_number(row.get(target)) is None for target, _ in PIPES.values()):
                     counts["incomplete_pmu"] += 1
                     continue
                 if str(row.get("official_tiling", "true")).lower() == "false":
@@ -712,7 +963,7 @@ def records(paths, audit=None):
             raise ValueError("branch data mix different hardware")
         p = source.cost.normalize({name: row[name] for name in source.cost.INPUT_FIELDS})
         identity = source.cost.sha256(p)
-        rows[identity] = {**row, "inputs": p, "input_sha256": identity,
+        rows[identity] = {**row, "case": row.get("case") or row.get("name") or "input_" + identity[:16], "inputs": p, "input_sha256": identity,
                           "sequence_group": source.cost.sha256({name: p[name] for name in ("S1", "S2")})}
     return list(rows.values()), hardware
 
@@ -728,139 +979,150 @@ def _summary(rows):
                       for limit in (10, 20, 30)}}
 
 
+def prepare_graph_samples(rows, hardware):
+    folder=ROOT/'out/fa_branch_host';folder.mkdir(parents=True,exist_ok=True)
+    binary,manifest=folder/'graph_cache.bin',folder/'graph_cache.json'
+    identity=source.cost.sha256({'rows':rows,'hardware':hardware,'pipes':PIPES,'api':tiler()[1],
+        'primitives':source.source_hash(),'functions':[inspect.getsource(f) for f in
+            (Work,matmul_cache_trace,workload,batch_work,s1_work,general_work,varlen_work,adapter_jobs,active_features,BranchGraph)]})
+    saved=json.loads(manifest.read_text()) if manifest.is_file() else {}
+    archive=folder/'graph_cache.bin.gz'
+    if saved.get('identity')==identity and not binary.is_file() and archive.is_file():
+        import gzip
+        import shutil
+        temporary=binary.with_suffix('.restoring')
+        try:
+            with gzip.open(archive,'rb') as compressed,temporary.open('wb') as restored:
+                shutil.copyfileobj(compressed,restored,1024*1024)
+            temporary.replace(binary)
+        finally:
+            temporary.unlink(missing_ok=True)
+    if saved.get('identity')!=identity or not binary.is_file():
+        samples,rejected=[],[]
+        with binary.open('wb') as stream:
+            def save_graph(graph):
+                result={k:v for k,v in graph.items() if k not in ('a','b','which','templates')}
+                result['arrays']={}
+                for key in ('a','b','which','templates'):
+                    values=graph[key];padding=(-stream.tell())%8;stream.write(bytes(padding));offset=stream.tell();values.tofile(stream)
+                    result['arrays'][key]={'offset':offset,'shape':values.shape,'dtype':str(values.dtype)}
+                return result
+            for index,row in enumerate(rows,1):
+                try:
+                    work=workload(row['inputs'],hardware)
+                    if int(row['priority'])!=work.s['priority']:raise ValueError('input-derived route differs from official Host trace')
+                    actual=[];differences=[]
+                    for stage,mm in enumerate(work.mm,1):
+                        fields={name:int(row[f'bmm{stage}_{name}']) for name in mm if _number(row.get(f'bmm{stage}_{name}')) is not None}
+                        for name in ('base_m','base_n','base_k'):
+                            if name in fields and fields[name]!=mm[name]:raise ValueError('input-derived Matmul base differs from official Host')
+                        differences.extend(f'bmm{stage}_{n}:{mm[n]}!={v}' for n,v in fields.items() if mm[n]!=v)
+                        actual.append(fields)
+                    input_graph=save_graph(branch_graph(work));input_features=active_features(work)
+                    if differences:
+                        work=workload(row['inputs'],hardware,actual)
+                        graph=save_graph(branch_graph(work));features=active_features(work)
+                    else:graph=input_graph;features=input_features
+                    samples.append({'input_sha256':row['input_sha256'],'sequence_group':row['sequence_group'],
+                        'inputs':row['inputs'],'case':row['case'],'collection_group':row.get('collection_group') or row['family'],
+                        'cost_class':cost_class(work.p,work.s),'features':features,'input_features':input_features,
+                        'duration_us':float(row['duration_us']),'targets':{pipe:float(row[target]) for pipe,(target,_) in PIPES.items()},
+                        'graph':graph,'input_graph':input_graph,'geometry_differences':differences})
+                except (ValueError,RuntimeError,KeyError,subprocess.SubprocessError) as error:
+                    rejected.append({'input_sha256':row['input_sha256'],'case':row['case'],'error':str(error)})
+                if index%25==0:print(f'BRANCH SOURCE GRAPHS {index}/{len(rows)} accepted={len(samples)} bytes={stream.tell()}',flush=True)
+        saved={'identity':identity,'samples':samples,'rejected':rejected}
+        source.cost.save_json(manifest,saved)
+    else:print(f'BRANCH GRAPH CACHE HIT samples={len(saved["samples"])}',flush=True)
+    saved=compact_graph_cache(binary,manifest,saved)
+    result=[]
+    measurements={r['input_sha256']:r for r in rows}
+    for row in saved['samples']:
+        item={**row}
+        measured=measurements[row['input_sha256']]
+        clocks=[float(measured[n]) for n in ('aic_time_max_us','aiv_time_max_us') if _number(measured.get(n)) is not None]
+        interval=[float(measured[n]) for n in ('duration_us','round1_us','round2_us','round3_us','median_ci95_high_us') if (_number(measured.get(n)) or 0)>0]
+        reference=max(interval)
+        item['pmu_time_ratio']=max(clocks,default=reference)/reference
+        item['pmu_weight']=min(1,1/item['pmu_time_ratio'])**2
+        for key in ('graph','input_graph'):
+            graph={k:v for k,v in row[key].items() if k!='arrays'}
+            graph.update({name:np.memmap(binary,mode='r',dtype=data['dtype'],offset=data['offset'],shape=tuple(data['shape']))
+                          for name,data in row[key]['arrays'].items()})
+            item[key]=graph
+        result.append(item)
+    return result,saved['rejected']
+
+
 def build_and_evaluate(paths, evaluation_path, output_dir, model_path=MODEL):
-    if hasattr(os, "sched_getaffinity"):
-        os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
-    inventory = []
-    historical, hardware = records(paths, inventory)
-    evaluation, observed = records([evaluation_path])
-    if hardware != observed:
-        raise ValueError("calibration and evaluation hardware differ")
-    raw = {row["input_sha256"]: row for row in historical + evaluation}
-    prepared, rejected = [], []
-    feature_identity = source.cost.sha256({"rows": list(raw.values()), "primitives": source.source_hash(),
-        "api": tiler()[1], "functions": [inspect.getsource(item) for item in
-            (Work, implementation, cost_class, workload, batch_work, s1_work, general_work, varlen_work, active_features)]})
-    output_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = output_dir / "feature_cache.json"
-    cached = json.loads(cache_path.read_text()) if cache_path.is_file() else {}
-    if cached.get("identity") == feature_identity:
-        prepared, rejected = cached["samples"], cached["rejected"]
-        print(f"BRANCH FEATURE CACHE HIT samples={len(prepared)}", flush=True)
-    for index, row in enumerate(raw.values(), 1):
-        if cached.get("identity") == feature_identity:
-            break
-        try:
-            work = workload(row["inputs"], hardware)
-            if int(row["priority"]) != work.s["priority"]:
-                raise ValueError("input-derived family disagrees with the recorded Host priority")
-            for stage, mm in enumerate(work.mm, 1):
-                for key in ("base_m", "base_n", "base_k"):
-                    value = row.get(f"bmm{stage}_{key}")
-                    if _number(value) is not None and int(value) != mm[key]:
-                        raise ValueError(f"input-derived bmm{stage} {key} differs from Host tiling")
-            prepared.append({"input_sha256": row["input_sha256"], "sequence_group": row["sequence_group"],
-                "cost_class": cost_class(work.p, work.s), "features": active_features(work),
-                "targets": {pipe: float(row[target]) for pipe, (target, _) in source.PIPES.items()}})
-            del work
-        except (ValueError, RuntimeError, subprocess.SubprocessError) as error:
-            rejected.append({"input_sha256": row["input_sha256"], "error": str(error)})
-        if index % 50 == 0:
-            print(f"BRANCH FEATURES {index}/{len(raw)} prepared={len(prepared)}", flush=True)
-    source.cost.save_json(cache_path, {"identity": feature_identity, "samples": prepared, "rejected": rejected})
-    folds = 4
-    models = {}
-    for fold in range(folds):
-        training = [row for row in prepared if int(row["sequence_group"][:8], 16) % folds != fold]
-        models[fold] = fit_costs(training, hardware)
-        models[fold]["heldout_sequence_groups"] = sorted({row["sequence_group"] for row in prepared
-                                                         if int(row["sequence_group"][:8], 16) % folds == fold})
-    results = []
-    for index, row in enumerate(evaluation, 1):
-        result = {**row, "branch_status": "unavailable", "branch_evaluation": "sequence_group_heldout_pipe_cost_calibration",
-                  "branch_predicted_us": None, "branch_ape_percent": None,
-                  "branch_error": "", "total_latency_used_for_fit": False}
-        p = row["inputs"]
-        if row.get("prediction_before_measurement", "").lower() == "true" and row.get("predicted_us"):
-            result.update(original_frozen_predicted_us=float(row["predicted_us"]),
-                          original_frozen_model_sha256=row.get("model_sha256"),
-                          original_frozen_ape_percent=100 * abs(float(row["predicted_us"]) / float(row["duration_us"]) - 1))
-        try:
-            fold = int(row["sequence_group"][:8], 16) % folds
-            model = models[fold]
-            assert row["sequence_group"] not in {r["sequence_group"] for r in prepared
-                                                 if int(r["sequence_group"][:8], 16) % folds != fold}
-            work = workload(p, hardware)
-            prediction = predict_work(work, model)
-            result.update(branch_predicted_us=prediction["predicted_us"], branch_implementation=prediction["implementation"],
-                          branch_cost_class=prediction["cost_class"], branch_fold=fold,
-                          branch_model_sha256=source.cost.sha256(model),
-                          branch_unidentified_pipe_terms="|".join(prediction["unidentified_pipe_terms"]),
-                          branch_adapter_us=prediction["adapter_us"], branch_startup_us=prediction["startup_us"],
-                          branch_execution_events=json.dumps(prediction["execution_events"], sort_keys=True),
-                          branch_resource_bytes=json.dumps(prediction["max_resource_bytes"], sort_keys=True),
-                          branch_predicted_phase_pipe_active_us=json.dumps(prediction["phase_pipe_active_us"], sort_keys=True))
-            measured = []
-            for stage, mm in enumerate(work.mm, 1):
-                for key, value in mm.items():
-                    name = f"bmm{stage}_{key}"
-                    if name in row and _number(row[name]) is not None and int(row[name]) != value:
-                        measured.append(f"{name}:{value}!={row[name]}")
-            result["branch_matmul_geometry_differences"] = "|".join(measured)
-            for pipe, values in active_features(work).items():
-                data = model["classes"][prediction["cost_class"]]["pipes"][pipe]
-                estimated = sum(value * data["coefficients"].get(name, 0) for name, value in values.items())
-                actual = float(row[source.PIPES[pipe][0]])
-                result[f"branch_{pipe}_active_sum_us"] = estimated
-                result[f"branch_{pipe}_ape_percent"] = 100 * abs(estimated / actual - 1) if actual > 0 else None
-            del work
-            predicted, actual = result["branch_predicted_us"], float(row["duration_us"])
-            if not math.isfinite(predicted) or predicted <= 0:
-                raise ValueError("nonpositive branch prediction")
-            result.update(branch_status="predicted", branch_ape_percent=100 * abs(predicted / actual - 1))
-        except (ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
-            result["branch_error"] = str(error)
-        result.pop("inputs", None)
-        results.append(result)
-        if index % 25 == 0:
-            print(f"BRANCH EVALUATION {index}/{len(evaluation)}", flush=True)
-    final_model = fit_costs(prepared, hardware)
-    final_model.update(training_inputs=sorted(row["input_sha256"] for row in prepared),
-                       validation="four folds by complete (S1,S2) group; all layouts, dtypes, batches and heads of a sequence pair stay together",
-                       cost_fit_excludes="all kernel total latency labels; rates are fitted to independent training PMU counters",
-                       sdk_api_sha256=tiler()[1], source_files=FILES,
-                       scope="dense FA; uniform-length TND; no sparse/PSE/Rope/backward; SDK geometry differences are reported",
-                       inference_calibration="immutable artifact; no runtime refitting or loading measured latencies",
-                       limitations=["Scalar PMU includes KFC software polling; fitted Scalar busy is not identified useful issue service",
-                                    "aggregate Vector service does not identify the Muls/Softmax/Cast buffer-release boundaries",
-                                    "L1 queue slots do not yet reproduce operand-specific SDK cache lifetimes",
-                                    "stage active sums are estimates, not independently measured stage wall times"])
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fields = list(dict.fromkeys(key for row in results for key in row))
-    with (output_dir / "branch_predictions.csv").open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(results)
-    report = {"groups": {}, "source_sha256": signature(), "feature_failures": rejected,
-              "new_npu_measurements": 0, "kernel_latency_used_for_cost_fit": False,
-              "evaluation": final_model["validation"], "hardware": hardware,
-              "data_inventory": inventory, "development_replay_after_inspection": True,
-              "original_frozen_predictions_preserved_separately": True,
-              "limitations": final_model["limitations"]}
-    for group in sorted({row.get("collection_group") or row["family"] for row in results}):
-        selected = [row for row in results if (row.get("collection_group") or row["family"]) == group]
-        report["groups"][group] = _summary(selected)
-        report["groups"][group]["by_layout"] = {layout: _summary([row for row in selected if row["layout"] == layout])
-                                                 for layout in sorted({row["layout"] for row in selected})}
-        summary = report["groups"][group]
-        print(f"BRANCH RESULT {group}: predicted={summary['predicted']}/{summary['cases']} "
-              f"MdAPE={summary['median_ape_percent']}% " + " ".join(
-                  f">{limit}%={item['count']}/{summary['predicted']}" for limit, item in summary["above"].items()), flush=True)
-    final_model["qualification"] = "experimental source execution model; cross-validation has not met the accuracy target"
-    final_model["cross_validation"] = report["groups"]
-    source.cost.save_json(model_path, final_model)
-    source.cost.save_json(output_dir / "branch_evaluation.json", report)
-    print(f"BRANCH_MODEL={model_path}\nBRANCH_PREDICTIONS={output_dir / 'branch_predictions.csv'}", flush=True)
+    if hasattr(os,'sched_getaffinity'):os.sched_setaffinity(0,{min(os.sched_getaffinity(0))})
+    inventory=[];historical,hardware=records(paths,inventory);evaluation,observed=records([evaluation_path],inventory)
+    if hardware!=observed:raise ValueError('calibration and evaluation hardware differ')
+    raw={r['input_sha256']:r for r in historical+evaluation}
+    prepared,rejected=prepare_graph_samples(list(raw.values()),hardware)
+    indexed={r['input_sha256']:r for r in prepared};results=[]
+    for fold in range(4):
+        training=[r for r in prepared if int(r['sequence_group'][:8],16)%4!=fold]
+        testing=[r for r in evaluation if int(r['sequence_group'][:8],16)%4==fold]
+        print(f'BRANCH FIT fold={fold+1}/4 training={len(training)} evaluation={len(testing)}',flush=True)
+        model=fit_costs(training,hardware)
+        model['sdk_api_sha256']=tiler()[1]
+        training_groups={r['sequence_group'] for r in training}
+        for row in testing:
+            assert row['sequence_group'] not in training_groups
+            result={**row,'branch_status':'unavailable','branch_evaluation':'complete sequence-pair heldout, source graph and training-only primitive calibration',
+                    'branch_predicted_us':None,'branch_ape_percent':None,'branch_error':'','branch_fold':fold,
+                    'total_latency_used_for_fit':True,'heldout_latency_used_for_fit':False,'branch_model_sha256':source.cost.sha256(model)}
+            if str(row.get('prediction_before_measurement','')).lower()=='true' and row.get('predicted_us'):
+                result.update(original_frozen_predicted_us=float(row['predicted_us']),original_frozen_model_sha256=row.get('model_sha256'),
+                              original_frozen_ape_percent=100*abs(float(row['predicted_us'])/float(row['duration_us'])-1))
+            try:
+                sample=indexed[row['input_sha256']];entry=graph_entry(model,sample['cost_class'])
+                result.update(branch_pmu_time_ratio=sample['pmu_time_ratio'],branch_pmu_calibration_weight=sample['pmu_weight'])
+                for pipe,values in sample['input_features'].items():
+                    missing=[n for n,v in values.items() if v>0 and n not in entry['pipes'][pipe]['observed_features']]
+                    if missing:raise ValueError('unmeasured source primitive '+pipe+'/'+','.join(missing))
+                val=graph_time(sample['input_graph'],entry['rates']);replay=graph_time(sample['graph'],entry['rates'])
+                if not math.isfinite(val) or val<=0:raise ValueError('invalid source graph prediction')
+                critical=source.critical_phases(sample['input_graph'],entry['rates']);release_graph_pages(sample['input_graph'])
+                result.update(branch_status='predicted',branch_predicted_us=val,branch_ape_percent=100*abs(val/float(row['duration_us'])-1),
+                              branch_declared_tiling_predicted_us=replay,branch_declared_tiling_ape_percent=100*abs(replay/float(row['duration_us'])-1),
+                              branch_implementation=sample['cost_class'].split('|')[0],branch_cost_class=sample['cost_class'],
+                              branch_unidentified_pipe_terms='|'.join(p for p,x in entry['pipes'].items() if x['rank']<x['terms']),
+                              branch_direct_class_samples=len(entry['calibration_inputs']),
+                              branch_adapter_us=critical.get('drop_adapter',0),branch_startup_us=critical.get('startup',0),
+                              branch_critical_path_phase_us=json.dumps(critical,sort_keys=True),
+                              branch_matmul_geometry_differences='|'.join(sample['geometry_differences']))
+                for pipe,values in sample['input_features'].items():
+                    estimated=sum(v*entry['pipes'][pipe]['coefficients'].get(n,0) for n,v in values.items());actual=sample['targets'][pipe]
+                    result[f'branch_{pipe}_active_sum_us']=estimated
+                    result[f'branch_{pipe}_ape_percent']=100*abs(estimated/actual-1) if actual>0 else None
+                    if pipe in ('cscalar','vscalar'):result[f'branch_{pipe}_polling_and_unmodeled_busy_us']=actual-estimated
+            except (ValueError,RuntimeError,KeyError) as error:result['branch_error']=str(error)
+            result.pop('inputs',None);results.append(result)
+        print(f'BRANCH EVALUATED {len(results)}/{len(evaluation)}',flush=True)
+    final_model=fit_costs(prepared,hardware)
+    final_model.update(training_inputs=sorted(r['input_sha256'] for r in prepared),sdk_api_sha256=tiler()[1],source_files=FILES,
+                       validation='four folds by all inputs sharing complete (S1,S2); all calibration priors exclude heldout groups',
+                       calibration_geometry='recorded Host fields; CPU API fills fields not present in the exported trace',
+                       inference_calibration='immutable artifact; inputs and CPU tiling only; no runtime refitting',
+                       scope='dense FA and uniform TND; per-implementation controller, per-buffer hazards, operand cache and engine queues',
+                       stage_costs_independently_measured=False,qualification='cross-validated source-operation model; accuracy is reported per family and input',
+                       optimizer_policy='nonnegative operation rates; Scalar PMU upper constraints; source-matched primitive priors; no per-shape lookup or total-time scale factor')
+    output_dir.mkdir(parents=True,exist_ok=True);fields=list(dict.fromkeys(k for r in results for k in r))
+    with (output_dir/'branch_predictions.csv').open('w',newline='') as stream:
+        writer=csv.DictWriter(stream,fieldnames=fields,lineterminator='\n');writer.writeheader();writer.writerows(sorted(results,key=lambda r:r['case']))
+    report={'groups':{},'source_sha256':signature(),'feature_failures':rejected,'new_npu_measurements':0,
+            'kernel_latency_used_for_cost_fit':True,'heldout_latency_used_for_fit':False,'development_replay_after_inspection':True,
+            'hardware':hardware,'data_inventory':inventory,'evaluation':final_model['validation']}
+    for group in sorted({r.get('collection_group') or r['family'] for r in results}):
+        selected=[r for r in results if (r.get('collection_group') or r['family'])==group]
+        report['groups'][group]=_summary(selected)
+        report['groups'][group]['by_layout']={layout:_summary([r for r in selected if r['layout']==layout]) for layout in sorted({r['layout'] for r in selected})}
+        summary=report['groups'][group]
+        print(f"BRANCH RESULT {group}: predicted={summary['predicted']}/{summary['cases']} MdAPE={summary['median_ape_percent']}% "+' '.join(f'>{limit}%={v["count"]}/{summary["predicted"]}' for limit,v in summary['above'].items()),flush=True)
+    final_model['cross_validation']=report['groups'];source.cost.save_json(model_path,final_model);source.cost.save_json(output_dir/'branch_evaluation.json',report)
+    print(f'BRANCH_MODEL={model_path}\nBRANCH_PREDICTIONS={output_dir/"branch_predictions.csv"}',flush=True)
     return report
 
 
@@ -909,7 +1171,7 @@ def freeze_case(case, hardware, directory):
         model_sha = source.cost.sha256(model)
         item["model_sha256"] = model_sha
         result = predict(case["inputs"], model)
-        result["prediction_quality"] = "experimental_branch_model_with_unidentified_stage_costs"
+        result["prediction_quality"] = "source_operation_graph_with_grouped_validation"
         item.update(status="predicted", result=result)
         state["models"][model_sha] = model
     except (ValueError, RuntimeError, KeyError, OSError, subprocess.SubprocessError) as error:
