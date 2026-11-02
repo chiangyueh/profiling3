@@ -314,6 +314,8 @@ def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
         *(f"predicted_{phase}_critical_us" for phase in ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")),
         "duration_us", "round1_us", "round2_us", "round3_us", "sample_count",
         "ci95_low_us", "ci95_high_us", "stable", "checked_elements", "max_abs_error",
+        "validation_version", "dtype_unit_roundoff", "failed_elements", "failed_rows",
+        "max_element_budget_ratio", "max_row_rmse_ratio", "first_failure_json",
         "status", "stage", "error", "family_error", "predicted_us", "ape_percent", "pass_10_percent",
         "case", "model_sha256", "prediction_before_measurement",
         "case_wall_seconds", "host_wall_seconds", "build_wall_seconds", "profile_wall_seconds", *KEY_REPORT_FIELDS,
@@ -348,6 +350,10 @@ def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
                 result[f"round{index}_us"] = value
             correctness = row.get("correctness") or {}
             result.update(checked_elements=correctness.get("checked_elements", ""), max_abs_error=correctness.get("max_abs_error", ""))
+            result.update({field: correctness.get(field, "") for field in
+                           ("validation_version", "dtype_unit_roundoff", "failed_elements", "failed_rows",
+                            "max_element_budget_ratio", "max_row_rmse_ratio")})
+            result["first_failure_json"] = json.dumps(correctness["first_failure"], sort_keys=True) if correctness.get("first_failure") else ""
             effective = row.get("effective_tiling") or {}
             if isinstance(effective, str):
                 effective = json.loads(effective)
@@ -491,6 +497,30 @@ def tensor_indices(p: dict, b: int, h: int, rows: np.ndarray, heads: int, sequen
     return ((rows[:, None] * p["B"] + b) * heads + h) * width + columns
 
 
+class NumericalValidationError(RuntimeError):
+    def __init__(self, result: dict):
+        self.result = result
+        super().__init__("independent numerical spot-check failed: " + json.dumps(result["first_failure"], sort_keys=True))
+
+
+def numerical_row(actual: np.ndarray, golden: np.ndarray, moment: np.ndarray, dtype: str) -> dict:
+    error = np.abs(actual - golden)
+    allowance = 1e-4 + 0.01 * np.abs(golden)
+    unit_roundoff = 2.0 ** -8 if dtype == "BF16" else 0.0
+    allowance += unit_roundoff * moment
+    finite = bool(np.all(np.isfinite(actual)))
+    element_ratio = float(np.max(error / allowance)) if finite else None
+    rmse = float(np.sqrt(np.mean(error * error))) if finite else None
+    row_limit = 1e-4 + 0.01 * float(np.sqrt(np.mean(golden * golden)))
+    row_ratio = rmse / row_limit if finite else None
+    failed = ~np.isfinite(actual) | (error > allowance)
+    passed = finite and not np.any(failed) and (dtype != "BF16" or row_ratio <= 1)
+    return {"passed": bool(passed), "failed_elements": int(np.count_nonzero(failed)),
+            "max_abs_error": float(np.max(error)) if finite else None,
+            "max_element_budget_ratio": element_ratio, "max_row_rmse_ratio": row_ratio,
+            "dtype_unit_roundoff": unit_roundoff}
+
+
 def check_output(inputs: dict) -> dict:
     p = cost.normalize(inputs)
     path = Path("output/output.bin")
@@ -500,6 +530,10 @@ def check_output(inputs: dict) -> dict:
     output = np.memmap(path, dtype=np.float32, mode="r")
     checked = 0
     max_error = 0.0
+    validation = {"validation_version": "fp64_attention_bf16_probability_budget_v1",
+                  "method": "independent FP64 attention; BF16 probability-cast budget u*sum(abs(P*V)); row RMSE guard",
+                  "failed_elements": 0, "failed_rows": 0, "max_element_budget_ratio": 0.0,
+                  "max_row_rmse_ratio": 0.0, "dtype_unit_roundoff": 2.0 ** -8 if p["dtype"] == "BF16" else 0.0}
     key_positions = np.arange(p["S2"], dtype=np.int64)
     for batch in sorted({0, p["B"] - 1}):
         for head in sorted({0, p["N1"] - 1}):
@@ -517,13 +551,26 @@ def check_output(inputs: dict) -> dict:
                     mask = (packed >> (bit_indices % 8)) & 1
                     weights *= mask / 0.9
                 golden = weights @ values
+                moment = weights @ np.abs(values) if p["dtype"] == "BF16" else np.zeros_like(golden)
                 indices = tensor_indices(p, batch, head, np.array([query]), p["N1"], p["S1"], p["DV"])[0]
                 actual = np.asarray(output[indices], dtype=np.float64)
-                if not np.all(np.isfinite(actual)) or not np.allclose(actual, golden, rtol=0.01, atol=1e-4):
-                    raise RuntimeError(f"independent numerical spot-check failed: b={batch} h={head} q={query}")
-                max_error = max(max_error, float(np.max(np.abs(actual - golden))))
+                result = numerical_row(actual, golden, moment, p["dtype"])
+                if not result["passed"] and "first_failure" not in validation:
+                    index = int(np.argmax(np.where(np.isfinite(actual), np.abs(actual - golden), np.inf)))
+                    validation["first_failure"] = {"b": batch, "h": head, "q": query, "column": index,
+                        "actual": float(actual[index]) if np.isfinite(actual[index]) else str(actual[index]),
+                        "reference": float(golden[index]), **result}
+                validation["failed_rows"] += int(not result["passed"])
+                validation["failed_elements"] += result["failed_elements"]
+                max_error = max(max_error, result["max_abs_error"] or 0.0)
+                for field in ("max_element_budget_ratio", "max_row_rmse_ratio"):
+                    if result[field] is not None:
+                        validation[field] = max(validation[field], result[field])
                 checked += p["DV"]
-    return {"method": "independent FP64 attention over all K/V positions for sampled query rows", "checked_elements": checked, "max_abs_error": max_error}
+    validation.update(checked_elements=checked, max_abs_error=max_error)
+    if validation["failed_rows"]:
+        raise NumericalValidationError(validation)
+    return validation
 
 
 def profiler_samples(path: Path, key: int) -> list[float]:
@@ -770,6 +817,8 @@ def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path
         print(f"CASE OK: {name} actual_us={row['duration_us']:.6f} stable={row['stable']} error_percent={row.get('ape_percent', '')} pass_10_percent={row.get('pass_10_percent', '')}", flush=True)
     except Exception as error:
         row.update(status="failed", stage=stage, error=str(error))
+        if isinstance(error, NumericalValidationError):
+            row["correctness"] = error.result
         print(f"CASE FAILED: {name} stage={stage} error={error}", flush=True)
     if case["split"] == "external":
         now = time.monotonic()

@@ -1384,12 +1384,103 @@ def build_models(paths: list[Path], output_dir: Path, sameab_model: Path) -> dic
     return report
 
 
+def evaluate_frozen_routes(paths: list[Path], output_dir: Path, model_path: Path) -> dict:
+    artifact = json.loads(model_path.read_text())
+    model_sha = input_cost.sha256(artifact)
+    exposed = set().union(*(set(artifact.get(key, [])) for key in
+                            ("training_shapes", "exposed_shapes", "heldout_shapes")))
+    accepted, excluded, columns = {}, Counter(), []
+    for path in paths:
+        with path.open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            columns = list(dict.fromkeys(columns + list(reader.fieldnames or [])))
+            for raw in reader:
+                if raw.get("status") != "ok":
+                    error = raw.get("error", "")
+                    reason = "profiler_failure" if "profiler" in error.lower() else "numerical_validation_failure" if "numerical spot-check failed" in error else "other_failure"
+                    excluded[reason] += 1
+                    continue
+                try:
+                    inputs = input_cost.normalize({field: raw[field] for field in SHAPE_FIELDS})
+                    positive(raw["duration_us"], "duration_us")
+                    integer(raw["checked_elements"], "checked_elements")
+                    if raw.get("pmu_complete", "True").lower() not in ("true", "1"):
+                        raise ValueError("required PMU data are incomplete")
+                except (ValueError, KeyError, TypeError) as error:
+                    excluded["invalid_or_incomplete_record"] += 1
+                    continue
+                accepted[input_cost.sha256(inputs)] = (raw, inputs)
+    predictions = []
+    for identity, (raw, inputs) in accepted.items():
+        result = {**raw, "previously_exposed_input": identity in exposed,
+                  "evaluation_status": "unavailable", "evaluation_mode": "existing_model_evaluated_after_measurement",
+                  "evaluated_model_sha256": model_sha, "evaluation_error": ""}
+        try:
+            for name, expected in artifact["hardware"].items():
+                if name in raw and str(raw[name]) != str(expected):
+                    raise ValueError(f"measurement and predictor hardware differ: {name}")
+            saved = (raw.get("collection_group") == "same_ab"
+                     and raw.get("prediction_before_measurement", "").lower() == "true"
+                     and bool(raw.get("model_sha256")) and bool(raw.get("predicted_us")))
+            if saved:
+                predicted = positive(raw["predicted_us"], "predicted_us")
+                result.update(evaluation_mode="saved_prediction_before_measurement",
+                              evaluated_model_sha256=raw["model_sha256"])
+            else:
+                prediction = predict_route(inputs, artifact)
+                predicted = positive(prediction["predicted_us"], "predicted_us")
+                result.update(model_sha256=model_sha, prediction_before_measurement=False,
+                              prediction_status="evaluated_existing_development_model",
+                              model_scope="legacy_route_development",
+                              prediction_quality="evaluated_after_measurement_without_refitting",
+                              extrapolated_inputs="|".join(prediction.get("extrapolated_inputs", [])))
+            actual = float(raw["duration_us"])
+            error = 100 * abs(predicted / actual - 1)
+            result.update(evaluation_status="predicted", predicted_us=predicted, ape_percent=error,
+                          pass_10_percent=error <= 10, evaluation_error="")
+        except (ValueError, RuntimeError, KeyError) as error:
+            result.update(evaluation_error=str(error))
+        predictions.append(result)
+    if not predictions:
+        raise ValueError("no numerically checked records with complete PMU data")
+    report = {"input_rows_excluded": dict(excluded), "valid_shapes": len(predictions),
+              "coefficient_fit_performed": False, "npu_measurements_performed": False,
+              "route_model_sha256": model_sha,
+              "evaluation": "saved SameAB forecasts plus existing route development model; other branch predictions were computed after measurement",
+              "groups": {}}
+    for group in sorted({row.get("collection_group") or row["family"] for row in predictions}):
+        selected = [row for row in predictions if (row.get("collection_group") or row["family"]) == group]
+        good = [row for row in selected if row["evaluation_status"] == "predicted"]
+        stable = [row for row in good if str(row.get("stable", "")).lower() == "true"]
+        report["groups"][group] = {"all": route_metrics(good), "stable_only": route_metrics(stable),
+                                   "unavailable": len(selected) - len(good),
+                                   "previously_exposed_inputs": sum(row["previously_exposed_input"] for row in selected)}
+        metrics = report["groups"][group]["all"]
+        print(f"{group}: predicted={len(good)}/{len(selected)} MAPE={metrics['mape_percent']}% max={metrics['max_ape_percent']}% within10={metrics['pass_10_percent']}", flush=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    extra = ("evaluation_status", "evaluation_mode", "evaluated_model_sha256", "previously_exposed_input", "evaluation_error")
+    fields = list(dict.fromkeys(columns + list(extra)))
+    destination = output_dir / "valid_predictions.csv"
+    with destination.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(predictions)
+    input_cost.save_json(output_dir / "frozen_evaluation.json", report)
+    print(f"VALID_PREDICTIONS={destination}", flush=True)
+    print(f"EXCLUDED={dict(excluded)}; no fitting or NPU execution", flush=True)
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("csv", nargs="*", type=Path, default=[Path("output/fa_working_routes_latency_v1/routes.csv")])
     parser.add_argument("--output-dir", type=Path, default=Path("output") / MODEL_VERSION)
     parser.add_argument("--sameab-model", type=Path, default=Path("output/sameab_latency_model_v1/model.json"))
+    parser.add_argument("--evaluate-model", type=Path)
     args = parser.parse_args()
+    if args.evaluate_model is not None:
+        evaluate_frozen_routes(args.csv, args.output_dir, args.evaluate_model)
+        return
     with args.csv[0].open(newline="") as source:
         columns = next(csv.reader(source))
     if "s1_base" in columns and all(name in columns for name in SHAPE_FIELDS):
