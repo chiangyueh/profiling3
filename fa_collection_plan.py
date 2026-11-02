@@ -202,7 +202,10 @@ def execute(collector, plan, hardware, forecasts, directory):
                 case_model = forecasts["model"]
                 if group != "same_ab" and (ROOT / "fa_branch_model.json").is_file():
                     import fa_branch_latency as branches
-                    item, case_model = branches.freeze_case(case, hardware, directory)
+                    try:
+                        item, case_model = branches.freeze_case(case, hardware, directory)
+                    except Exception as error:
+                        item, case_model = {"status": "unavailable", "error": str(error)}, None
                 prediction = item.get("result") if item.get("status") == "predicted" else None
                 case["derived_schedule"].update(prediction_status=item.get("status", "unmodeled_branch"),
                                                 prediction_error=item.get("error", ""))
@@ -210,7 +213,8 @@ def execute(collector, plan, hardware, forecasts, directory):
                     if prediction.get("implementation"):
                         case["derived_schedule"]["branch_prediction_json"] = json.dumps({name: prediction.get(name) for name in
                             ("implementation", "cost_class", "unidentified_pipe_terms", "execution_events",
-                             "phase_pipe_active_us", "max_resource_bytes", "adapter_us", "startup_us")}, sort_keys=True)
+                             "phase_pipe_active_us", "phase_pipe_active_scope", "max_resource_bytes", "adapter_us", "startup_us",
+                             "calibration_sdk_api_sha256", "prediction_sdk_api_sha256", "sdk_api_matches_calibration")}, sort_keys=True)
                     case["derived_schedule"]["prediction_extrapolated_inputs"] = prediction.get("out_of_calibration_range", [])
                     case["derived_schedule"].update({f"predicted_{phase}_critical_us": value
                                                     for phase, value in prediction.get("critical_path_phase_us", {}).items()})
@@ -257,7 +261,9 @@ def execute(collector, plan, hardware, forecasts, directory):
                   and row.get("predicted_us") and row.get("duration_us")]
     errors = [100 * abs(float(row["predicted_us"]) / float(row["duration_us"]) - 1) for row in validation]
     if errors:
-        print(f"SAMEAB VALIDATION: measured_predictions={len(errors)}/20 MAPE={statistics.mean(errors):.4f}% max_error={max(errors):.4f}%; frozen model was not recalibrated", flush=True)
+        bands = " ".join(f">{limit}%={sum(value > limit for value in errors)}/{len(errors)}" for limit in (10, 20, 30))
+        print(f"SAMEAB VALIDATION: measured_predictions={len(errors)}/20 MdAPE={statistics.median(errors):.4f}% "
+              f"MAPE={statistics.mean(errors):.4f}% max_error={max(errors):.4f}%; {bands}; frozen model was not recalibrated", flush=True)
 
 
 def run(collector, npu_id, report_only=False):

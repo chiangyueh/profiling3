@@ -23,7 +23,7 @@ import fa_latency_model as source
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "fa_branch_execution_v1"
+VERSION = "fa_branch_execution_v2"
 MODEL = ROOT / "fa_branch_model.json"
 FILES = {"b": ("flash_attention_score_bn2gs1s2_b.h", 544),
          "s1": ("flash_attention_score_s1_bn2gs1.h", 880),
@@ -132,6 +132,12 @@ class Work:
             q_carried = p["layout"] == "TND" and s["l1"] and stage == 0 and offset > 0
             job = source.cube_job(p, s, self.mm[stage], stage * 2, rows, columns, heads, kv_heads,
                                   shared, carried, q_carried)
+            if s["same_ab"] and s["policy"] == "UNSPLITK":
+                mm = self.mm[stage]
+                mt = source.cost.ceil_div(rows, mm["base_m"])
+                nt = source.cost.ceil_div(columns if stage == 0 else p["DV"], mm["base_n"])
+                kt = source.cost.ceil_div(p["D"] if stage == 0 else columns, mm["base_k"])
+                job["loads"] = source.cost.ceil_div(mt * kt, 2) + source.cost.ceil_div(nt * kt, 2)
             if p["layout"] == "TND" and s["l1"] and not s["same_ab"]:
                 parts = [min(256, columns - first) for first in range(0, columns, 256)]
                 job["loads"] = (0 if q_carried else 1) + len(parts) if stage == 0 else 2 * len(parts)
@@ -220,8 +226,7 @@ def workload(inputs, hardware):
     work.pairs = (batch_work(work) if name == "b" else s1_work(work) if name == "s1"
                   else general_work(work) if name == "general" else varlen_work(work))
     if name == "same_ab":
-        original = source.workload(work.p, hardware)
-        work.pairs = [[tasks] for tasks in original["workers"]]
+        work.pairs = [[tasks] for pair in work.pairs for tasks in pair]
     return work
 
 
@@ -317,6 +322,7 @@ class PairExecutor:
         self.position = [0] * len(self.workers)
         self.blocked, self.ready, self.finished = {}, set(), {}
         self.vector_ready = set()
+        self.issue_remaining = Counter()
         self.events, self.queues, self.busy, self.flows, self.remaining = [], defaultdict(deque), set(), {}, {}
         self.call_waiting, self.call_remaining = {}, Counter()
         self.serial, self.flow_id = 0, 0
@@ -340,6 +346,7 @@ class PairExecutor:
                 self.pipeline.extend((owner, step, 0) for owner in owners if step < len(self.workers[owner]))
                 self.pipeline.extend((owner, step - 1, 2) for owner in owners if 0 <= step - 1 < len(self.workers[owner]))
         self.start = start
+        self.last_event = start
 
     def service(self, job, pipe):
         key = id(job), pipe
@@ -358,6 +365,10 @@ class PairExecutor:
         item = self.flows[flow]
         group = item["group"]
         output = item["output"]
+        if pipe == "mte2" and group[2] == 2 and not self.workers[group[0]][group[1]].get("fake"):
+            required = range(2) if self.same else (group[0],)
+            if any((peer, group[1]) not in self.vector_ready for peer in required):
+                return
         if pipe == "cube" and not output.get("c_allocated") and (self.c_bytes + item["c_bytes"] > self.l0c_limit
                                or self.live_c[group] >= item["db_l0c"]):
             return
@@ -413,6 +424,8 @@ class PairExecutor:
         pipes = ("cscalar", "mte2", "mte1", "cube", "fixpipe") if cube else ("vscalar", "vmte2", "vector", "vmte3")
         group = owner, task, stage
         self.remaining[group] = count
+        if not cube:
+            self.issue_remaining[group] = count
         phase = ("bmm1", "vec1", "bmm2", "vec2")[stage]
         durations = {}
         for pipe in pipes:
@@ -499,6 +512,7 @@ class PairExecutor:
             self.advance(owner, self.start)
         while self.events:
             now, _, flow = heapq.heappop(self.events)
+            self.last_event = now
             item = self.flows[flow]
             resource = item["steps"][item["position"]][0]
             self.busy.remove(resource)
@@ -521,6 +535,12 @@ class PairExecutor:
             self.pump(("cube", 0), now)
             self.pump(("mte1", 0), now)
             self.pump(("mte2", 0), now)
+            if resource[0] == "vscalar":
+                group = item["group"]
+                self.issue_remaining[group] -= 1
+                if not self.issue_remaining[group]:
+                    del self.issue_remaining[group]
+                    self.advance(group[0], now)
             if resource[0] == "vmte3":
                 self.pump(("vmte2", resource[1]), now)
             item["position"] += 1
@@ -556,10 +576,12 @@ class PairExecutor:
                     self.vector_ready.add((owner, task))
                     if self.controlled:
                         self.pump_controller(now)
-                self.advance(owner, now)
-        if len(self.finished) != len(self.workers) or self.flows or self.blocked or self.l0c_used or self.l0ab_used or self.l1_bytes:
+                    self.pump(("mte2", 0), now)
+        if (len(self.finished) != len(self.workers) or self.flows or self.blocked or self.l0c_used or self.l0ab_used
+                or self.l1_bytes or self.busy or any(self.queues.values()) or self.issue_remaining or self.remaining
+                or any(self.ub_live.values()) or any(self.ub_bytes.values()) or any(self.call_remaining.values())):
             raise RuntimeError(f"undrained {self.name} program: workers={len(self.finished)}/{len(self.workers)} blocked={self.blocked}")
-        return {"predicted_us": max(self.finished.values()), "phase_pipe_active_us": {f"{a}.{b}": v for (a, b), v in self.phase_active.items()},
+        return {"predicted_us": max(self.last_event, max(self.finished.values())), "phase_pipe_active_us": {f"{a}.{b}": v for (a, b), v in self.phase_active.items()},
                 "execution_events": dict(self.event_counts), "l0c_capacity_bytes": self.l0c_limit,
                 "max_resource_bytes": dict(self.max_resource_bytes)}
 
@@ -583,10 +605,9 @@ def predict_work(work, model):
         if missing:
             raise ValueError(f"unmeasured primitive costs: {key}/{pipe}/" + ",".join(missing))
     prefix = adapter_time(work, costs)
-    startup = max(costs["cscalar"]["coefficients"].get("workers", 0), costs["vscalar"]["coefficients"].get("workers", 0))
-    if work.p["layout"] == "TND":
-        startup += work.p["B"] * max(costs["cscalar"]["coefficients"].get("batch_entries", 0),
-                                     costs["vscalar"]["coefficients"].get("batch_entries", 0))
+    startup = max(costs[pipe]["coefficients"].get("workers", 0)
+                  + (work.p["B"] * costs[pipe]["coefficients"].get("batch_entries", 0)
+                     if work.p["layout"] == "TND" else 0) for pipe in ("cscalar", "vscalar"))
     cache, results = {}, []
     for pair in work.pairs:
         identity = tuple(tuple(id(job) for job in tasks) for tasks in pair)
@@ -596,7 +617,10 @@ def predict_work(work, model):
     result = max(results, key=lambda value: value["predicted_us"])
     return {**result, "adapter_us": prefix, "startup_us": startup,
             "implementation": implementation(work.p, work.s), "cost_class": key,
+            "phase_pipe_active_scope": "sum on the critical Cube/Vector pair; neither whole-device sums nor stage wall times",
             "matmul": work.mm, "schedule": work.s,
+            "calibration_sdk_api_sha256": model.get("sdk_api_sha256"), "prediction_sdk_api_sha256": tiler()[1],
+            "sdk_api_matches_calibration": model.get("sdk_api_sha256") == tiler()[1],
             "unidentified_pipe_terms": [pipe for pipe, data in costs.items() if data["rank"] < data["terms"]],
             "target": "kernel task duration; PMU active sums are not standalone stage wall times"}
 
@@ -650,30 +674,46 @@ def _number(value):
         return None
 
 
-def records(paths):
-    rows, hardware = {}, None
+def records(paths, audit=None):
+    rows, hardware, pending = {}, None, []
     names = ("soc", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes")
     for path in paths:
         if not path.is_file():
             continue
+        counts = Counter()
         with path.open(newline="") as stream:
-            for row in csv.DictReader(stream):
+            loaded = json.load(stream).get("measurements", []) if path.suffix == ".json" else csv.DictReader(stream)
+            for row in loaded:
                 if row.get("status") != "ok" or (_number(row.get("checked_elements")) or 0) <= 0:
+                    counts["failed_or_no_numerical_check"] += 1
                     continue
                 if (_number(row.get("duration_us")) or 0) <= 0:
+                    counts["no_latency"] += 1
                     continue
                 if any(_number(row.get(target)) is None for target, _ in source.PIPES.values()):
+                    counts["incomplete_pmu"] += 1
                     continue
-                observed = {name: row[name] if name == "soc" else int(row[name]) for name in names}
-                if hardware is not None and observed != hardware:
-                    raise ValueError("branch data mix different hardware")
-                hardware = observed
-                p = source.cost.normalize({name: row[name] for name in source.cost.INPUT_FIELDS})
-                identity = source.cost.sha256(p)
-                rows[identity] = {**row, "inputs": p, "input_sha256": identity,
-                                  "sequence_group": source.cost.sha256({name: p[name] for name in ("S1", "S2")})}
+                if str(row.get("official_tiling", "true")).lower() == "false":
+                    counts["candidate_tiling_not_determined_by_inputs"] += 1
+                    continue
+                observed = {name: row[name] if name == "soc" else int(row[name]) for name in names if row.get(name) not in (None, "")}
+                if len(observed) == len(names):
+                    if hardware is not None and observed != hardware:
+                        raise ValueError("branch data mix different hardware")
+                    hardware = observed
+                pending.append((row, observed))
+                counts["accepted_measurements"] += 1
+        if audit is not None:
+            audit.append({"file": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "counts": dict(counts)})
     if hardware is None:
-        raise ValueError("no valid independent numerical checks and complete pipe PMU measurements")
+        raise ValueError("no complete hardware metadata with valid numerical checks and PMU measurements")
+    for row, observed in pending:
+        if any(hardware[name] != value for name, value in observed.items()):
+            raise ValueError("branch data mix different hardware")
+        p = source.cost.normalize({name: row[name] for name in source.cost.INPUT_FIELDS})
+        identity = source.cost.sha256(p)
+        rows[identity] = {**row, "inputs": p, "input_sha256": identity,
+                          "sequence_group": source.cost.sha256({name: p[name] for name in ("S1", "S2")})}
     return list(rows.values()), hardware
 
 
@@ -691,7 +731,8 @@ def _summary(rows):
 def build_and_evaluate(paths, evaluation_path, output_dir, model_path=MODEL):
     if hasattr(os, "sched_getaffinity"):
         os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
-    historical, hardware = records(paths)
+    inventory = []
+    historical, hardware = records(paths, inventory)
     evaluation, observed = records([evaluation_path])
     if hardware != observed:
         raise ValueError("calibration and evaluation hardware differ")
@@ -709,8 +750,6 @@ def build_and_evaluate(paths, evaluation_path, output_dir, model_path=MODEL):
     for index, row in enumerate(raw.values(), 1):
         if cached.get("identity") == feature_identity:
             break
-        if row.get("collection_group") == "same_ab":
-            continue
         try:
             work = workload(row["inputs"], hardware)
             if int(row["priority"]) != work.s["priority"]:
@@ -742,39 +781,39 @@ def build_and_evaluate(paths, evaluation_path, output_dir, model_path=MODEL):
                   "branch_predicted_us": None, "branch_ape_percent": None,
                   "branch_error": "", "total_latency_used_for_fit": False}
         p = row["inputs"]
+        if row.get("prediction_before_measurement", "").lower() == "true" and row.get("predicted_us"):
+            result.update(original_frozen_predicted_us=float(row["predicted_us"]),
+                          original_frozen_model_sha256=row.get("model_sha256"),
+                          original_frozen_ape_percent=100 * abs(float(row["predicted_us"]) / float(row["duration_us"]) - 1))
         try:
-            if row.get("collection_group") == "same_ab" and row.get("prediction_before_measurement", "").lower() == "true":
-                result.update(branch_predicted_us=float(row["predicted_us"]), branch_evaluation="original_frozen_sameab_prediction",
-                              branch_model_sha256=row["model_sha256"])
-            else:
-                fold = int(row["sequence_group"][:8], 16) % folds
-                model = models[fold]
-                assert row["sequence_group"] not in {r["sequence_group"] for r in prepared
-                                                     if int(r["sequence_group"][:8], 16) % folds != fold}
-                work = workload(p, hardware)
-                prediction = predict_work(work, model)
-                result.update(branch_predicted_us=prediction["predicted_us"], branch_implementation=prediction["implementation"],
-                              branch_cost_class=prediction["cost_class"], branch_fold=fold,
-                              branch_model_sha256=source.cost.sha256(model),
-                              branch_unidentified_pipe_terms="|".join(prediction["unidentified_pipe_terms"]),
-                              branch_adapter_us=prediction["adapter_us"], branch_startup_us=prediction["startup_us"],
-                              branch_execution_events=json.dumps(prediction["execution_events"], sort_keys=True),
-                              branch_resource_bytes=json.dumps(prediction["max_resource_bytes"], sort_keys=True),
-                              branch_predicted_phase_pipe_active_us=json.dumps(prediction["phase_pipe_active_us"], sort_keys=True))
-                measured = []
-                for stage, mm in enumerate(work.mm, 1):
-                    for key, value in mm.items():
-                        name = f"bmm{stage}_{key}"
-                        if name in row and _number(row[name]) is not None and int(row[name]) != value:
-                            measured.append(f"{name}:{value}!={row[name]}")
-                result["branch_matmul_geometry_differences"] = "|".join(measured)
-                for pipe, values in active_features(work).items():
-                    data = model["classes"][prediction["cost_class"]]["pipes"][pipe]
-                    estimated = sum(value * data["coefficients"].get(name, 0) for name, value in values.items())
-                    actual = float(row[source.PIPES[pipe][0]])
-                    result[f"branch_{pipe}_active_sum_us"] = estimated
-                    result[f"branch_{pipe}_ape_percent"] = 100 * abs(estimated / actual - 1) if actual > 0 else None
-                del work
+            fold = int(row["sequence_group"][:8], 16) % folds
+            model = models[fold]
+            assert row["sequence_group"] not in {r["sequence_group"] for r in prepared
+                                                 if int(r["sequence_group"][:8], 16) % folds != fold}
+            work = workload(p, hardware)
+            prediction = predict_work(work, model)
+            result.update(branch_predicted_us=prediction["predicted_us"], branch_implementation=prediction["implementation"],
+                          branch_cost_class=prediction["cost_class"], branch_fold=fold,
+                          branch_model_sha256=source.cost.sha256(model),
+                          branch_unidentified_pipe_terms="|".join(prediction["unidentified_pipe_terms"]),
+                          branch_adapter_us=prediction["adapter_us"], branch_startup_us=prediction["startup_us"],
+                          branch_execution_events=json.dumps(prediction["execution_events"], sort_keys=True),
+                          branch_resource_bytes=json.dumps(prediction["max_resource_bytes"], sort_keys=True),
+                          branch_predicted_phase_pipe_active_us=json.dumps(prediction["phase_pipe_active_us"], sort_keys=True))
+            measured = []
+            for stage, mm in enumerate(work.mm, 1):
+                for key, value in mm.items():
+                    name = f"bmm{stage}_{key}"
+                    if name in row and _number(row[name]) is not None and int(row[name]) != value:
+                        measured.append(f"{name}:{value}!={row[name]}")
+            result["branch_matmul_geometry_differences"] = "|".join(measured)
+            for pipe, values in active_features(work).items():
+                data = model["classes"][prediction["cost_class"]]["pipes"][pipe]
+                estimated = sum(value * data["coefficients"].get(name, 0) for name, value in values.items())
+                actual = float(row[source.PIPES[pipe][0]])
+                result[f"branch_{pipe}_active_sum_us"] = estimated
+                result[f"branch_{pipe}_ape_percent"] = 100 * abs(estimated / actual - 1) if actual > 0 else None
+            del work
             predicted, actual = result["branch_predicted_us"], float(row["duration_us"])
             if not math.isfinite(predicted) or predicted <= 0:
                 raise ValueError("nonpositive branch prediction")
@@ -790,7 +829,12 @@ def build_and_evaluate(paths, evaluation_path, output_dir, model_path=MODEL):
                        validation="four folds by complete (S1,S2) group; all layouts, dtypes, batches and heads of a sequence pair stay together",
                        cost_fit_excludes="all kernel total latency labels; rates are fitted to independent training PMU counters",
                        sdk_api_sha256=tiler()[1], source_files=FILES,
-                       scope="dense FA; uniform-length TND; no sparse/PSE/Rope/backward; SDK geometry differences are reported")
+                       scope="dense FA; uniform-length TND; no sparse/PSE/Rope/backward; SDK geometry differences are reported",
+                       inference_calibration="immutable artifact; no runtime refitting or loading measured latencies",
+                       limitations=["Scalar PMU includes KFC software polling; fitted Scalar busy is not identified useful issue service",
+                                    "aggregate Vector service does not identify the Muls/Softmax/Cast buffer-release boundaries",
+                                    "L1 queue slots do not yet reproduce operand-specific SDK cache lifetimes",
+                                    "stage active sums are estimates, not independently measured stage wall times"])
     output_dir.mkdir(parents=True, exist_ok=True)
     fields = list(dict.fromkeys(key for row in results for key in row))
     with (output_dir / "branch_predictions.csv").open("w", newline="") as stream:
@@ -799,7 +843,10 @@ def build_and_evaluate(paths, evaluation_path, output_dir, model_path=MODEL):
         writer.writerows(results)
     report = {"groups": {}, "source_sha256": signature(), "feature_failures": rejected,
               "new_npu_measurements": 0, "kernel_latency_used_for_cost_fit": False,
-              "evaluation": final_model["validation"], "hardware": hardware}
+              "evaluation": final_model["validation"], "hardware": hardware,
+              "data_inventory": inventory, "development_replay_after_inspection": True,
+              "original_frozen_predictions_preserved_separately": True,
+              "limitations": final_model["limitations"]}
     for group in sorted({row.get("collection_group") or row["family"] for row in results}):
         selected = [row for row in results if (row.get("collection_group") or row["family"]) == group]
         report["groups"][group] = _summary(selected)
@@ -827,36 +874,7 @@ def _load_forecast_model():
     model = json.loads(MODEL.read_text())
     if model.get("source_sha256") != signature():
         raise ValueError("branch model and execution code differ")
-    api = tiler()[1]
-    if model.get("sdk_api_sha256") == api:
-        return model
-    cached = ROOT / "out/fa_branch_host/model.json"
-    if cached.is_file():
-        saved = json.loads(cached.read_text())
-        if saved.get("source_sha256") == signature() and saved.get("sdk_api_sha256") == api:
-            return saved
-    print("BRANCH COSTS: CPU-only SDK adaptation from cached PMU; no NPU build or measurement", flush=True)
-    rows, hardware = records([ROOT / "output/fa_input_latency_v1/diagnostics.csv",
-                              ROOT / "output/fa_branch_collection/diagnostics.csv"])
-    if hardware != model["hardware"]:
-        raise ValueError("cached PMU hardware differs from the branch model")
-    samples = []
-    for row in rows:
-        if row.get("collection_group") == "same_ab":
-            continue
-        try:
-            work = workload(row["inputs"], hardware)
-        except (ValueError, RuntimeError, subprocess.SubprocessError):
-            continue
-        samples.append({"input_sha256": row["input_sha256"], "sequence_group": row["sequence_group"],
-                        "cost_class": cost_class(work.p, work.s), "features": active_features(work),
-                        "targets": {pipe: float(row[target]) for pipe, (target, _) in source.PIPES.items()}})
-    converted = fit_costs(samples, hardware)
-    converted.update(sdk_api_sha256=api, training_inputs=sorted(row["input_sha256"] for row in samples),
-                     validation="SDK adaptation uses cached PMU only; prospective forecasts remain to be validated",
-                     source_files=FILES, scope=model["scope"])
-    source.cost.save_json(cached, converted)
-    return converted
+    return model
 
 
 @lru_cache(maxsize=1)
@@ -874,7 +892,11 @@ def freeze_case(case, hardware, directory):
     if saved is not None:
         if saved["input_sha256"] != identity:
             raise ValueError("saved branch forecast belongs to another input")
-        return saved, state["models"].get(saved.get("model_sha256"))
+        saved_model = state["models"].get(saved.get("model_sha256"))
+        if saved.get("status") == "predicted" and (saved_model is None or any(
+                str(hardware.get(name)) != str(value) for name, value in saved_model["hardware"].items())):
+            raise ValueError("saved branch forecast belongs to another hardware configuration")
+        return saved, saved_model
     item = {"input_sha256": identity, "status": "unavailable"}
     model = None
     try:
@@ -887,7 +909,7 @@ def freeze_case(case, hardware, directory):
         model_sha = source.cost.sha256(model)
         item["model_sha256"] = model_sha
         result = predict(case["inputs"], model)
-        result["prediction_quality"] = "source_branch_execution_model"
+        result["prediction_quality"] = "experimental_branch_model_with_unidentified_stage_costs"
         item.update(status="predicted", result=result)
         state["models"][model_sha] = model
     except (ValueError, RuntimeError, KeyError, OSError, subprocess.SubprocessError) as error:
