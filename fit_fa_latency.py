@@ -8,9 +8,13 @@ import inspect
 import itertools
 import json
 import math
+import os
 import statistics
 from collections import Counter, deque
 from pathlib import Path
+
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
 
 import numpy as np
 
@@ -1506,7 +1510,13 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=Path("output") / MODEL_VERSION)
     parser.add_argument("--sameab-model", type=Path, default=Path("output/sameab_latency_model_v1/model.json"))
     parser.add_argument("--evaluate-model", type=Path)
+    parser.add_argument("--source-branches", action="store_true")
     args = parser.parse_args()
+    if args.source_branches:
+        import fa_branch_latency as branches
+        historical = args.csv[:-1] or [Path("output/fa_input_latency_v1/diagnostics.csv")]
+        branches.build_and_evaluate(historical, args.csv[-1], args.output_dir)
+        return
     if args.evaluate_model is not None:
         evaluate_frozen_routes(args.csv, args.output_dir, args.evaluate_model)
         return

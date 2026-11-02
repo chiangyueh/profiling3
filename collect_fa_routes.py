@@ -310,7 +310,7 @@ def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
     hardware_fields = ("soc", "physical_npu_id", "aic_cores", "aiv_cores", "l1_bytes", "l0c_bytes", "l2_bytes", "ub_bytes")
     fields = (
         "split", "family", "collection_group", "shape_distance_log2", "prediction_status", "prediction_error",
-        "actual_branch_json", "pmu_complete", *cost.INPUT_FIELDS, *hardware_fields, "priority", "tiling_key",
+        "actual_branch_json", "branch_prediction_json", "pmu_complete", *cost.INPUT_FIELDS, *hardware_fields, "priority", "tiling_key",
         *(f"predicted_{phase}_critical_us" for phase in ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")),
         "duration_us", "round1_us", "round2_us", "round3_us", "sample_count",
         "ci95_low_us", "ci95_high_us", "stable", "checked_elements", "max_abs_error",
@@ -336,7 +336,7 @@ def text_report(directory: Path, families: tuple = MODEL_FAMILIES) -> None:
             result.update(model_scope="|".join(families), **cross_validation.get(name, {}))
             derived = row.get("derived_schedule") or {}
             result.update({field: derived.get(field, "") for field in
-                           ("collection_group", "shape_distance_log2", "prediction_status", "prediction_error", "actual_branch_json", "pmu_complete")})
+                           ("collection_group", "shape_distance_log2", "prediction_status", "prediction_error", "actual_branch_json", "branch_prediction_json", "pmu_complete")})
             result.update({f"predicted_{phase}_critical_us": derived.get(f"predicted_{phase}_critical_us", "")
                            for phase in ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")})
             result.update({field: derived.get(field, "") for field in ("case_wall_seconds", "host_wall_seconds", "build_wall_seconds", "profile_wall_seconds")})

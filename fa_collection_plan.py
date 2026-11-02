@@ -199,10 +199,18 @@ def execute(collector, plan, hardware, forecasts, directory):
                     continue
                 attempted[group] += 1
                 item = forecasts["predictions"].get(case["name"], {})
+                case_model = forecasts["model"]
+                if group != "same_ab" and (ROOT / "fa_branch_model.json").is_file():
+                    import fa_branch_latency as branches
+                    item, case_model = branches.freeze_case(case, hardware, directory)
                 prediction = item.get("result") if item.get("status") == "predicted" else None
                 case["derived_schedule"].update(prediction_status=item.get("status", "unmodeled_branch"),
                                                 prediction_error=item.get("error", ""))
                 if prediction is not None:
+                    if prediction.get("implementation"):
+                        case["derived_schedule"]["branch_prediction_json"] = json.dumps({name: prediction.get(name) for name in
+                            ("implementation", "cost_class", "unidentified_pipe_terms", "execution_events",
+                             "phase_pipe_active_us", "max_resource_bytes", "adapter_us", "startup_us")}, sort_keys=True)
                     case["derived_schedule"]["prediction_extrapolated_inputs"] = prediction.get("out_of_calibration_range", [])
                     case["derived_schedule"].update({f"predicted_{phase}_critical_us": value
                                                     for phase, value in prediction.get("critical_path_phase_us", {}).items()})
@@ -210,7 +218,7 @@ def execute(collector, plan, hardware, forecasts, directory):
                 try:
                     print(f"INPUT {case['name']}: " + str(tuple(case["inputs"][field] for field in cost.INPUT_FIELDS)), flush=True)
                     collector.collect(case, hardware, directory, records, csv_path, ensured,
-                                      frozen=forecasts["model"] if prediction is not None else None,
+                                      frozen=case_model if prediction is not None else None,
                                       precomputed=prediction, build_failures=build_failures)
                     row = records[case["name"]]
                     row["derived_schedule"].update(case["derived_schedule"])
