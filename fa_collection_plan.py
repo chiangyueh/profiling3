@@ -7,6 +7,7 @@ import io
 import itertools
 import json
 import os
+import random
 import statistics
 import time
 from collections import Counter
@@ -312,6 +313,8 @@ def run(collector, npu_id, report_only=False):
     cost.save_json(path, manifest)
     print(f"NPU: physical {npu_id}; one CPU; serial case execution; no total runtime limit", flush=True)
     print("TARGETS " + " ".join(f"{group}={count}" for group, count in targets.items()), flush=True)
+    if focused and specification.get("measurement_repeats", 1) > 1:
+        print(f"RETEST: shapes={specification['shape_count']} new_collections={len(plan)}; repetitions are interleaved; original measurements are retained", flush=True)
     print(f"MEASUREMENT: rounds={collector.ROUNDS} launches={collector.REPEAT} launcher_warmup={collector.WARMUP} profiler_warmup={collector.WARMUP}", flush=True)
     env = collector.fa.run_env([], None)
     env.update(FA_DISCOVER_ONLY="1", FA_BUILD_JOBS="1")
@@ -325,6 +328,10 @@ def run(collector, npu_id, report_only=False):
     if focused:
         if any(str(hardware.get(key)) != str(value) for key, value in model["hardware"].items()):
             raise RuntimeError("physical NPU hardware differs from the frozen predictor")
+        if specification.get("measurement_repeats", 1) > 1:
+            for case in plan:
+                validation_forecast(case, forecasts, directory)
+            print("ALL FORECASTS FROZEN BEFORE THE FIRST MEASUREMENT; coefficients remain unchanged", flush=True)
         execute_validation(collector, plan, hardware, forecasts, directory)
         return
     forecasts = freeze(plan, specification["frozen_model"], hardware, directory)
@@ -340,20 +347,47 @@ def validation_design(specification):
         p = case["inputs"]
         identity, pair = cost.sha256(p), (p["S1"], p["S2"])
         s = source.schedule(p, hardware)
-        if identity in seen or identity in specification["previous_input_hashes"] or pair in excluded:
+        purpose = item.get("purpose", "new")
+        if identity in seen:
+            raise RuntimeError("duplicate base shape in the validation plan")
+        if purpose in ("retest", "control"):
+            if identity not in specification["previous_input_hashes"] or item.get("reference_input_sha256") != identity or item.get("reference_duration_us", 0) <= 0:
+                raise RuntimeError("retest requires an identified previous measurement of the same input")
+        elif purpose == "paired_control":
+            reference = cost.normalize(item.get("reference_inputs", {}))
+            changed = {name for name in cost.INPUT_FIELDS if p[name] != reference[name]}
+            if identity in specification["previous_input_hashes"] or not item.get("reference_case") or cost.sha256(reference) not in specification["previous_input_hashes"] or changed != set(item["changed_fields"]):
+                raise RuntimeError("paired control must be a new input with an explicit reference")
+        elif purpose != "new" or identity in specification["previous_input_hashes"] or pair in excluded:
             raise RuntimeError("validation input or sequence pair is repeated from previous data")
         if p["layout"] != "TND" or case["expected"] != 94 or s["same_ab"] or s["s1_base"] > 128 or max(p["D"], p["DV"]) > 256:
             raise RuntimeError("validation input does not select Varlen L1 from the official source conditions")
         if storage_bytes(p) > specification["max_tensor_bytes"]:
             raise RuntimeError("validation input exceeds the planned tensor memory bound")
-        case["derived_schedule"].update(stratum=item["stratum"], sequence_pair_unseen=True,
+        case["derived_schedule"].update(stratum=item["stratum"], sequence_pair_unseen=pair not in excluded,
                                         expected_implementation="varlen_l1")
+        if "purpose" in item:
+            case["derived_schedule"].update(base_case=case["name"], purpose=purpose,
+                reference_same_input=purpose in ("retest", "control"),
+                **{key: item.get(key, "") for key in ("reference_case", "reference_inputs", "reference_duration_us", "reference_tiling_key", "reference_predicted_us", "reference_physical_npu_id", "changed_fields", "hypothesis")})
         seen.add(identity)
         pairs.add(pair)
         plan.append(case)
     if len(plan) != specification["shape_count"] or len(pairs) != specification["sequence_pair_count"]:
         raise RuntimeError("validation shape counts differ from the committed plan")
-    return plan
+    repeats = specification.get("measurement_repeats", 1)
+    if repeats == 1:
+        return plan
+    repeated = []
+    for number in range(1, repeats + 1):
+        shuffled = list(plan)
+        random.Random(specification["order_seed"] + number).shuffle(shuffled)
+        for case in shuffled:
+            repeated.append({**case, "name": f"{case['name']}_r{number}",
+                             "derived_schedule": {**case["derived_schedule"], "measurement_round": number}})
+    if len(repeated) != specification["measurement_count"]:
+        raise RuntimeError("retest measurement count differs from the committed plan")
+    return repeated
 
 
 def validation_model(specification, directory):
@@ -395,6 +429,12 @@ def validation_forecast(case, forecasts, directory):
         if saved["input_sha256"] != identity or saved["model_sha256"] != forecasts["model_sha256"]:
             raise RuntimeError("saved forecast belongs to another input or model")
         return saved
+    for previous in forecasts["predictions"].values():
+        if previous.get("input_sha256") == identity and previous.get("model_sha256") == forecasts["model_sha256"] and previous.get("status") == "predicted":
+            item = {**previous, "reused_input_prediction": True}
+            forecasts["predictions"][case["name"]] = item
+            cost.save_json(directory / "predictions_before_measurement.json", forecasts)
+            return item
     item = {"input_sha256": identity, "model_sha256": forecasts["model_sha256"],
             "frozen_utc": datetime.now(timezone.utc).isoformat()}
     try:
@@ -459,11 +499,13 @@ def execute_validation(collector, plan, hardware, forecasts, directory):
                 route = validation_route(collector, case, folder, hardware)
                 case["probe_host_wall_seconds"] = time.monotonic() - started
                 stage = "measure"
+                case["derived_schedule"]["measurement_started_utc"] = datetime.now(timezone.utc).isoformat()
                 collector.profile_counters.cache_clear()
                 collector.collect(case, hardware, directory, records, csv_path, ensured,
                                   frozen=forecasts["model"] if prediction else None, precomputed=prediction,
                                   build_failures=failures, discovered_route=route)
                 row = records[name]
+                case["derived_schedule"]["measurement_finished_utc"] = datetime.now(timezone.utc).isoformat()
                 row["derived_schedule"].update(case["derived_schedule"])
                 row["derived_schedule"]["pmu_complete"] = extract_pmu(collector, directory, case, row)
             except Exception as error:
@@ -482,6 +524,39 @@ def execute_validation(collector, plan, hardware, forecasts, directory):
     print(f"CSV_REPORT={directory / 'diagnostics.csv'}", flush=True)
 
 
+def repeated_shapes(records, forecasts):
+    grouped = {}
+    for name, row in records.items():
+        derived = row.get("derived_schedule") or {}
+        if not derived.get("measurement_round") or row.get("status") != "ok" or float((row.get("correctness") or {}).get("checked_elements", 0)) <= 0:
+            continue
+        grouped.setdefault(derived["base_case"], []).append(row)
+    summaries = {}
+    for name, rows in grouped.items():
+        rows.sort(key=lambda row: int(row["derived_schedule"]["measurement_round"]))
+        samples = [float(row["duration_us"]) for row in rows]
+        middle = statistics.median(samples)
+        derived = rows[0]["derived_schedule"]
+        prediction = forecasts["predictions"].get(rows[0]["case"], {}).get("result", {}).get("predicted_us")
+        reference = float(derived.get("reference_duration_us") or 0) if derived.get("reference_same_input") else None
+        combined = samples + ([reference] if reference else [])
+        keys = {str(row.get("tiling_key")) for row in rows}
+        tilings = {row.get("effective_tiling") if isinstance(row.get("effective_tiling"), str)
+                   else json.dumps(row.get("effective_tiling"), sort_keys=True) for row in rows}
+        summaries[name] = {"purpose": derived["purpose"], "remeasurements_us": samples,
+            "remeasurement_count": len(samples), "remeasured_median_us": middle,
+            "remeasured_min_us": min(samples), "remeasured_max_us": max(samples),
+            "remeasured_span_percent": 100 * (max(samples) - min(samples)) / middle if len(samples) > 1 else None,
+            "all_measurements_median_us": statistics.median(combined),
+            "retest_ape_percent": 100 * abs(prediction / middle - 1) if prediction else None,
+            "reference_ape_percent": 100 * abs(prediction / reference - 1) if prediction and reference else None,
+            "repeat_key_consistent": len(keys) == 1, "repeat_tiling_consistent": len(tilings) == 1,
+            "reference_key_matches": all(key == str(derived.get("reference_tiling_key")) for key in keys) if reference else None,
+            "prediction_inside_repeat_range": min(samples) <= prediction <= max(samples) if prediction and len(samples) > 1 else None,
+            "bias_direction": "under" if prediction and prediction < min(samples) else "over" if prediction and prediction > max(samples) else "within_repeat_range" if prediction else "unavailable"}
+    return summaries
+
+
 def validation_report(collector, directory, forecasts=None, final=False):
     if forecasts is None:
         path = directory / "predictions_before_measurement.json"
@@ -492,9 +567,13 @@ def validation_report(collector, directory, forecasts=None, final=False):
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
     previous_protocol = manifest.get("previous_measurement_protocol", {})
+    repeated = repeated_shapes(records, forecasts)
     target = directory / "diagnostics.csv"
     phases = ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")
-    fields = ("case", "stratum", *cost.INPUT_FIELDS,
+    repeat_fields = ("remeasurements_us", "remeasurement_count", "remeasured_median_us", "remeasured_min_us", "remeasured_max_us", "remeasured_span_percent",
+                     "all_measurements_median_us", "retest_ape_percent", "reference_ape_percent", "repeat_key_consistent", "repeat_tiling_consistent", "reference_key_matches", "prediction_inside_repeat_range", "bias_direction")
+    fields = ("case", "stratum", "base_case", "purpose", "hypothesis", "measurement_round", "measurement_started_utc", "measurement_finished_utc",
+              "reference_case", "reference_inputs", "reference_same_input", "reference_duration_us", "reference_predicted_us", "reference_tiling_key", "reference_physical_npu_id", "changed_fields", "sequence_pair_unseen", *repeat_fields, *cost.INPUT_FIELDS,
               "soc", "physical_npu_id", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes",
               "status", "stage", "error", "priority", "tiling_key",
               "model_sha256", "prediction_before_measurement", "prediction_frozen_utc", "prediction_status", "prediction_error",
@@ -505,7 +584,7 @@ def validation_report(collector, directory, forecasts=None, final=False):
               "refinement_status", "source_conditions", "unseen_source_conditions", "micro_context_extrapolation", "sdk_api_matches_calibration",
               "transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us",
               *(f"predicted_{phase}_critical_us" for phase in phases),
-              *collector.REPORT_TILING, "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_notes", *collector.PMU_FIELDS)
+              *collector.REPORT_TILING, "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_notes", "profiler_artifacts", *collector.PMU_FIELDS)
     errors, baseline_errors, noise, unstable, unassessed, paired_errors, strata = [], [], [], 0, 0, [], {}
     temporary = target.with_suffix(".tmp")
     with temporary.open("w", newline="") as output:
@@ -520,6 +599,7 @@ def validation_report(collector, directory, forecasts=None, final=False):
             if isinstance(effective, str):
                 effective = json.loads(effective)
             result = {**hardware, **row, **row["inputs"], **derived, **effective, **(row.get("correctness") or {})}
+            result.update(repeated.get(derived.get("base_case"), {}))
             result.update(prediction_frozen_utc=item.get("frozen_utc", ""), predicted_us=prediction.get("predicted_us", ""),
                           model_sha256=item.get("model_sha256", row.get("model_sha256", "")),
                           baseline_predicted_us=item.get("baseline_predicted_us", ""), cost_class=prediction.get("cost_class", ""),
@@ -577,6 +657,21 @@ def validation_report(collector, directory, forecasts=None, final=False):
     states = Counter(row.get("status", "unknown") for row in records.values())
     print("VALIDATION PROGRESS: " + " ".join(f"{key}={value}" for key, value in states.items()), flush=True)
     if not final:
+        return
+    if repeated:
+        errors_by_purpose = {}
+        for name, result in repeated.items():
+            if result["remeasurement_count"] < 2:
+                continue
+            if result["retest_ape_percent"] is not None:
+                errors_by_purpose.setdefault(result["purpose"], []).append(result["retest_ape_percent"])
+            print(f"RETEST {name}: n={result['remeasurement_count']} median_us={result['remeasured_median_us']:.6f} "
+                  f"span_percent={result['remeasured_span_percent']:.3f} error_percent={result['retest_ape_percent']} "
+                  f"reference_error_percent={result['reference_ape_percent']} same_tiling={result['repeat_tiling_consistent']}", flush=True)
+        for purpose, values in errors_by_purpose.items():
+            print(f"SHAPE MEDIANS {purpose}: n={len(values)} MdAPE={statistics.median(values):.3f}% "
+                  f"P90={float(source.np.quantile(values,.9)):.3f}% above10={sum(value>10 for value in values)}/{len(values)}", flush=True)
+        print("Repeated bias requires source analysis; repeated measurements alone do not prove a new kernel branch.", flush=True)
         return
     for label, values in (("FROZEN", errors), ("BASELINE_PAIRED", baseline_errors), ("MICRO_PAIRED", paired_errors), *strata.items()):
         if values:

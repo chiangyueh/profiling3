@@ -157,6 +157,40 @@ def finite(raw) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def single_launch_tables(folder: Path, key: int, pids: set) -> tuple:
+    pattern = re.compile(r"(?:\d+_)?([A-Za-z][A-Za-z0-9]*)(?:_(\d{14,20}))?\.csv$")
+    kinds = {rule[0] for rule in PMU_RULES.values()} | {"OpBasicInfo", "L2Cache"}
+    found = [(match[1], path) for path in sorted(folder.glob("*.csv"))
+             for match in [pattern.fullmatch(path.name)] if match and match[1] in kinds]
+    basics = [path for kind, path in found if kind == "OpBasicInfo"]
+    notes = {f"raw_csv_count={len(list(folder.glob('*.csv')))}", f"basic_csv_count={len(basics)}"}
+    if len(basics) != 1:
+        names = [path.name for path in sorted(folder.glob("*.csv"))[:3]]
+        notes.add("csv_examples=" + "|".join(names))
+        return None, notes
+    try:
+        rows = profile_table(basics[0])
+        times = profiler_samples(folder / "profile.log", key)
+    except (ValueError, RuntimeError, OSError, csv.Error) as error:
+        notes.add("single_basic_parse=" + str(error)[:120])
+        return None, notes
+    expected = re.compile(rf"^FlashAttentionScore_[A-Za-z0-9]+_{key}(?:_|$)")
+    matches = [row for row in rows if expected.match(row.get("Op Name", ""))
+               and (not row.get("Pid") or row["Pid"] in pids)
+               and (finite(row.get("Task Duration(us)")) or 0) > 0]
+    if len(rows) != 1 or len(matches) != 1 or len(times) != 1:
+        notes.add("single_basic_identity_rejected")
+        notes.add("basic_headers=" + "|".join(list(rows[0])[:8]) if rows else "empty_basic_csv")
+        return None, notes
+    row = matches[0]
+    if not math.isclose(float(row["Task Duration(us)"]), times[0], rel_tol=1e-6, abs_tol=.01):
+        notes.add("csv_log_duration_disagree")
+        return None, notes
+    stamp = "verified_single_launch"
+    files = [(kind, stamp, path) for kind, path in found if kind != "OpBasicInfo"]
+    return ({stamp: row}, files, {stamp}), {"single_launch_csv_session_verified"}
+
+
 @lru_cache(maxsize=2048)
 def profile_counters(folder: Path, key: int, expected_launches: int | None = None) -> dict:
     cached = folder / "pmu_cache.json"
@@ -206,8 +240,17 @@ def profile_counters(folder: Path, key: int, expected_launches: int | None = Non
             frequency = finite(records[0].get("Current Freq"))
             if frequency is not None:
                 frequencies.append(frequency)
+    requested = REPEAT if expected_launches is None else expected_launches
+    if not basic and requested == 1 and "overlapping_profile_sessions" not in notes:
+        recovered, diagnostics = single_launch_tables(folder, key, pids)
+        notes.update(diagnostics)
+        if recovered is not None:
+            basic, files, boundaries = recovered
+            frequency = finite(next(iter(basic.values())).get("Current Freq"))
+            if frequency is not None:
+                frequencies.append(frequency)
     stamps = sorted(basic)
-    if len(stamps) != (REPEAT if expected_launches is None else expected_launches):
+    if len(stamps) != requested:
         notes.add("incomplete_launches")
     if "overlapping_profile_sessions" in notes:
         return {"notes": notes, "samples": {}, "launches": len(stamps), "freq": frequencies}
@@ -732,9 +775,19 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
             cost.save_json(checkpoint, {"samples_us": times, "effective_tiling": effective, "correctness": correctness,
                                        "launcher_warmup": WARMUP, "profiler_warmup": WARMUP})
         finally:
-            for index, table in enumerate(scratch.rglob("*.csv")):
+            tables = list(scratch.rglob("*.csv"))
+            files = [path for path in scratch.rglob("*") if path.is_file()]
+            case.setdefault("derived_schedule", {})["profiler_artifacts"] = {
+                "csv_count": len(tables), "file_count": len(files),
+                "suffix_counts": dict(Counter(path.suffix for path in files)),
+                "examples": [str(path.relative_to(scratch)) for path in files[:4]]}
+            for index, table in enumerate(tables):
                 shutil.copy2(table, summary / f"{index}_{table.name}")
-            shutil.rmtree(scratch)
+            if tables:
+                shutil.rmtree(scratch)
+            else:
+                case["derived_schedule"]["profiler_artifacts"]["retained_native_directory"] = str(scratch)
+                print(f"PROFILER CSV MISSING: native artifacts retained in {scratch}", flush=True)
     duration = statistics.median(samples)
     low = high = stable = None
     if len(samples) > 1:
