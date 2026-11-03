@@ -282,6 +282,8 @@ def run(collector, npu_id, report_only=False):
             report(collector, directory)
         print(f"CSV_REPORT={directory / 'diagnostics.csv'}")
         return
+    if focused and (collector.ROUNDS, collector.REPEAT, collector.WARMUP) != (1, 1, 0):
+        raise RuntimeError("validation requires one launch per collection and no explicit warmup")
     if hasattr(os, "sched_getaffinity"):
         os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
     os.environ["FA_BUILD_JOBS"] = "1"
@@ -340,6 +342,8 @@ def run(collector, npu_id, report_only=False):
 
 def validation_design(specification):
     hardware = specification["hardware"]
+    if specification.get("measurement_repeats", 1) not in (1, 2):
+        raise RuntimeError("each validation input permits at most two measurements")
     excluded = {tuple(pair) for pair in specification["previous_sequence_pairs"]}
     seen, pairs, plan = set(), set(), []
     for item in specification["cases"]:
@@ -381,7 +385,16 @@ def validation_design(specification):
     repeated = []
     for number in range(1, repeats + 1):
         shuffled = list(plan)
-        random.Random(specification["order_seed"] + number).shuffle(shuffled)
+        rng = random.Random(specification["order_seed"] + number)
+        rng.shuffle(shuffled)
+        if specification.get("interleave_strata"):
+            groups = {}
+            for case in shuffled:
+                groups.setdefault(case["derived_schedule"]["stratum"], []).append(case)
+            order = list(groups)
+            rng.shuffle(order)
+            shuffled = [case for batch in itertools.zip_longest(*(groups[key] for key in order))
+                        for case in batch if case is not None]
         for case in shuffled:
             repeated.append({**case, "name": f"{case['name']}_r{number}",
                              "derived_schedule": {**case["derived_schedule"], "measurement_round": number}})
@@ -415,6 +428,9 @@ def validation_model(specification, directory):
     if model["hardware"] != specification["hardware"]:
         raise RuntimeError("validation hardware differs from the frozen model")
     training = set(model["baseline"]["training_inputs"]) | set(model["refined"]["training_inputs"])
+    transfer = model.get("varlen_l1_transfer") or {}
+    training.update(transfer.get("training_inputs", []))
+    training.update(transfer.get("extension_training_inputs", []))
     if not training.issubset(specification["previous_input_hashes"]):
         raise RuntimeError("validation exclusions omit model training inputs")
     cost.save_json(path, saved)
@@ -499,7 +515,16 @@ def execute_validation(collector, plan, hardware, forecasts, directory):
                 route = validation_route(collector, case, folder, hardware)
                 case["probe_host_wall_seconds"] = time.monotonic() - started
                 stage = "measure"
-                case["derived_schedule"]["measurement_started_utc"] = datetime.now(timezone.utc).isoformat()
+                attempt = folder / "measurement_attempt.json"
+                if attempt.exists():
+                    started = json.loads(attempt.read_text())
+                    if started["input_sha256"] != cost.sha256(case["inputs"]) or not (folder / "round_1/measurement.json").is_file():
+                        raise RuntimeError("this collection already started without a reusable completed sample; refusing an additional NPU launch")
+                else:
+                    started = {"maximum_profile_launches": 1, "started_utc": datetime.now(timezone.utc).isoformat(),
+                               "input_sha256": cost.sha256(case["inputs"])}
+                    cost.save_json(attempt, started)
+                case["derived_schedule"]["measurement_started_utc"] = started["started_utc"]
                 collector.profile_counters.cache_clear()
                 collector.collect(case, hardware, directory, records, csv_path, ensured,
                                   frozen=forecasts["model"] if prediction else None, precomputed=prediction,
@@ -582,7 +607,7 @@ def validation_report(collector, directory, forecasts=None, final=False):
               "stable", "stability_assessed", "launcher_warmup", "profiler_warmup", "round1_us", "round2_us", "round3_us", "sample_count", "ci95_low_us", "ci95_high_us", "repeat_halfspan_percent",
               "checked_elements", "failed_elements", "failed_rows", "max_abs_error", "validation_version", "pmu_complete",
               "refinement_status", "source_conditions", "unseen_source_conditions", "micro_context_extrapolation", "sdk_api_matches_calibration",
-              "transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us",
+              "transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us", "transfer_cost_support",
               *(f"predicted_{phase}_critical_us" for phase in phases),
               *collector.REPORT_TILING, "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_notes", "profiler_artifacts", *collector.PMU_FIELDS)
     errors, baseline_errors, noise, unstable, unassessed, paired_errors, strata = [], [], [], 0, 0, [], {}
@@ -611,7 +636,7 @@ def validation_report(collector, directory, forecasts=None, final=False):
                           profiler_warmup=derived.get("profiler_warmup", previous_protocol.get("profiler_warmup", "")),
                           stability_assessed=str(row.get("stable")).lower() in ("true", "false"))
             result.update({key: refined.get(key, "") for key in ("source_conditions", "unseen_source_conditions", "micro_context_extrapolation")})
-            result.update({key: prediction.get(key, "") for key in ("transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us")})
+            result.update({key: prediction.get(key, "") for key in ("transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us", "transfer_cost_support")})
             result.update({f"predicted_{phase}_critical_us": prediction.get("critical_path_phase_us", {}).get(phase, "") for phase in phases})
             medians = row.get("round_medians_us") or []
             result.update({f"round{number}_us": value for number, value in enumerate(medians, 1)})
