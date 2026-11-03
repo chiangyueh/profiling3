@@ -1,4 +1,7 @@
 {
+  "archived_model_sha256s": [
+    "927811c2e5353ca9217b75e46edf2dd268292a54a5f39f5588c60b7b98c00c99"
+  ],
   "cases": [
     {
       "inputs": {
@@ -1921,6 +1924,7 @@
       "stratum": "kv_cache"
     }
   ],
+  "evaluation_scope": "The completed campaign retains its original frozen forecasts. Revised-model results on 20261103_211222.txt are development replay after inspection, recorded in fa_transfer_audit.csv; independent new-shape validation remains pending.",
   "execution_order": "Round robin across eight source-condition strata; FP16/BF16 are paired; actual official Host must verify Varlen L1 before kernel build.",
   "hardware": {
     "aic_cores": 20,
@@ -1933,7 +1937,7 @@
   "implementation": "varlen_l1",
   "max_tensor_bytes": 536870912,
   "measurement_protocol": "One msprof collection and one application launch per new shape; launcher warmup=0 and profiler warmup=0; numerical check required; single measurements have no repeat-noise or stability estimate; retain all completed measurements from the previous protocol.",
-  "model_sha256": "927811c2e5353ca9217b75e46edf2dd268292a54a5f39f5588c60b7b98c00c99",
+  "model_sha256": "43872b1ef0169232e655c69e88f263ef5ae6252fe625e577f16dda5e8f66f3ec",
   "novelty_rule": "Every S1/S2 pair is absent from all 788 calibration and model-selection inputs, across every dtype/layout/head/batch. All frozen model coefficients remain unchanged.",
   "previous_input_hashes": [
     "0016e0c962a773460c0a40a67e093b38f621f9519ca5b3086cc71b39aacf539e",

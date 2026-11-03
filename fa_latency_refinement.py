@@ -1163,7 +1163,11 @@ def predict_selected(inputs, model):
     impl = implementation(p,schedule)
     decision = model['selection'][impl]
     if decision['approved']:
-        result = predict(p,model['refined'])
+        if impl == 'varlen_l1' and model.get('varlen_l1_transfer'):
+            from fa_latency_transfer import predict as predict_transfer
+            result = predict_transfer(p,model['refined'],model['varlen_l1_transfer'])
+        else:
+            result = predict(p,model['refined'])
     else:
         result = base.predict(p,model['baseline'])
         work = workload(p,model['hardware'])

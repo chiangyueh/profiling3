@@ -73153,7 +73153,7 @@
       }
     ],
     "source_refinement_policy": "at most one input-derived source-condition split per class; inner heldout median improves beyond repeat halfspan, p90 and >20% count do not worsen; outer sequence-group evaluation remains separate",
-    "source_sha256": "ca296bf303d044131a6a82b47853356d345692ef2e2a6176f1a205c2d7f57203",
+    "source_sha256": "8c62f81a4ecd4b0215ded5323c91c346ec5a38acef5df286389898d09f26ae78",
     "stage_costs_independently_measured": false,
     "training_inputs": [
       "0016e0c962a773460c0a40a67e093b38f621f9519ca5b3086cc71b39aacf539e",
@@ -74055,25 +74055,260 @@
       "selection_scope": "development sequence-group validation; promotion used these validation results; prospective new-shape accuracy is not guaranteed"
     },
     "varlen_l1": {
+      "approval_scope": "activate source-directed ND2NZ accounting; accuracy qualification remains provisional",
       "approved": true,
-      "baseline": {
-        "above10_count": 22,
-        "above20_count": 8,
-        "above30_count": 4,
-        "cases": 32,
-        "median_ape_percent": 13.774906500200402,
-        "p90_ape_percent": 34.6968324290048
+      "calibration_replay": {
+        "candidate": {
+          "above10_count": 58,
+          "above20_count": 27,
+          "above30_count": 14,
+          "cases": 109,
+          "max_ape_percent": 75.77324121918414,
+          "median_ape_percent": 11.427846319049884,
+          "p90_ape_percent": 34.468883395899454
+        },
+        "groups": {
+          "BF16": {
+            "candidate": {
+              "above10_count": 12,
+              "above20_count": 3,
+              "above30_count": 2,
+              "cases": 24,
+              "max_ape_percent": 66.3625599551704,
+              "median_ape_percent": 10.25844761624939,
+              "p90_ape_percent": 25.813392086059626
+            },
+            "previous": {
+              "above10_count": 8,
+              "above20_count": 4,
+              "above30_count": 2,
+              "cases": 24,
+              "max_ape_percent": 65.45007298283544,
+              "median_ape_percent": 7.768072450832209,
+              "p90_ape_percent": 23.771339270141066
+            }
+          },
+          "FP16": {
+            "candidate": {
+              "above10_count": 46,
+              "above20_count": 24,
+              "above30_count": 12,
+              "cases": 85,
+              "max_ape_percent": 75.77324121918414,
+              "median_ape_percent": 11.764935613014293,
+              "p90_ape_percent": 35.81098375036101
+            },
+            "previous": {
+              "above10_count": 52,
+              "above20_count": 21,
+              "above30_count": 12,
+              "cases": 85,
+              "max_ape_percent": 75.18498301879752,
+              "median_ape_percent": 11.963054955270325,
+              "p90_ape_percent": 35.22784820143024
+            }
+          }
+        },
+        "previous": {
+          "above10_count": 60,
+          "above20_count": 25,
+          "above30_count": 14,
+          "cases": 109,
+          "max_ape_percent": 75.18498301879752,
+          "median_ape_percent": 10.962127667683808,
+          "p90_ape_percent": 34.39787092435215
+        }
       },
-      "micro_costs": {
-        "above10_count": 20,
-        "above20_count": 7,
-        "above30_count": 4,
-        "cases": 32,
-        "median_ape_percent": 12.169017274076339,
-        "p90_ape_percent": 33.50444211168632
+      "coefficient_fit_scope": "original DMA PMU only; 128 newly supplied kernel latencies excluded from fitting",
+      "development_replay": {
+        "candidate": {
+          "above10_count": 50,
+          "above20_count": 28,
+          "above30_count": 9,
+          "cases": 128,
+          "max_ape_percent": 82.24272616652486,
+          "median_ape_percent": 7.553938672156224,
+          "p90_ape_percent": 27.298100927126022
+        },
+        "groups": {
+          "gqa": {
+            "candidate": {
+              "above10_count": 2,
+              "above20_count": 1,
+              "above30_count": 1,
+              "cases": 16,
+              "max_ape_percent": 82.24272616652486,
+              "median_ape_percent": 5.000525509718767,
+              "p90_ape_percent": 10.933427254758048
+            },
+            "previous": {
+              "above10_count": 4,
+              "above20_count": 1,
+              "above30_count": 1,
+              "cases": 16,
+              "max_ape_percent": 80.2987477393376,
+              "median_ape_percent": 7.229166660260322,
+              "p90_ape_percent": 13.83687070521381
+            }
+          },
+          "head_dimension": {
+            "candidate": {
+              "above10_count": 9,
+              "above20_count": 5,
+              "above30_count": 2,
+              "cases": 16,
+              "max_ape_percent": 39.997485330752035,
+              "median_ape_percent": 12.244501903490596,
+              "p90_ape_percent": 30.98043976699759
+            },
+            "previous": {
+              "above10_count": 9,
+              "above20_count": 6,
+              "above30_count": 2,
+              "cases": 16,
+              "max_ape_percent": 36.488373765767726,
+              "median_ape_percent": 11.808214748048629,
+              "p90_ape_percent": 27.725336901113174
+            }
+          },
+          "key_boundary": {
+            "candidate": {
+              "above10_count": 5,
+              "above20_count": 2,
+              "above30_count": 0,
+              "cases": 16,
+              "max_ape_percent": 22.683631682957017,
+              "median_ape_percent": 6.91638810342185,
+              "p90_ape_percent": 17.46325484075568
+            },
+            "previous": {
+              "above10_count": 9,
+              "above20_count": 6,
+              "above30_count": 3,
+              "cases": 16,
+              "max_ape_percent": 60.55678003130962,
+              "median_ape_percent": 10.762403754469108,
+              "p90_ape_percent": 45.84544062427421
+            }
+          },
+          "kv_cache": {
+            "candidate": {
+              "above10_count": 6,
+              "above20_count": 6,
+              "above30_count": 3,
+              "cases": 16,
+              "max_ape_percent": 31.034094184918693,
+              "median_ape_percent": 8.409270573244992,
+              "p90_ape_percent": 30.473354410466605
+            },
+            "previous": {
+              "above10_count": 16,
+              "above20_count": 14,
+              "above30_count": 12,
+              "cases": 16,
+              "max_ape_percent": 553.2120106481701,
+              "median_ape_percent": 125.25956641489927,
+              "p90_ape_percent": 423.3150242467416
+            }
+          },
+          "long_query": {
+            "candidate": {
+              "above10_count": 11,
+              "above20_count": 9,
+              "above30_count": 3,
+              "cases": 16,
+              "max_ape_percent": 43.38267645615598,
+              "median_ape_percent": 21.3525632535227,
+              "p90_ape_percent": 30.901224006690178
+            },
+            "previous": {
+              "above10_count": 10,
+              "above20_count": 9,
+              "above30_count": 3,
+              "cases": 16,
+              "max_ape_percent": 39.63637575701648,
+              "median_ape_percent": 20.55083689822726,
+              "p90_ape_percent": 31.315120302253476
+            }
+          },
+          "query_boundary": {
+            "candidate": {
+              "above10_count": 2,
+              "above20_count": 0,
+              "above30_count": 0,
+              "cases": 16,
+              "max_ape_percent": 11.512020592207206,
+              "median_ape_percent": 3.840829740248042,
+              "p90_ape_percent": 8.699207221027173
+            },
+            "previous": {
+              "above10_count": 9,
+              "above20_count": 6,
+              "above30_count": 4,
+              "cases": 16,
+              "max_ape_percent": 75.67505991415398,
+              "median_ape_percent": 11.13279416649906,
+              "p90_ape_percent": 50.08234905336428
+            }
+          },
+          "task_occupancy": {
+            "candidate": {
+              "above10_count": 8,
+              "above20_count": 3,
+              "above30_count": 0,
+              "cases": 16,
+              "max_ape_percent": 25.917743578418296,
+              "median_ape_percent": 9.458014207938593,
+              "p90_ape_percent": 23.47132739269017
+            },
+            "previous": {
+              "above10_count": 10,
+              "above20_count": 4,
+              "above30_count": 2,
+              "cases": 16,
+              "max_ape_percent": 54.21896669697923,
+              "median_ape_percent": 11.479367125178863,
+              "p90_ape_percent": 32.980056806992295
+            }
+          },
+          "thin_query": {
+            "candidate": {
+              "above10_count": 7,
+              "above20_count": 2,
+              "above30_count": 0,
+              "cases": 16,
+              "max_ape_percent": 26.44212826406589,
+              "median_ape_percent": 7.027904385896727,
+              "p90_ape_percent": 21.295759569236864
+            },
+            "previous": {
+              "above10_count": 13,
+              "above20_count": 6,
+              "above30_count": 4,
+              "cases": 16,
+              "max_ape_percent": 70.43697924122722,
+              "median_ape_percent": 16.738205767352255,
+              "p90_ape_percent": 48.658448344610775
+            }
+          }
+        },
+        "previous": {
+          "above10_count": 80,
+          "above20_count": 52,
+          "above30_count": 31,
+          "cases": 128,
+          "max_ape_percent": 553.2120106481701,
+          "median_ape_percent": 14.002030930667258,
+          "p90_ape_percent": 71.19944867512106
+        }
       },
-      "rule": "median, P90 and >10/>20/>30 counts must all not worsen; at least one improves",
-      "selection_scope": "development sequence-group validation; promotion used these validation results; prospective new-shape accuracy is not guaranteed"
+      "independent_new_shape_validation_pending": true,
+      "reference_model_sha256": "927811c2e5353ca9217b75e46edf2dd268292a54a5f39f5588c60b7b98c00c99",
+      "remaining_regressions": [
+        "calibration median 10.9621% to 11.4278%",
+        "long_query median 20.5508% to 21.3526%",
+        "head_dimension median 11.8082% to 12.2445%"
+      ]
     },
     "varlen_same_ab": {
       "approved": false,
@@ -74099,6 +74334,401 @@
   },
   "source_sha256": "64ca4bec040e4ac51805f8064973e98c6382966fd5bbf7e4a007c28f255bb92e",
   "stage_costs_independently_measured": false,
-  "validation": "source implementations are calibrated with complete S1/S2 groups held out; the same development validation is used for model selection; prospective validation is still required",
+  "transfer_evaluation": {
+    "calibration_replay": {
+      "candidate": {
+        "above10_count": 58,
+        "above20_count": 27,
+        "above30_count": 14,
+        "cases": 109,
+        "max_ape_percent": 75.77324121918414,
+        "median_ape_percent": 11.427846319049884,
+        "p90_ape_percent": 34.468883395899454
+      },
+      "groups": {
+        "BF16": {
+          "candidate": {
+            "above10_count": 12,
+            "above20_count": 3,
+            "above30_count": 2,
+            "cases": 24,
+            "max_ape_percent": 66.3625599551704,
+            "median_ape_percent": 10.25844761624939,
+            "p90_ape_percent": 25.813392086059626
+          },
+          "previous": {
+            "above10_count": 8,
+            "above20_count": 4,
+            "above30_count": 2,
+            "cases": 24,
+            "max_ape_percent": 65.45007298283544,
+            "median_ape_percent": 7.768072450832209,
+            "p90_ape_percent": 23.771339270141066
+          }
+        },
+        "FP16": {
+          "candidate": {
+            "above10_count": 46,
+            "above20_count": 24,
+            "above30_count": 12,
+            "cases": 85,
+            "max_ape_percent": 75.77324121918414,
+            "median_ape_percent": 11.764935613014293,
+            "p90_ape_percent": 35.81098375036101
+          },
+          "previous": {
+            "above10_count": 52,
+            "above20_count": 21,
+            "above30_count": 12,
+            "cases": 85,
+            "max_ape_percent": 75.18498301879752,
+            "median_ape_percent": 11.963054955270325,
+            "p90_ape_percent": 35.22784820143024
+          }
+        }
+      },
+      "previous": {
+        "above10_count": 60,
+        "above20_count": 25,
+        "above30_count": 14,
+        "cases": 109,
+        "max_ape_percent": 75.18498301879752,
+        "median_ape_percent": 10.962127667683808,
+        "p90_ape_percent": 34.39787092435215
+      }
+    },
+    "development_replay_after_inspection": {
+      "candidate": {
+        "above10_count": 50,
+        "above20_count": 28,
+        "above30_count": 9,
+        "cases": 128,
+        "max_ape_percent": 82.24272616652486,
+        "median_ape_percent": 7.553938672156224,
+        "p90_ape_percent": 27.298100927126022
+      },
+      "groups": {
+        "gqa": {
+          "candidate": {
+            "above10_count": 2,
+            "above20_count": 1,
+            "above30_count": 1,
+            "cases": 16,
+            "max_ape_percent": 82.24272616652486,
+            "median_ape_percent": 5.000525509718767,
+            "p90_ape_percent": 10.933427254758048
+          },
+          "previous": {
+            "above10_count": 4,
+            "above20_count": 1,
+            "above30_count": 1,
+            "cases": 16,
+            "max_ape_percent": 80.2987477393376,
+            "median_ape_percent": 7.229166660260322,
+            "p90_ape_percent": 13.83687070521381
+          }
+        },
+        "head_dimension": {
+          "candidate": {
+            "above10_count": 9,
+            "above20_count": 5,
+            "above30_count": 2,
+            "cases": 16,
+            "max_ape_percent": 39.997485330752035,
+            "median_ape_percent": 12.244501903490596,
+            "p90_ape_percent": 30.98043976699759
+          },
+          "previous": {
+            "above10_count": 9,
+            "above20_count": 6,
+            "above30_count": 2,
+            "cases": 16,
+            "max_ape_percent": 36.488373765767726,
+            "median_ape_percent": 11.808214748048629,
+            "p90_ape_percent": 27.725336901113174
+          }
+        },
+        "key_boundary": {
+          "candidate": {
+            "above10_count": 5,
+            "above20_count": 2,
+            "above30_count": 0,
+            "cases": 16,
+            "max_ape_percent": 22.683631682957017,
+            "median_ape_percent": 6.91638810342185,
+            "p90_ape_percent": 17.46325484075568
+          },
+          "previous": {
+            "above10_count": 9,
+            "above20_count": 6,
+            "above30_count": 3,
+            "cases": 16,
+            "max_ape_percent": 60.55678003130962,
+            "median_ape_percent": 10.762403754469108,
+            "p90_ape_percent": 45.84544062427421
+          }
+        },
+        "kv_cache": {
+          "candidate": {
+            "above10_count": 6,
+            "above20_count": 6,
+            "above30_count": 3,
+            "cases": 16,
+            "max_ape_percent": 31.034094184918693,
+            "median_ape_percent": 8.409270573244992,
+            "p90_ape_percent": 30.473354410466605
+          },
+          "previous": {
+            "above10_count": 16,
+            "above20_count": 14,
+            "above30_count": 12,
+            "cases": 16,
+            "max_ape_percent": 553.2120106481701,
+            "median_ape_percent": 125.25956641489927,
+            "p90_ape_percent": 423.3150242467416
+          }
+        },
+        "long_query": {
+          "candidate": {
+            "above10_count": 11,
+            "above20_count": 9,
+            "above30_count": 3,
+            "cases": 16,
+            "max_ape_percent": 43.38267645615598,
+            "median_ape_percent": 21.3525632535227,
+            "p90_ape_percent": 30.901224006690178
+          },
+          "previous": {
+            "above10_count": 10,
+            "above20_count": 9,
+            "above30_count": 3,
+            "cases": 16,
+            "max_ape_percent": 39.63637575701648,
+            "median_ape_percent": 20.55083689822726,
+            "p90_ape_percent": 31.315120302253476
+          }
+        },
+        "query_boundary": {
+          "candidate": {
+            "above10_count": 2,
+            "above20_count": 0,
+            "above30_count": 0,
+            "cases": 16,
+            "max_ape_percent": 11.512020592207206,
+            "median_ape_percent": 3.840829740248042,
+            "p90_ape_percent": 8.699207221027173
+          },
+          "previous": {
+            "above10_count": 9,
+            "above20_count": 6,
+            "above30_count": 4,
+            "cases": 16,
+            "max_ape_percent": 75.67505991415398,
+            "median_ape_percent": 11.13279416649906,
+            "p90_ape_percent": 50.08234905336428
+          }
+        },
+        "task_occupancy": {
+          "candidate": {
+            "above10_count": 8,
+            "above20_count": 3,
+            "above30_count": 0,
+            "cases": 16,
+            "max_ape_percent": 25.917743578418296,
+            "median_ape_percent": 9.458014207938593,
+            "p90_ape_percent": 23.47132739269017
+          },
+          "previous": {
+            "above10_count": 10,
+            "above20_count": 4,
+            "above30_count": 2,
+            "cases": 16,
+            "max_ape_percent": 54.21896669697923,
+            "median_ape_percent": 11.479367125178863,
+            "p90_ape_percent": 32.980056806992295
+          }
+        },
+        "thin_query": {
+          "candidate": {
+            "above10_count": 7,
+            "above20_count": 2,
+            "above30_count": 0,
+            "cases": 16,
+            "max_ape_percent": 26.44212826406589,
+            "median_ape_percent": 7.027904385896727,
+            "p90_ape_percent": 21.295759569236864
+          },
+          "previous": {
+            "above10_count": 13,
+            "above20_count": 6,
+            "above30_count": 4,
+            "cases": 16,
+            "max_ape_percent": 70.43697924122722,
+            "median_ape_percent": 16.738205767352255,
+            "p90_ape_percent": 48.658448344610775
+          }
+        }
+      },
+      "previous": {
+        "above10_count": 80,
+        "above20_count": 52,
+        "above30_count": 31,
+        "cases": 128,
+        "max_ape_percent": 553.2120106481701,
+        "median_ape_percent": 14.002030930667258,
+        "p90_ape_percent": 71.19944867512106
+      }
+    }
+  },
+  "transfer_reference_model_sha256": "927811c2e5353ca9217b75e46edf2dd268292a54a5f39f5588c60b7b98c00c99",
+  "transfer_revision_evaluation_scope": "source correction after inspecting 20261103_211222.txt; development replay; independent new-shape validation remains pending",
+  "validation": "Varlen L1 DMA coefficients use 109 original measured AIC MTE2 active-sum records with complete S1/S2-group validation of DMA costs only. Other stage coefficients remain frozen. Results on 20261103_211222.txt are development replay after source inspection, not new independent validation.",
+  "varlen_l1_transfer": {
+    "cache_miss_cost_independently_calibrated": false,
+    "calibration_samples": 109,
+    "calibration_target": "original measured whole-kernel AIC MTE2 active-sum microseconds; no kernel latency target",
+    "coefficients": {
+      "copy_calls": 0.17103808657041772,
+      "payload_kb": 0.004276449268121219,
+      "strided_rows": 0.0013825789042399424
+    },
+    "feature_rank": 3,
+    "features": [
+      "payload_kb",
+      "copy_calls",
+      "strided_rows"
+    ],
+    "grouped_validation": {
+      "above10_count": 42,
+      "above20_count": 29,
+      "above30_count": 27,
+      "cases": 109,
+      "median_ape_percent": 6.260055268251142,
+      "p90_ape_percent": 86.1526335346666,
+      "scope": "DMA cost only, four complete S1/S2 groups held out; no full-kernel timing target; other stage coefficients are frozen original coefficients"
+    },
+    "new_validation_latency_used_for_fit": false,
+    "reuse_semantics": "Q once per query task; K/V 256-row ping-pong buffers; padded contiguous P; no assumed cross-core L1 or L2 hit",
+    "shared_fp16_bf16_dma_cost": true,
+    "source": "flash_attention_var_len_score.h CopyInMm1AToL1/CopyInMm1BToL1/CopyInMm2AToL1/CopyInMm2BToL1/CopyGmToL1",
+    "source_references": [
+      "https://www.hiascend.com/doc_center/source/zh/canncommercial/700/operatordev/Ascendcopdevg/atlasascendc_api_07_0151.html",
+      "attention/flash_attention_score/op_kernel/arch32/flash_attention_var_len_score.h:858-1001"
+    ],
+    "source_sha256": "ceeb13a5aba014c6fa75f75101e25a73fea8860a5af94df7b0e2306ca97f2fa7",
+    "stride_semantics": "srcDValue selects the next row; skipped address holes are not payload",
+    "training_inputs": [
+      "00c31531244a81e3e0b81f60c96b6aaf77c5c417650981f45cebe714831a64b9",
+      "0239af1bebd4282cac9c01bba180cfbcc6fc2e0958f649e6fffff628047cbe18",
+      "023d41781917d04c6f4ea15ae54af76388b710150b16d10f30c58c727c218e64",
+      "025f834d5bc29220cc6c1881b9a9e7cd8decf5bc688c156a7c19334f049cc6b7",
+      "03ba4bf30ec4b1e6071ad0bc1b0e40682e1d067cb1d9a63095ce462d0964a920",
+      "050bf1aa2a23ae62cb2efde2465afeb6c9a0fba4363fe440c3fe6145941c7577",
+      "050c453760e0fa570894b7c2461de4ca348efe2f2aee85afa065c61ad6f8669f",
+      "058b93545dbb6c662c53301c3c09562e1988ce3c08b483310acdc6143fec18bb",
+      "07172658c3b524a0da188111d3de8b63faa9b377b8b4421d5042b92e5eb73b7d",
+      "084cb73dbd788a636cbf8af5a6fe97a7ede40a73a7e285ec41d44f8dcff864da",
+      "0bef9e627d2fc22562e36b5c99fe2da5db8d5dd4eae66dafa07bcc8d91cc8575",
+      "0cfdef2678b11e2a1614bf203f2e35ec16c22dfa9178a309a83ea8feaed1dc8e",
+      "0e8cb02631b7e6f4c3ba6f5b7cce3e56647aa457c2a89b0bbd0e07acd8833cfa",
+      "116d6bb902e8994ddffe018f9fe45dc4f73f94ca46506df8430685245e8b3450",
+      "11f0330ec65c978051a1127d1ea922fd82618eb3e328fb2fa814591e7fd53d32",
+      "13ba7e605320f32a59bbeb68109ce8ed478d3c24956b9c076889a3e4be1521fa",
+      "146729abfdd9148e9d28ebe56f04153b11e1388499234a6cdee1cf5404230de2",
+      "16a666a0cba15ec72425747679d2a5ebddfed3fe2dc9a936d630a8ec23848ad4",
+      "1775c29ecee49e071acb410a68ae3692728bfc5765b13ffec152c0b913cbbcdb",
+      "18c16eccffb974f40d1efd2e72fab02d64aa37c1dd19282b68431319ad4de5d1",
+      "198235bb140a020fab0284317b79537f01bff4c11d51f394b414b53199cc5800",
+      "1ac8f09efdeb25ee089a966493c936c2f23ed5d818a1464bbc0c589c4da20a68",
+      "1b0dc756692edc7cd07d907c18562032d86fba0b0fee6b69a6abab75c854932e",
+      "1e83ee7fb3f3124f7b80a1b5621409263e2ae453e62ec43389017f578ba85482",
+      "202791d36d1119846c5acea602b32349fce4c78863dd18c012ce2fb43a27e73c",
+      "20d4b4308a96eafaf8467b49566b5eba6f94cf4ca7c3a1e820710d0c5c3c5b10",
+      "217f316b844cbb2e50b0f6d071e0b0875abd9fffacbcdfafa4855837d759d29f",
+      "24f3caf97052f50d9fd2ab7c5d3d5be15b07f5602a61e9fdcdb0f688d4e6ea8b",
+      "293f42a527452dbdc487610fa137181feda3f713947638f45e2d275ee28f3dca",
+      "2953faa4b6271913f0c95bab4d8f0b452ec702e74492c5fc5e591174252f32c6",
+      "29f24ac586f31c9e0722f19753de9721053e060c7a4b74c6a5e18be47aa38423",
+      "2ab38d1815928697035f0d0be7e642517db988b80467a99a7aee5f27492f65ea",
+      "2ed3dcca653306ce96d38fa3d86fe587c37e6e6e030a2f90bd20aea8b54eaebd",
+      "329495bc3bd65b4b97b8edf15711140455c0622d92660855bbea0bad5dccdf63",
+      "32c59569e957bce43ae9918773941028249ee88e3173e72f168050f0f866bc81",
+      "3560873654ba259e8171d9ab63ca0cd9b6a213988b2fd89995161ddd0f2cfcb3",
+      "36d54bb1b12ddbed137b2de9a5d70e77cf0fd693d14b385be6ae748d6445a0b3",
+      "3816b9af94e7e025088c05be6176a01852ae29a33ff8a1258fc1705a48e91cda",
+      "39964b2658d716d3f5dbf171d7b469b4d36824c81f5cba3fe8c2dd6bc07f64aa",
+      "3ca742f1ec09da26a8075f9331a391b15a3e71261c4958458a7fe7e323fd6416",
+      "3dc9211813f794beac2a95e24fbaa1ebc14b4dd48b0e9b6f90f29a0e6b34354c",
+      "3e32f08655b626b484101f07a9521c963d75fe6c1b6b77237d89fd06e6e8ecb9",
+      "3ee719b334af39620886cf053fbd761a01fbfa93a818b861a11c6de4d9af4f5d",
+      "3f45882fe60473005d33dce70c19620466ca98a6039c327b5033070c59b9da66",
+      "400440f909bef969be98786216c66d6e1a240c02ab0eeb3f2cfaafda2b576c3b",
+      "4175d2b8a2bad86757f7d2107af21902ead80cfb87bfe914a2a8d851e5413d28",
+      "41970e54de5b8e5efbdca02c5cb7bcbed0fcc18e021245c2cfccda527925e892",
+      "41bf580803c47d5deef73dc58169e0f469a3c0ac4f6c827237748f207ea3f39b",
+      "4246f83ca0a7700ea8fd9e891aff4cc14602e2396d9e9b3ffa2b6c8327750b50",
+      "44469d97277ddb0560777d88e0bb5843abddd58292902f3a299296001d859075",
+      "482a0a309f02abe1b47649c77b0c291459fe13848450974d2ce07e440ea68d5e",
+      "49a5d078acbfb0eb1d1c17c904e9441cac06c774c8624fcb6021de7d2f5fa549",
+      "4bb3942b03e012c9ad597621e660f098c35112ad76d84250b671aa26d80c1a21",
+      "4ccb9662d3a2827e13751193496cfb15049d563bcb4ec2bb6dd86c7174610cea",
+      "4d76f4789766c5caafa89b43c0aac9f79113a624ec3e7426948cadb38f2fa993",
+      "4d841474d89c0bad7458c53a5b51a477be0c6c6e24f7099c507ae6b0b584e464",
+      "5001be521a1ceaeabf3adac165819b03e53f855c3afc4ac8aefea4614ca1a9fd",
+      "5048c3e9b97078a96e4dfff610208254ec839a99aae3546566a706a5cb98d070",
+      "50869e088b22d97765cce47101a5c271af2350e504d48483c2e1a66c9dc1eb59",
+      "5163f3c838869bb339038bc55f775c18e6040ba39e51e44b8beb1bbd27f2f768",
+      "5202776dff7a416b48e9b6373b3170c938533c273327eb503f577c41635748e0",
+      "523ee74075a8c71034a06ef092c918ca447587036254af753cee608adcbfce04",
+      "56ee0eff6f1d4cccdc974933ce12b210ffa5378a486bd60a983cc73a31a6af01",
+      "56f00420e2f3e607a9e3c1fd31f14dc8fdb26eae8686288175e1870fc345e3cd",
+      "57ceca7bb02af5a0b3444dba61d05f5d2b0ca4997a2f9c50ea50afbf8ffd0d1a",
+      "595e8cb4b7ace401b3c23df294f4d6be5bbc73af6e6a26bf1393b5c94a3156ba",
+      "5bf795c72dcf2c26c259397a0fbc27d1de256c838929447f4ba52c70dcba25cb",
+      "616319346325476ed76db595964dbf1d92eb1054e230ba7f6fb7f8e78fe41f74",
+      "63e64e9e4490c03255da379cbc9ea774101b39953256a7957370550362b16624",
+      "6437b85405880e4db7d44d2f6fcc3bf3d07e87888997aa23049e8426af4bc011",
+      "69258b1f86ca23e7ae8262cecf61508ba7f74a73bef0f961492b53b9fc78cd2c",
+      "69c90bd6653dfc082da77947de6b184bd515367d439ce4386b284d24508a030a",
+      "6c25b622985a628df221dc2f3ff43290faf07c25e3e3597c9b6111a20da7d3f2",
+      "72444c4b7ff87c6c26af7226d46f24237261c7bdb2b9ae0dcc94c1fd09b2b872",
+      "74226915848b83a74c4b39aac7f006a88f96f96b8f36586affe6adce2865451a",
+      "7a60e52d0ac5992081e68d99ce266a5a14e3b0186604927726e76139145cdc2d",
+      "7abc17d959de612727c3928039d7086e1735eacf6bde67b0f20f7ab5f82d48ff",
+      "7c20156e984a673d37ef4e0521a2ad3416fca57f50602cc8fdee7d2eb240ee4d",
+      "8260d3bb14cac89631d71ce5c5e71944ee01da335b59b313f5f22fce0d350f8b",
+      "91aa78eb24df1ed0f7f0ba6eb4ff1ef36817dac31e57e9c285caea25f33b328c",
+      "93bf499d1285468cff1b0cb49628ab44e4bcf7d62102f5d4089a9e32986871e6",
+      "9d16e4f64d71599b96f20da9d1e5f584f9c799728ed9d4df1a745f340d40cba2",
+      "a1d0152e5dd5f24123ddbe3754d42687b365ee2b4405d45471bca153be22f4eb",
+      "a7bfdd96c7c7c86c78306679ac81cd410b82f1b7f7db01023d8228c8785ecc2e",
+      "a8cabaa7d2809219db22063ab1b8f4d22b3fbcda004153c4497af8184c3d752b",
+      "a9d54d1baf57950bc350a0339453edc3b8e70225ada6d92a1db9a9961271b12f",
+      "aa76dcfb90cb33b2bb5fa41a2c86cfa17f616606f1d8388e1c9c050954af6308",
+      "b00cb33b81b75418b81b7e651d915480053ebe722c746a77535b98f565e6baf8",
+      "b22cab7e01864ba823a08ce8416b6beb2580b0da853a4bce8665df9318d6d2e5",
+      "b9a3d9c01dfaf46fbb6af2771837628b101cb33d1542d48ea8065ee26107c708",
+      "ba7ad08beffafcda71bb79d07b91c1b5045a7fe8f555f56df272dc0606fa5353",
+      "bb61c46cdf40f3a37e7e22dbdbf00751cef66af3d001b12e4d785477c1e0b20d",
+      "bc05d4e8fafd65617d0e0f759e7286defaacbbb5b64d6ea04566db4fe5fe9a0e",
+      "bd736ba34f114773e8ca52d322d174dcd76ddc4bff8af243595d46adb9f0dc12",
+      "bdacccee7f5faa477edb09f2e9a7c7bf1dc2b00db92e450890ae2778ca6d901b",
+      "c58a501a45a83fb41e8a05b5da7523573014d63c2a17f32b72958c365023d4d9",
+      "c79e51d6d719b38323259b88746b5648dc3586b55d8e4fa3006a69d013232df3",
+      "c8c48c5cf7104587f6b280d7240cf01fddd5ae0fefa872b147c83d528713fe90",
+      "d3d7227836c185ab31fb431d2917787074193d4d3146d55093f19ee30239bab0",
+      "deaa6772f91c295e0258287630c19a763177750dd70dc266b9d631f763ca913f",
+      "e0068a4a9f9caf7683782ba3b66b14cf452475553a9ea5ffd0f75f8822f65cf1",
+      "e3a83ab385e08ac8418a86625fcaf3df1b8ca6c81a737ea897940ba082f5c251",
+      "eb3236bf2c17595464b7e80709253dc5d4e63fef24c24e5c5ed0c822ffcbd267",
+      "eb6800b6b50afb8341237d4d1759f2a70ea3c1503d7e1bc0cb80d6f7041d84e0",
+      "ec4cf7c224412be083b512585c447095336c0d84dedc396bdb86df9d5156aebd",
+      "f32d690df059ddbc243c325883fd3f0959412d453fec27bd40ea6d122cb18f0f",
+      "f3f1bac535adbb6d10e969d2907faba497dd0fcfc1f5aa5a250a2543defbddf1",
+      "f488ab0ce89c908d346fc5adf31d5dcb8fb6bf69b7133372196a028da157234e",
+      "fb8308e9ed75e3558e637a7356278c79cc9f526867c4c1a74cfaf54961af38db"
+    ],
+    "version": "varlen_l1_nd2nz_v1"
+  },
   "version": "fa_branch_execution_v4"
 }
