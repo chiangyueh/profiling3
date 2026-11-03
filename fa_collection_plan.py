@@ -200,7 +200,7 @@ def execute(collector, plan, hardware, forecasts, directory):
                 attempted[group] += 1
                 item = forecasts["predictions"].get(case["name"], {})
                 case_model = forecasts["model"]
-                if group != "same_ab" and (ROOT / "fa_branch_model.json").is_file():
+                if (ROOT / "fa_branch_model.json").is_file():
                     import fa_branch_latency as branches
                     try:
                         item, case_model = branches.freeze_case(case, hardware, directory)
@@ -212,7 +212,7 @@ def execute(collector, plan, hardware, forecasts, directory):
                 if prediction is not None:
                     if prediction.get("implementation"):
                         case["derived_schedule"]["branch_prediction_json"] = json.dumps({name: prediction.get(name) for name in
-                            ("implementation", "cost_class", "unidentified_pipe_terms", "execution_events",
+                            ("implementation", "cost_class", "unidentified_pipe_terms", "execution_events", "selected_cost_model", "refinement",
                              "phase_pipe_active_us", "phase_pipe_active_scope", "max_resource_bytes", "adapter_us", "startup_us",
                              "calibration_sdk_api_sha256", "prediction_sdk_api_sha256", "sdk_api_matches_calibration")}, sort_keys=True)
                     case["derived_schedule"]["prediction_extrapolated_inputs"] = prediction.get("out_of_calibration_range", [])

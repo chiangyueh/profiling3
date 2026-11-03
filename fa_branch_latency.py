@@ -890,6 +890,9 @@ def phase_features(work):
 
 
 def predict_work(work, model, graph=None):
+    if model.get("version") == "fa_branch_execution_v4" and "baseline" in model:
+        from fa_latency_refinement import predict_selected
+        return predict_selected(work.p,model)
     key=cost_class(work.p,work.s);entry=graph_entry(model,key)
     for pipe,values in active_features(work).items():
         missing=[n for n,val in values.items() if val>0 and n not in entry['pipes'][pipe]['observed_features']]
@@ -912,6 +915,9 @@ def predict_work(work, model, graph=None):
 
 
 def predict(inputs, model):
+    if model.get("version") == "fa_branch_execution_v4" and "baseline" in model:
+        from fa_latency_refinement import predict_selected
+        return predict_selected(inputs,model)
     if model.get('version')!=VERSION or model.get('source_sha256')!=signature():
         raise ValueError('branch model and execution code differ')
     return predict_work(workload(inputs,model['hardware']),model)

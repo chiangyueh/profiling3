@@ -2113,7 +2113,7 @@ def main():
     parser.add_argument("--dtype", choices=("FP16", "BF16"), default="FP16")
     parser.add_argument("--layout", choices=("BNSD", "SBH", "BSND", "TND"), default="BNSD")
     parser.add_argument("--drop-mask", action="store_true")
-    parser.add_argument("--model", type=Path, default=ROOT / "fa_sameab_minimum.json")
+    parser.add_argument("--model", type=Path, default=ROOT / "fa_branch_model.json")
     args = parser.parse_args()
     try:
         shape = tuple(map(int, args.shape.split(",")))
@@ -2122,7 +2122,11 @@ def main():
         inputs = dict(zip(cost.INPUT_FIELDS[:7], shape))
         inputs.update(dtype=args.dtype, layout=args.layout, has_drop_mask=int(args.drop_mask))
         model = json.loads(args.model.read_text())
-        result = predict(inputs, model)
+        if model.get("version") == "fa_branch_execution_v4" and "baseline" in model:
+            import fa_branch_latency as branches
+            result = branches.predict(inputs,model)
+        else:
+            result = predict(inputs, model)
         print(json.dumps({"inputs": cost.normalize(inputs), **result,
                           "validation": model.get("validation"),
                           "accuracy_guaranteed": False}, ensure_ascii=False, separators=(",", ":")))
