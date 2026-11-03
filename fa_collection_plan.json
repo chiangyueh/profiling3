@@ -1932,7 +1932,7 @@
   },
   "implementation": "varlen_l1",
   "max_tensor_bytes": 536870912,
-  "measurement_protocol": "Three msprof rounds, ten timed launches each, five warmups per round; numerical check required; preserve failures and unstable runs; report medians and tail-error proportions.",
+  "measurement_protocol": "One msprof collection and one application launch per new shape; launcher warmup=0 and profiler warmup=0; numerical check required; single measurements have no repeat-noise or stability estimate; retain all completed measurements from the previous protocol.",
   "model_sha256": "927811c2e5353ca9217b75e46edf2dd268292a54a5f39f5588c60b7b98c00c99",
   "novelty_rule": "Every S1/S2 pair is absent from all 788 calibration and model-selection inputs, across every dtype/layout/head/batch. All frozen model coefficients remain unchanged.",
   "previous_input_hashes": [

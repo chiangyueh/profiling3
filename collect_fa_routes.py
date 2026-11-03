@@ -30,9 +30,9 @@ import fit_fa_latency as family_models
 
 
 VERSION = cost.VERSION
-WARMUP = 5
-REPEAT = 10
-ROUNDS = 3
+WARMUP = 0
+REPEAT = 1
+ROUNDS = 1
 MODEL_FAMILIES = ("same_ab",)
 RESEARCH_FAMILIES = ("s1", "b", "b_drop")
 ALL_FAMILIES = ("same_ab", "s1", "b", "b_drop", "general", "varlen")
@@ -158,7 +158,7 @@ def finite(raw) -> float | None:
 
 
 @lru_cache(maxsize=2048)
-def profile_counters(folder: Path, key: int) -> dict:
+def profile_counters(folder: Path, key: int, expected_launches: int | None = None) -> dict:
     cached = folder / "pmu_cache.json"
     if cached.is_file():
         saved = json.loads(cached.read_text())
@@ -207,7 +207,7 @@ def profile_counters(folder: Path, key: int) -> dict:
             if frequency is not None:
                 frequencies.append(frequency)
     stamps = sorted(basic)
-    if len(stamps) != REPEAT:
+    if len(stamps) != (REPEAT if expected_launches is None else expected_launches):
         notes.add("incomplete_launches")
     if "overlapping_profile_sessions" in notes:
         return {"notes": notes, "samples": {}, "launches": len(stamps), "freq": frequencies}
@@ -689,6 +689,8 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
         checkpoint = summary / "measurement.json"
         if checkpoint.is_file():
             cached = json.loads(checkpoint.read_text())
+            for field in ("launcher_warmup", "profiler_warmup"):
+                case.setdefault("derived_schedule", {})[field] = cached.get(field, "unknown_cached")
             samples.extend(cached["samples_us"])
             medians.append(statistics.median(cached["samples_us"]))
             effective = cached["effective_tiling"]
@@ -698,6 +700,8 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
         recovered = recover_profile(case, params, key, priority, hardware, summary) if allow_recovery else None
         if recovered is not None:
             cost.save_json(checkpoint, recovered)
+            for field in ("launcher_warmup", "profiler_warmup"):
+                case.setdefault("derived_schedule", {})[field] = recovered.get(field, "unknown_cached")
             samples.extend(recovered["samples_us"])
             medians.append(statistics.median(recovered["samples_us"]))
             effective = recovered["effective_tiling"]
@@ -709,7 +713,8 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
         trace.unlink(missing_ok=True)
         Path("output/output.bin").unlink(missing_ok=True)
         env = fa.run_env(params, key)
-        env.update(FA_SKIP_BUILD="1", FA_PROFILE="1", FA_PROFILE_OUTPUT=str(scratch), FA_EFFECTIVE_TILING_TRACE=str(trace), FA_INPUT_PATTERN="1")
+        env.update(FA_SKIP_BUILD="1", FA_PROFILE="1", FA_PROFILE_OUTPUT=str(scratch), FA_EFFECTIVE_TILING_TRACE=str(trace), FA_INPUT_PATTERN="1",
+                   FA_WARMUP=str(WARMUP), FA_REPEAT=str(REPEAT), FA_PROFILE_WARMUP=str(WARMUP))
         print(f"MEASURE case={case['name']} round={round_id + 1}/{ROUNDS} log={summary / 'profile.log'}", flush=True)
         try:
             with (summary / "profile.log").open("w") as log:
@@ -724,21 +729,25 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
             correctness = check_output(case["inputs"])
             samples.extend(times)
             medians.append(statistics.median(times))
-            cost.save_json(checkpoint, {"samples_us": times, "effective_tiling": effective, "correctness": correctness})
+            cost.save_json(checkpoint, {"samples_us": times, "effective_tiling": effective, "correctness": correctness,
+                                       "launcher_warmup": WARMUP, "profiler_warmup": WARMUP})
         finally:
             for index, table in enumerate(scratch.rglob("*.csv")):
                 shutil.copy2(table, summary / f"{index}_{table.name}")
             shutil.rmtree(scratch)
     duration = statistics.median(samples)
-    rng = np.random.default_rng(1729)
-    bootstrap = np.median(rng.choice(samples, size=(2000, len(samples))), axis=1)
-    low, high = (float(x) for x in np.percentile(bootstrap, [2.5, 97.5]))
-    stable = max(abs(value / duration - 1) for value in medians) <= 0.03 and (high - low) / (2 * duration) <= 0.03
-    if not stable:
+    low = high = stable = None
+    if len(samples) > 1:
+        rng = np.random.default_rng(1729)
+        bootstrap = np.median(rng.choice(samples, size=(2000, len(samples))), axis=1)
+        low, high = (float(x) for x in np.percentile(bootstrap, [2.5, 97.5]))
+        if len(medians) > 1:
+            stable = max(abs(value / duration - 1) for value in medians) <= 0.03 and (high - low) / (2 * duration) <= 0.03
+    if stable is False:
         cost.save_json(unstable_marker, {"round_medians_us": medians, "median_ci95_low_us": low, "median_ci95_high_us": high})
         for round_id in range(ROUNDS):
             (directory / f"round_{round_id + 1}" / "measurement.json").unlink(missing_ok=True)
-    else:
+    elif stable is True:
         unstable_marker.unlink(missing_ok=True)
     return {
         "effective_tiling": effective, "duration_us": duration, "samples_us": samples,
@@ -749,7 +758,9 @@ def profile_measure(case: dict, params, key: int, priority: int, hardware: dict,
 
 
 def is_complete(row: dict | None) -> bool:
-    return bool(row and row.get("status") == "ok" and str(row.get("stable")).lower() == "true")
+    return bool(row and row.get("status") == "ok" and (str(row.get("stable")).lower() == "true"
+                or str(row.get("sample_count")) == "1" and (finite(row.get("duration_us")) or 0) > 0
+                and (finite((row.get("correctness") or {}).get("checked_elements")) or 0) > 0))
 
 
 def collect(case: dict, hardware: dict, directory: Path, records: dict, csv_path: Path, ensured: set, frozen: dict | None = None, precomputed: dict | None = None, build_failures: dict | None = None, discovered_route: tuple | None = None) -> None:

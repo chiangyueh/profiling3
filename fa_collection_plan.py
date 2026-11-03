@@ -145,13 +145,15 @@ def extract_pmu(collector, directory, case, row):
     if not row.get("tiling_key"):
         return False
     complete = True
-    for number in range(1, collector.ROUNDS + 1):
+    rounds = len(row.get("round_medians_us") or []) or collector.ROUNDS
+    repeat = int(row.get("sample_count") or rounds * collector.REPEAT) // rounds
+    for number in range(1, rounds + 1):
         folder = directory / "cases" / case["name"] / f"round_{number}"
         try:
-            result = collector.profile_counters(folder, int(row["tiling_key"]))
+            result = collector.profile_counters(folder, int(row["tiling_key"]), repeat)
             metrics = result["samples"]
-            good = result["launches"] == collector.REPEAT and all(
-                len(metrics.get(field, [])) == collector.REPEAT
+            good = result["launches"] == repeat and all(
+                len(metrics.get(field, [])) == repeat
                 and all(collector.finite(value) is not None and value >= 0 for value in metrics[field])
                 for field in REQUIRED_PMU)
             complete &= good
@@ -293,13 +295,24 @@ def run(collector, npu_id, report_only=False):
     targets = {"varlen_l1": len(plan)} if focused else TARGETS
     manifest = {"plan_sha256": cost.sha256(plan), "model_sha256": cost.sha256(model),
                 "physical_npu_id": npu_id, "targets": targets, "rounds": collector.ROUNDS,
-                "repeat": collector.REPEAT, "warmup": collector.WARMUP}
+                "repeat": collector.REPEAT, "warmup": collector.WARMUP, "profiler_warmup": collector.WARMUP}
     path = directory / "manifest.json"
-    if path.is_file() and json.loads(path.read_text()) != manifest:
-        raise RuntimeError("this collection folder belongs to another plan, NPU, or frozen model; existing data were retained")
+    if path.is_file():
+        previous = json.loads(path.read_text())
+        identity = ("plan_sha256", "model_sha256", "physical_npu_id", "targets")
+        if previous != manifest:
+            if not focused or any(previous.get(key) != manifest[key] for key in identity):
+                raise RuntimeError("this collection folder belongs to another plan, NPU, or frozen model; existing data were retained")
+            legacy = previous.get("previous_measurement_protocol")
+            if legacy is None and any(previous.get(key) != manifest[key] for key in ("rounds", "repeat", "warmup")):
+                legacy = {key: previous[key] for key in ("rounds", "repeat", "warmup")}
+                legacy["profiler_warmup"] = previous.get("profiler_warmup", 10)
+            if legacy is not None:
+                manifest["previous_measurement_protocol"] = legacy
     cost.save_json(path, manifest)
     print(f"NPU: physical {npu_id}; one CPU; serial case execution; no total runtime limit", flush=True)
     print("TARGETS " + " ".join(f"{group}={count}" for group, count in targets.items()), flush=True)
+    print(f"MEASUREMENT: rounds={collector.ROUNDS} launches={collector.REPEAT} launcher_warmup={collector.WARMUP} profiler_warmup={collector.WARMUP}", flush=True)
     env = collector.fa.run_env([], None)
     env.update(FA_DISCOVER_ONLY="1", FA_BUILD_JOBS="1")
     print(f"HOST CACHE CHECK log={directory / 'host_build.log'}", flush=True)
@@ -432,6 +445,7 @@ def execute_validation(collector, plan, hardware, forecasts, directory):
                 item = validation_forecast(case, forecasts, directory)
                 prediction = item.get("result") if item["status"] == "predicted" else None
                 case["derived_schedule"].update(prediction_status=item["status"], prediction_error=item.get("error", ""))
+                case["derived_schedule"].update(launcher_warmup=collector.WARMUP, profiler_warmup=collector.WARMUP)
                 row.update(model_sha256=item["model_sha256"], prediction_before_measurement=prediction is not None)
                 stage = "discover"
                 started = time.monotonic()
@@ -468,6 +482,9 @@ def validation_report(collector, directory, forecasts=None, final=False):
     records = collector.recorded(directory / "routes.csv")
     hardware_path = directory / "hardware.json"
     hardware = json.loads(hardware_path.read_text()) if hardware_path.is_file() else {}
+    manifest_path = directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
+    previous_protocol = manifest.get("previous_measurement_protocol", {})
     target = directory / "diagnostics.csv"
     phases = ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")
     fields = ("case", "stratum", *cost.INPUT_FIELDS,
@@ -476,12 +493,12 @@ def validation_report(collector, directory, forecasts=None, final=False):
               "model_sha256", "prediction_before_measurement", "prediction_frozen_utc", "prediction_status", "prediction_error",
               "expected_implementation", "actual_implementation", "cost_class", "selected_cost_model", "schedule_disagreements",
               "predicted_us", "baseline_predicted_us", "baseline_prediction_error", "duration_us", "signed_error_percent", "ape_percent", "baseline_ape_percent",
-              "stable", "round1_us", "round2_us", "round3_us", "sample_count", "ci95_low_us", "ci95_high_us", "repeat_halfspan_percent",
+              "stable", "stability_assessed", "launcher_warmup", "profiler_warmup", "round1_us", "round2_us", "round3_us", "sample_count", "ci95_low_us", "ci95_high_us", "repeat_halfspan_percent",
               "checked_elements", "failed_elements", "failed_rows", "max_abs_error", "validation_version", "pmu_complete",
               "refinement_status", "source_conditions", "unseen_source_conditions", "micro_context_extrapolation", "sdk_api_matches_calibration",
               *(f"predicted_{phase}_critical_us" for phase in phases),
               *collector.REPORT_TILING, "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_notes", *collector.PMU_FIELDS)
-    errors, baseline_errors, noise, unstable, paired_errors, strata = [], [], [], 0, [], {}
+    errors, baseline_errors, noise, unstable, unassessed, paired_errors, strata = [], [], [], 0, 0, [], {}
     temporary = target.with_suffix(".tmp")
     with temporary.open("w", newline="") as output:
         writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
@@ -502,13 +519,16 @@ def validation_report(collector, directory, forecasts=None, final=False):
                           selected_cost_model=prediction.get("selected_cost_model", ""), refinement_status=refined.get("status", ""),
                           sdk_api_matches_calibration=prediction.get("sdk_api_matches_calibration", ""),
                           ci95_low_us=row.get("median_ci95_low_us", ""), ci95_high_us=row.get("median_ci95_high_us", ""))
+            result.update(launcher_warmup=derived.get("launcher_warmup", previous_protocol.get("warmup", "")),
+                          profiler_warmup=derived.get("profiler_warmup", previous_protocol.get("profiler_warmup", "")),
+                          stability_assessed=str(row.get("stable")).lower() in ("true", "false"))
             result.update({key: refined.get(key, "") for key in ("source_conditions", "unseen_source_conditions", "micro_context_extrapolation")})
             result.update({f"predicted_{phase}_critical_us": prediction.get("critical_path_phase_us", {}).get(phase, "") for phase in phases})
             medians = row.get("round_medians_us") or []
             result.update({f"round{number}_us": value for number, value in enumerate(medians, 1)})
             actual = collector.finite(row.get("duration_us"))
             if actual and actual > 0:
-                halfspan = 100 * (max(medians) - min(medians)) / (2 * actual) if medians else None
+                halfspan = 100 * (max(medians) - min(medians)) / (2 * actual) if len(medians) > 1 else None
                 result["repeat_halfspan_percent"] = halfspan
                 valid = row.get("status") == "ok" and (row.get("correctness") or {}).get("checked_elements", 0) > 0 and derived.get("actual_implementation") == "varlen_l1"
                 if result["predicted_us"]:
@@ -517,7 +537,8 @@ def validation_report(collector, directory, forecasts=None, final=False):
                     if valid:
                         errors.append(result["ape_percent"])
                         strata.setdefault(derived.get("stratum", "unknown"), []).append(result["ape_percent"])
-                        unstable += int(str(row.get("stable")).lower() != "true")
+                        unstable += int(str(row.get("stable")).lower() == "false")
+                        unassessed += int(not result["stability_assessed"])
                         if halfspan is not None:
                             noise.append(halfspan)
                 if result["baseline_predicted_us"]:
@@ -527,9 +548,11 @@ def validation_report(collector, directory, forecasts=None, final=False):
                         paired_errors.append(result["ape_percent"])
             metrics, frequencies, notes, launches = {}, [], set(), 0
             if row.get("tiling_key"):
-                for number in range(1, collector.ROUNDS + 1):
+                rounds = len(medians) or collector.ROUNDS
+                repeat = int(row.get("sample_count") or rounds * collector.REPEAT) // rounds
+                for number in range(1, rounds + 1):
                     try:
-                        counters = collector.profile_counters(directory / "cases" / name / f"round_{number}", int(row["tiling_key"]))
+                        counters = collector.profile_counters(directory / "cases" / name / f"round_{number}", int(row["tiling_key"]), repeat)
                         launches += counters["launches"]
                         notes.update(counters["notes"])
                         frequencies.extend(counters["freq"])
@@ -553,3 +576,5 @@ def validation_report(collector, directory, forecasts=None, final=False):
             print(f"{label}: n={len(values)} MdAPE={statistics.median(values):.3f}% P90={p90:.3f}% max={max(values):.3f}%; {bands}", flush=True)
     if noise:
         print(f"REPEAT NOISE: median_halfspan={statistics.median(noise):.3f}%; unstable={unstable}/{len(errors)}; all numerically valid cases retained", flush=True)
+    if unassessed:
+        print(f"STABILITY NOT ASSESSED: {unassessed}/{len(errors)} cases; single measurements do not estimate repeat noise", flush=True)

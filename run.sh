@@ -55,7 +55,8 @@ if [[ "${FA_PROFILE:-1}" == "0" ]]; then
     exec "${BINARY}"
 fi
 if [[ -n "${FA_PROFILE_OUTPUT:-}" ]]; then
-    exec msprof op --kernel-name=FlashAttentionScore --launch-count=10 --warm-up=10 \
+    exec msprof op --kernel-name=FlashAttentionScore --launch-count="${FA_REPEAT:-10}" \
+        --warm-up="${FA_PROFILE_WARMUP:-10}" \
         --launch-skip-before-match="${FA_WARMUP:-0}" \
         --output="${FA_PROFILE_OUTPUT}" "${BINARY}"
 fi
