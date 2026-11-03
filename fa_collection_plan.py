@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import csv
 import fcntl
 import io
 import itertools
@@ -268,10 +269,14 @@ def execute(collector, plan, hardware, forecasts, directory):
 
 def run(collector, npu_id, report_only=False):
     specification = json.loads((ROOT / "fa_collection_plan.json").read_text())
-    directory = ROOT / "output/fa_branch_collection"
+    focused = specification.get("implementation") == "varlen_l1"
+    directory = ROOT / "output" / (specification["version"] if focused else "fa_branch_collection")
     directory.mkdir(parents=True, exist_ok=True)
     if report_only:
-        report(collector, directory)
+        if focused:
+            validation_report(collector, directory, final=True)
+        else:
+            report(collector, directory)
         print(f"CSV_REPORT={directory / 'diagnostics.csv'}")
         return
     if hasattr(os, "sched_getaffinity"):
@@ -282,16 +287,19 @@ def run(collector, npu_id, report_only=False):
     collector.fa.PROFILE_REPEAT = collector.REPEAT
     lock = (directory / "run.lock").open("w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    plan = design(collector, specification)
-    manifest = {"plan_sha256": cost.sha256(plan), "model_sha256": cost.sha256(specification["frozen_model"]),
-                "physical_npu_id": npu_id, "targets": TARGETS, "rounds": collector.ROUNDS,
+    plan = validation_design(specification) if focused else design(collector, specification)
+    forecasts = validation_model(specification, directory) if focused else None
+    model = forecasts["model"] if focused else specification["frozen_model"]
+    targets = {"varlen_l1": len(plan)} if focused else TARGETS
+    manifest = {"plan_sha256": cost.sha256(plan), "model_sha256": cost.sha256(model),
+                "physical_npu_id": npu_id, "targets": targets, "rounds": collector.ROUNDS,
                 "repeat": collector.REPEAT, "warmup": collector.WARMUP}
     path = directory / "manifest.json"
     if path.is_file() and json.loads(path.read_text()) != manifest:
         raise RuntimeError("this collection folder belongs to another plan, NPU, or frozen model; existing data were retained")
     cost.save_json(path, manifest)
-    print(f"NPU: physical {npu_id}; one CPU; serial case execution; round-robin branches; no total runtime limit", flush=True)
-    print("TARGETS " + " ".join(f"{group}={count}" for group, count in TARGETS.items()), flush=True)
+    print(f"NPU: physical {npu_id}; one CPU; serial case execution; no total runtime limit", flush=True)
+    print("TARGETS " + " ".join(f"{group}={count}" for group, count in targets.items()), flush=True)
     env = collector.fa.run_env([], None)
     env.update(FA_DISCOVER_ONLY="1", FA_BUILD_JOBS="1")
     print(f"HOST CACHE CHECK log={directory / 'host_build.log'}", flush=True)
@@ -301,5 +309,247 @@ def run(collector, npu_id, report_only=False):
         raise RuntimeError(f"Host launcher build failed; see {directory / 'host_build.log'}")
     collector.HOST_READY = True
     hardware = collector.hardware_profile(directory, npu_id)
+    if focused:
+        if any(str(hardware.get(key)) != str(value) for key, value in model["hardware"].items()):
+            raise RuntimeError("physical NPU hardware differs from the frozen predictor")
+        execute_validation(collector, plan, hardware, forecasts, directory)
+        return
     forecasts = freeze(plan, specification["frozen_model"], hardware, directory)
     execute(collector, plan, hardware, forecasts, directory)
+
+
+def validation_design(specification):
+    hardware = specification["hardware"]
+    excluded = {tuple(pair) for pair in specification["previous_sequence_pairs"]}
+    seen, pairs, plan = set(), set(), []
+    for item in specification["cases"]:
+        case = make_case(item["inputs"], "varlen", hardware, item["stratum"])
+        p = case["inputs"]
+        identity, pair = cost.sha256(p), (p["S1"], p["S2"])
+        s = source.schedule(p, hardware)
+        if identity in seen or identity in specification["previous_input_hashes"] or pair in excluded:
+            raise RuntimeError("validation input or sequence pair is repeated from previous data")
+        if p["layout"] != "TND" or case["expected"] != 94 or s["same_ab"] or s["s1_base"] > 128 or max(p["D"], p["DV"]) > 256:
+            raise RuntimeError("validation input does not select Varlen L1 from the official source conditions")
+        if storage_bytes(p) > specification["max_tensor_bytes"]:
+            raise RuntimeError("validation input exceeds the planned tensor memory bound")
+        case["derived_schedule"].update(stratum=item["stratum"], sequence_pair_unseen=True,
+                                        expected_implementation="varlen_l1")
+        seen.add(identity)
+        pairs.add(pair)
+        plan.append(case)
+    if len(plan) != specification["shape_count"] or len(pairs) != specification["sequence_pair_count"]:
+        raise RuntimeError("validation shape counts differ from the committed plan")
+    return plan
+
+
+def validation_model(specification, directory):
+    import fa_branch_latency as branches
+    import fa_latency_refinement as micro
+    path = directory / "predictions_before_measurement.json"
+    if path.is_file():
+        saved = json.loads(path.read_text())
+    else:
+        model = json.loads((ROOT / "fa_branch_model.json").read_text())
+        saved = {"model": model, "model_sha256": cost.sha256(model), "predictions": {},
+                 "frozen_utc": datetime.now(timezone.utc).isoformat()}
+    model = saved["model"]
+    if saved["model_sha256"] != specification["model_sha256"] or cost.sha256(model) != saved["model_sha256"]:
+        raise RuntimeError("validation plan and frozen model differ; existing measurements were retained")
+    if model["source_sha256"] != branches.signature() or model["refined"]["source_sha256"] != micro.signature():
+        raise RuntimeError("frozen predictor and execution source differ")
+    if model["hardware"] != specification["hardware"]:
+        raise RuntimeError("validation hardware differs from the frozen model")
+    training = set(model["baseline"]["training_inputs"]) | set(model["refined"]["training_inputs"])
+    if not training.issubset(specification["previous_input_hashes"]):
+        raise RuntimeError("validation exclusions omit model training inputs")
+    cost.save_json(path, saved)
+    return saved
+
+
+def validation_forecast(case, forecasts, directory):
+    import fa_branch_latency as branches
+    identity = cost.sha256(case["inputs"])
+    saved = forecasts["predictions"].get(case["name"])
+    if saved is not None:
+        if saved["input_sha256"] != identity or saved["model_sha256"] != forecasts["model_sha256"]:
+            raise RuntimeError("saved forecast belongs to another input or model")
+        return saved
+    item = {"input_sha256": identity, "model_sha256": forecasts["model_sha256"],
+            "frozen_utc": datetime.now(timezone.utc).isoformat()}
+    try:
+        prediction = branches.predict(case["inputs"], forecasts["model"])
+        if prediction["implementation"] != "varlen_l1" or prediction["selected_cost_model"] != "micro_costs":
+            raise RuntimeError("frozen model selected another implementation or cost model")
+        item.update(status="predicted", result=prediction)
+    except Exception as error:
+        item.update(status="unavailable", error=str(error))
+    try:
+        item["baseline_predicted_us"] = branches.predict(case["inputs"], forecasts["model"]["baseline"])["predicted_us"]
+    except Exception as error:
+        item["baseline_prediction_error"] = str(error)
+    forecasts["predictions"][case["name"]] = item
+    cost.save_json(directory / "predictions_before_measurement.json", forecasts)
+    return item
+
+
+def validation_route(collector, case, folder, hardware):
+    collector.select_shape(case)
+    route = collector.discover(collector.fa.shape_params(), folder, timeout=case["timeout_seconds"])
+    branch = collector.describe_branch(*route, case["inputs"])
+    effective = collector.fa.read_effective(folder / "host_effective.tsv")
+    case["derived_schedule"].update(observed_priority=route[0], observed_tiling_key=route[1],
+                                    actual_branch_json=json.dumps(branch, sort_keys=True))
+    collector.verify_case_schedule(case, hardware, route[0], effective or {})
+    expected = {"key_ub0": "S1", "key_ub1": "S2", "key_block": "NONE"}
+    if route[0] != 94 or any(branch.get(key) != value for key, value in expected.items()) or not 0 < int(effective["FA_S1_BASE"]) <= 128:
+        raise RuntimeError("official Host did not select the Varlen L1 implementation")
+    schedule = source.schedule(case["inputs"], hardware)
+    mapping = {"s1_base": "FA_S1_BASE", "s2_base": "FA_S2_BASE", "n_ratio": "FA_N_RATIO",
+               "core_num": "FA_CORE_NUM", "total_tasks": "FA_TOTAL_TASKS", "split_factor": "FA_SPLIT_FACTOR"}
+    case["derived_schedule"].update(actual_implementation="varlen_l1", actual_branch_json=json.dumps(branch, sort_keys=True),
+        schedule_disagreements={key: {"predicted": schedule[key], "host": effective.get(field)}
+                                for key, field in mapping.items() if schedule[key] != effective.get(field)})
+    return route
+
+
+def execute_validation(collector, plan, hardware, forecasts, directory):
+    csv_path = directory / "routes.csv"
+    records, ensured, failures = collector.recorded(csv_path), set(), {}
+    try:
+        for index, case in enumerate(plan, 1):
+            name = case["name"]
+            if name in records:
+                print(f"SKIP {index}/{len(plan)} case={name} status={records[name].get('status')}; saved result retained", flush=True)
+                continue
+            print(f"VALIDATION {index}/{len(plan)} stratum={case['derived_schedule']['stratum']} input={tuple(case['inputs'][key] for key in cost.INPUT_FIELDS)}", flush=True)
+            folder = directory / "cases" / name
+            folder.mkdir(parents=True, exist_ok=True)
+            stage = "predict"
+            row = {"version": collector.VERSION, "case": name, "split": "external", "family": "varlen",
+                   "inputs": case["inputs"], "derived_schedule": case["derived_schedule"]}
+            try:
+                item = validation_forecast(case, forecasts, directory)
+                prediction = item.get("result") if item["status"] == "predicted" else None
+                case["derived_schedule"].update(prediction_status=item["status"], prediction_error=item.get("error", ""))
+                row.update(model_sha256=item["model_sha256"], prediction_before_measurement=prediction is not None)
+                stage = "discover"
+                started = time.monotonic()
+                route = validation_route(collector, case, folder, hardware)
+                case["probe_host_wall_seconds"] = time.monotonic() - started
+                stage = "measure"
+                collector.profile_counters.cache_clear()
+                collector.collect(case, hardware, directory, records, csv_path, ensured,
+                                  frozen=forecasts["model"] if prediction else None, precomputed=prediction,
+                                  build_failures=failures, discovered_route=route)
+                row = records[name]
+                row["derived_schedule"].update(case["derived_schedule"])
+                row["derived_schedule"]["pmu_complete"] = extract_pmu(collector, directory, case, row)
+            except Exception as error:
+                row.update(status="failed", stage=stage, error=str(error))
+                print(f"CASE FAILED: {name} stage={stage}: {error}; continuing", flush=True)
+            finally:
+                if row.get("status"):
+                    row.setdefault("priority", case["derived_schedule"].get("observed_priority"))
+                    row.setdefault("tiling_key", case["derived_schedule"].get("observed_tiling_key"))
+                    records[name] = row
+                    collector.append(csv_path, row)
+                (ROOT / "output/output.bin").unlink(missing_ok=True)
+                validation_report(collector, directory, forecasts)
+    finally:
+        validation_report(collector, directory, forecasts, final=True)
+    print(f"CSV_REPORT={directory / 'diagnostics.csv'}", flush=True)
+
+
+def validation_report(collector, directory, forecasts=None, final=False):
+    if forecasts is None:
+        path = directory / "predictions_before_measurement.json"
+        forecasts = json.loads(path.read_text()) if path.is_file() else {"predictions": {}}
+    records = collector.recorded(directory / "routes.csv")
+    hardware_path = directory / "hardware.json"
+    hardware = json.loads(hardware_path.read_text()) if hardware_path.is_file() else {}
+    target = directory / "diagnostics.csv"
+    phases = ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")
+    fields = ("case", "stratum", *cost.INPUT_FIELDS,
+              "soc", "physical_npu_id", "aic_cores", "aiv_cores", "l1_bytes", "l2_bytes", "ub_bytes",
+              "status", "stage", "error", "priority", "tiling_key",
+              "model_sha256", "prediction_before_measurement", "prediction_frozen_utc", "prediction_status", "prediction_error",
+              "expected_implementation", "actual_implementation", "cost_class", "selected_cost_model", "schedule_disagreements",
+              "predicted_us", "baseline_predicted_us", "baseline_prediction_error", "duration_us", "signed_error_percent", "ape_percent", "baseline_ape_percent",
+              "stable", "round1_us", "round2_us", "round3_us", "sample_count", "ci95_low_us", "ci95_high_us", "repeat_halfspan_percent",
+              "checked_elements", "failed_elements", "failed_rows", "max_abs_error", "validation_version", "pmu_complete",
+              "refinement_status", "source_conditions", "unseen_source_conditions", "micro_context_extrapolation", "sdk_api_matches_calibration",
+              *(f"predicted_{phase}_critical_us" for phase in phases),
+              *collector.REPORT_TILING, "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_notes", *collector.PMU_FIELDS)
+    errors, baseline_errors, noise, unstable, paired_errors, strata = [], [], [], 0, [], {}
+    temporary = target.with_suffix(".tmp")
+    with temporary.open("w", newline="") as output:
+        writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        for name, row in records.items():
+            derived = row.get("derived_schedule") or {}
+            item = forecasts["predictions"].get(name, {})
+            prediction = item.get("result") or {}
+            refined = prediction.get("refinement") or {}
+            effective = row.get("effective_tiling") or {}
+            if isinstance(effective, str):
+                effective = json.loads(effective)
+            result = {**hardware, **row, **row["inputs"], **derived, **effective, **(row.get("correctness") or {})}
+            result.update(prediction_frozen_utc=item.get("frozen_utc", ""), predicted_us=prediction.get("predicted_us", ""),
+                          model_sha256=item.get("model_sha256", row.get("model_sha256", "")),
+                          baseline_predicted_us=item.get("baseline_predicted_us", ""), cost_class=prediction.get("cost_class", ""),
+                          baseline_prediction_error=item.get("baseline_prediction_error", ""),
+                          selected_cost_model=prediction.get("selected_cost_model", ""), refinement_status=refined.get("status", ""),
+                          sdk_api_matches_calibration=prediction.get("sdk_api_matches_calibration", ""),
+                          ci95_low_us=row.get("median_ci95_low_us", ""), ci95_high_us=row.get("median_ci95_high_us", ""))
+            result.update({key: refined.get(key, "") for key in ("source_conditions", "unseen_source_conditions", "micro_context_extrapolation")})
+            result.update({f"predicted_{phase}_critical_us": prediction.get("critical_path_phase_us", {}).get(phase, "") for phase in phases})
+            medians = row.get("round_medians_us") or []
+            result.update({f"round{number}_us": value for number, value in enumerate(medians, 1)})
+            actual = collector.finite(row.get("duration_us"))
+            if actual and actual > 0:
+                halfspan = 100 * (max(medians) - min(medians)) / (2 * actual) if medians else None
+                result["repeat_halfspan_percent"] = halfspan
+                valid = row.get("status") == "ok" and (row.get("correctness") or {}).get("checked_elements", 0) > 0 and derived.get("actual_implementation") == "varlen_l1"
+                if result["predicted_us"]:
+                    result["signed_error_percent"] = 100 * (result["predicted_us"] / actual - 1)
+                    result["ape_percent"] = abs(result["signed_error_percent"])
+                    if valid:
+                        errors.append(result["ape_percent"])
+                        strata.setdefault(derived.get("stratum", "unknown"), []).append(result["ape_percent"])
+                        unstable += int(str(row.get("stable")).lower() != "true")
+                        if halfspan is not None:
+                            noise.append(halfspan)
+                if result["baseline_predicted_us"]:
+                    result["baseline_ape_percent"] = 100 * abs(result["baseline_predicted_us"] / actual - 1)
+                    if valid and result["predicted_us"]:
+                        baseline_errors.append(result["baseline_ape_percent"])
+                        paired_errors.append(result["ape_percent"])
+            metrics, frequencies, notes, launches = {}, [], set(), 0
+            if row.get("tiling_key"):
+                for number in range(1, collector.ROUNDS + 1):
+                    try:
+                        counters = collector.profile_counters(directory / "cases" / name / f"round_{number}", int(row["tiling_key"]))
+                        launches += counters["launches"]
+                        notes.update(counters["notes"])
+                        frequencies.extend(counters["freq"])
+                        for metric, values in counters["samples"].items():
+                            metrics.setdefault(metric, []).extend(values)
+                    except Exception as error:
+                        notes.add(str(error)[:160])
+            result.update({key: statistics.median(values) for key, values in metrics.items() if values})
+            result.update(profile_launches=launches, pmu_notes=";".join(sorted(notes)),
+                          freq_min_mhz=min(frequencies) if frequencies else "", freq_max_mhz=max(frequencies) if frequencies else "")
+            writer.writerow({key: json.dumps(result[key], sort_keys=True, separators=(",", ":")) if isinstance(result.get(key), (dict, list)) else result.get(key, "") for key in fields})
+    temporary.replace(target)
+    states = Counter(row.get("status", "unknown") for row in records.values())
+    print("VALIDATION PROGRESS: " + " ".join(f"{key}={value}" for key, value in states.items()), flush=True)
+    if not final:
+        return
+    for label, values in (("FROZEN", errors), ("BASELINE_PAIRED", baseline_errors), ("MICRO_PAIRED", paired_errors), *strata.items()):
+        if values:
+            bands = " ".join(f">{limit}%={sum(value > limit for value in values)}/{len(values)}({100*sum(value > limit for value in values)/len(values):.1f}%)" for limit in (10, 20, 30))
+            p90 = float(source.np.quantile(values, .9))
+            print(f"{label}: n={len(values)} MdAPE={statistics.median(values):.3f}% P90={p90:.3f}% max={max(values):.3f}%; {bands}", flush=True)
+    if noise:
+        print(f"REPEAT NOISE: median_halfspan={statistics.median(noise):.3f}%; unstable={unstable}/{len(errors)}; all numerically valid cases retained", flush=True)
