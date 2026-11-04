@@ -4,6 +4,7 @@ import math
 from collections import Counter
 import numpy as np
 from . import fa_latency_refinement as micro
+
 BASE_FEATURES = ("payload_kb", "copy_calls", "strided_rows")
 EXTRA_FEATURES = ("nd2nz_partial_rows", "nd2nz_split_sector_kb", "capacity_pressure_kb")
 FEATURES = BASE_FEATURES + EXTRA_FEATURES
@@ -20,25 +21,48 @@ def api_kernel_inputs(inputs, policy=None):
     if p["DV"] > p["D"]:
         raise ValueError("official FlashAttentionScore API requires Dqk >= Dv")
     constants = policy["constants"]
-    alignment = constants["PAD_BASIC_BLOCK"] if p["D"] < constants["PAD_LOWER_BOUND_196"] or p["D"] == constants["PAD_ALIGN_SPL_SHAPE"] else constants["PAD_ALIGN_128"]
+    alignment = (
+        constants["PAD_BASIC_BLOCK"]
+        if p["D"] < constants["PAD_LOWER_BOUND_196"]
+        or p["D"] == constants["PAD_ALIGN_SPL_SHAPE"]
+        else constants["PAD_ALIGN_128"]
+    )
     qpad, vpad = (-p["D"]) % alignment, (-p["DV"]) % alignment
     padded = bool(qpad or vpad)
-    if p["D"] != p["DV"] and p["D"] in tuple(constants[name] for name in ("HEAD_DIM_64", "HEAD_DIM_80", "HEAD_DIM_128")):
+    if p["D"] != p["DV"] and p["D"] in tuple(
+        constants[name] for name in ("HEAD_DIM_64", "HEAD_DIM_80", "HEAD_DIM_128")
+    ):
         padded, vpad = True, qpad + p["D"] - p["DV"]
-    if p["D"] < constants["TND_UNPAD_MAX_DDIM"] and p["S2"] <= constants["TND_UNPAD_MAX_S2"] and p["B"] * p["S1"] < constants["TND_UNPAD_MAX_S1_SUM"]:
+    if (
+        p["D"] < constants["TND_UNPAD_MAX_DDIM"]
+        and p["S2"] <= constants["TND_UNPAD_MAX_S2"]
+        and p["B"] * p["S1"] < constants["TND_UNPAD_MAX_S1_SUM"]
+    ):
         padded, qpad, vpad = False, 0, 0
-    return {**p, "D": p["D"] + qpad if padded else p["D"], "DV": p["DV"] + vpad if padded else p["DV"]}
+    return {
+        **p,
+        "D": p["D"] + qpad if padded else p["D"],
+        "DV": p["DV"] + vpad if padded else p["DV"],
+    }
 
 
 def transfer(rows, width, stride, name, pressure=0):
     full, tail = divmod(width * 2, 256)
     partial = rows if name != "P" and tail else 0
-    return {"payload_kb": rows * width * 2 / 1024, "copy_calls": 1,
-            "strided_rows": rows if stride > width else 0, "source": name,
-            "nd2nz_partial_rows": partial,
-            "nd2nz_split_sector_kb": partial * full * (256 - tail) / 1024 if width * 2 % 128 else 0,
-            "capacity_pressure_kb": rows * width * 2 / 1024 * pressure,
-            "rows": rows, "width_elements": width, "stride_elements": stride}
+    return {
+        "payload_kb": rows * width * 2 / 1024,
+        "copy_calls": 1,
+        "strided_rows": rows if stride > width else 0,
+        "source": name,
+        "nd2nz_partial_rows": partial,
+        "nd2nz_split_sector_kb": (
+            partial * full * (256 - tail) / 1024 if width * 2 % 128 else 0
+        ),
+        "capacity_pressure_kb": rows * width * 2 / 1024 * pressure,
+        "rows": rows,
+        "width_elements": width,
+        "stride_elements": stride,
+    }
 
 
 class Work(micro.Work):
@@ -52,20 +76,36 @@ class Work(micro.Work):
         rows, columns = unit["rows"], unit["columns"]
         chunks = [min(256, columns - pos) for pos in range(0, columns, 256)]
         q = [] if offset else [transfer(rows, p["D"], p["N1"] * p["D"], "Q")]
-        first = [[transfer(count, p["D"], p["N2"] * p["D"], "K", pressure)] for count in chunks]
-        second = [[transfer(micro.source.cost.align(rows), micro.source.cost.align(count),
-                            micro.source.cost.align(count), "P"),
-                   transfer(count, p["DV"], p["N2"] * p["DV"], "V", pressure)] for count in chunks]
+        first = [
+            [transfer(count, p["D"], p["N2"] * p["D"], "K", pressure)]
+            for count in chunks
+        ]
+        second = [
+            [
+                transfer(
+                    micro.source.cost.align(rows),
+                    micro.source.cost.align(count),
+                    micro.source.cost.align(count),
+                    "P",
+                ),
+                transfer(count, p["DV"], p["N2"] * p["DV"], "V", pressure),
+            ]
+            for count in chunks
+        ]
         unit["cube"][0].update(dma_query=q, dma_groups=first)
         unit["cube"][1].update(dma_query=[], dma_groups=second)
         for job in unit["cube"]:
-            copies = job["dma_query"] + [item for group in job["dma_groups"] for item in group]
-            job["dma_features"] = {name: sum(item[name] for item in copies) for name in FEATURES}
+            copies = job["dma_query"] + [
+                item for group in job["dma_groups"] for item in group
+            ]
+            job["dma_features"] = {
+                name: sum(item[name] for item in copies) for name in FEATURES
+            }
         return unit
 
 
-def workload(inputs, hardware, calibration_geometry=None, source_vector_reads=False):
-    work = Work(inputs, hardware, calibration_geometry)
+def workload(inputs, hardware, source_vector_reads=False):
+    work = Work(inputs, hardware)
     if micro.implementation(work.p, work.s) != "varlen_l1":
         raise ValueError("ND2NZ transfer model requires the Varlen L1 implementation")
     work.pairs = micro.varlen_work(work)
@@ -97,7 +137,10 @@ class Graph(micro.BranchGraph):
         self.names = PARAMETERS
         self.columns = {name: index for index, name in enumerate(self.names)}
         self.templates = [tuple(row) + (0.0,) * extra for row in self.templates]
-        self.template_ids = {(phase, row): index for index, (phase, row) in enumerate(zip(self.phases, self.templates))}
+        self.template_ids = {
+            (phase, row): index
+            for index, (phase, row) in enumerate(zip(self.phases, self.templates))
+        }
         self.query_data = {}
         self.kv_iteration = self.p_iteration = 0
 
@@ -127,10 +170,19 @@ class Graph(micro.BranchGraph):
         job, mm = unit["cube"][stage // 2], self.work.mm[stage // 2]
         tiles = job["micro_tiles"]
         ab_count = max(1, min(mm["db_l0a"], mm["db_l0b"]))
-        c_count = max(1, min(mm["db_l0c"], self.work.hardware.get("l0c_bytes", 131072) // (mm["base_m"] * mm["base_n"] * 4)))
+        c_count = max(
+            1,
+            min(
+                mm["db_l0c"],
+                self.work.hardware.get("l0c_bytes", 131072)
+                // (mm["base_m"] * mm["base_n"] * 4),
+            ),
+        )
         query_slot = ("dma_q", owner)
         if job["dma_query"]:
-            self.query_data[owner] = self.load(job["dma_query"][0], phase, launch, query_slot, slots)
+            self.query_data[owner] = self.load(
+                job["dma_query"][0], phase, launch, query_slot, slots
+            )
         fixed, accumulators, serial = [], {}, 0
         for api, copies in enumerate(job["dma_groups"]):
             if stage == 0:
@@ -142,7 +194,11 @@ class Graph(micro.BranchGraph):
             if stage == 0:
                 a_ready = self.query_data[owner]
                 b_ready = self.load(copies[0], phase, issued, kv_slot, slots)
-                selected = [(index, tile) for index, tile in enumerate(tiles) if tile["api"] == api]
+                selected = [
+                    (index, tile)
+                    for index, tile in enumerate(tiles)
+                    if tile["api"] == api
+                ]
                 p_slot = None
             else:
                 p_slot = ("dma_p", self.p_iteration % 2)
@@ -153,31 +209,68 @@ class Graph(micro.BranchGraph):
             released = []
             for output, tile in selected:
                 c_slot = ("c0", output % c_count) if stage == 0 else ("c0", output)
-                partial = accumulators.get(output, self.node((slots.get(c_slot, -1), previous_fix))) if stage else self.node((slots.get(c_slot, -1), previous_fix))
-                lengths = tile["k"] if stage == 0 else [min(mm["base_k"], copies[1]["rows"] - pos)
-                    for pos in range(0, copies[1]["rows"], mm["base_k"])]
+                partial = (
+                    accumulators.get(
+                        output, self.node((slots.get(c_slot, -1), previous_fix))
+                    )
+                    if stage
+                    else self.node((slots.get(c_slot, -1), previous_fix))
+                )
+                lengths = (
+                    tile["k"]
+                    if stage == 0
+                    else [
+                        min(mm["base_k"], copies[1]["rows"] - pos)
+                        for pos in range(0, copies[1]["rows"], mm["base_k"])
+                    ]
+                )
                 for index, length in enumerate(lengths):
                     l0_slot = ("ab0", serial % ab_count)
                     serial += 1
-                    m, n, k = map(micro.source.cost.align, (tile["m"], tile["n"], length))
+                    m, n, k = map(
+                        micro.source.cost.align, (tile["m"], tile["n"], length)
+                    )
                     local = {"l0_kb": 2 * (m + n) * k / 1024, "tiles": 1}
-                    moved = self.operation("mte1", 0, local, phase, (a_ready, b_ready, slots.get(l0_slot, -1)))
+                    moved = self.operation(
+                        "mte1",
+                        0,
+                        local,
+                        phase,
+                        (a_ready, b_ready, slots.get(l0_slot, -1)),
+                    )
                     released.append(moved)
-                    arithmetic = {"flops_m": 2 * m * n * k / 1e6, "tiles": 1,
-                                  "output_tiles": int(index == 0 and (stage == 0 or api == 0))}
-                    partial = self.operation("cube", 0, arithmetic, phase, (moved, partial))
+                    arithmetic = {
+                        "flops_m": 2 * m * n * k / 1e6,
+                        "tiles": 1,
+                        "output_tiles": int(index == 0 and (stage == 0 or api == 0)),
+                    }
+                    partial = self.operation(
+                        "cube", 0, arithmetic, phase, (moved, partial)
+                    )
                     slots[l0_slot] = partial
-                    self.operation("cscalar", 0, {"commands": 1 + tile["barrier"]}, phase, (issued,))
+                    self.operation(
+                        "cscalar",
+                        0,
+                        {"commands": 1 + tile["barrier"]},
+                        phase,
+                        (issued,),
+                    )
                     self.events["k_tiles"] += 1
                     self.events["pipe_m_barriers"] += tile["barrier"]
                 if stage == 0:
-                    fixed.append(self.store(tile, job, phase, partial, int(output == selected[0][0])))
+                    fixed.append(
+                        self.store(
+                            tile, job, phase, partial, int(output == selected[0][0])
+                        )
+                    )
                     slots[c_slot] = fixed[-1]
                 else:
                     accumulators[output] = partial
             end_read = self.node(released)
             if stage == 0:
-                self.tails["mte1", 0] = self.node((self.tails.get(("mte1", 0), -1), partial))
+                self.tails["mte1", 0] = self.node(
+                    (self.tails.get(("mte1", 0), -1), partial)
+                )
                 self.events["matmul_end_l0_fences"] += 1
             slots[kv_slot] = end_read
             if p_slot is not None:
@@ -187,17 +280,25 @@ class Graph(micro.BranchGraph):
             self.events["matmul_calls"] += 1
         if stage == 2:
             for output, tile in enumerate(tiles):
-                fixed.append(self.store(tile, job, phase, accumulators[output], int(output == 0)))
+                fixed.append(
+                    self.store(tile, job, phase, accumulators[output], int(output == 0))
+                )
                 slots["c0", output] = fixed[-1]
             self.events["get_tensor_c_calls"] += 1
-            self.tails["mte1", 0] = self.node((self.tails.get(("mte1", 0), -1), partial))
+            self.tails["mte1", 0] = self.node(
+                (self.tails.get(("mte1", 0), -1), partial)
+            )
             self.events["matmul_end_l0_fences"] += 1
         return self.node(fixed)
 
     def store(self, tile, job, phase, dependency, first):
         write = tile["m"] * micro.source.cost.align(tile["n"]) * 4 / 1024
-        values = {"nz_write_kb": write if job.get("nz_write_kb") else 0,
-                  "nd_write_kb": 0 if job.get("nz_write_kb") else write, "stores": 1, "calls": first}
+        values = {
+            "nz_write_kb": write if job.get("nz_write_kb") else 0,
+            "nd_write_kb": 0 if job.get("nz_write_kb") else write,
+            "stores": 1,
+            "calls": first,
+        }
         return self.operation("fixpipe", 0, values, phase, (dependency,))
 
 
@@ -229,50 +330,88 @@ def branch_graph(work):
     zero = template_offset
     templates.append(np.zeros((1, len(PARAMETERS))))
     phases.append("startup")
-    left, right, which = list(np.concatenate(a)), list(np.concatenate(b)), list(np.concatenate(labels))
+    left, right, which = (
+        list(np.concatenate(a)),
+        list(np.concatenate(b)),
+        list(np.concatenate(labels)),
+    )
     while len(roots) > 1:
         first, second = roots.pop(), roots.pop()
         roots.append(len(left))
-        left.append(first); right.append(second); which.append(zero)
-    return {"a": np.ascontiguousarray(left, dtype=np.int32), "b": np.ascontiguousarray(right, dtype=np.int32),
-            "which": np.ascontiguousarray(which, dtype=np.int32), "templates": np.ascontiguousarray(np.vstack(templates)),
-            "root": roots[0], "phases": phases, "execution_events": dict(events)}
+        left.append(first)
+        right.append(second)
+        which.append(zero)
+    return {
+        "a": np.ascontiguousarray(left, dtype=np.int32),
+        "b": np.ascontiguousarray(right, dtype=np.int32),
+        "which": np.ascontiguousarray(which, dtype=np.int32),
+        "templates": np.ascontiguousarray(np.vstack(templates)),
+        "root": roots[0],
+        "phases": phases,
+        "execution_events": dict(events),
+    }
 
 
 def predict(inputs, model, contract):
     original = micro.source.cost.normalize(inputs)
     kernel_inputs = api_kernel_inputs(original, contract.get("api_input_normalization"))
-    work = workload(kernel_inputs, model["hardware"],
-                    source_vector_reads=contract.get("vector_accumulator_read_policy") == "source_unconditional")
+    work = workload(
+        kernel_inputs,
+        model["hardware"],
+        source_vector_reads=contract.get("vector_accumulator_read_policy")
+        == "source_unconditional",
+    )
     conditions = micro.execution_conditions(work)
     entry = micro.graph_entry(model, micro.cost_class(work.p, work.s), conditions)
     for pipe, values in micro.active_features(work).items():
         if pipe == "mte2":
             continue
-        missing = [name for name, value in values.items() if value > 0 and name not in entry["pipes"][pipe]["observed_features"]]
+        missing = [
+            name
+            for name, value in values.items()
+            if value > 0 and name not in entry["pipes"][pipe]["observed_features"]
+        ]
         if missing:
-            raise ValueError("unmeasured source primitive: " + pipe + "/" + ",".join(missing))
+            raise ValueError(
+                "unmeasured source primitive: " + pipe + "/" + ",".join(missing)
+            )
     rates = list(entry["rates"]) + [contract["coefficients"][name] for name in FEATURES]
     graph = branch_graph(work)
-    elapsed, gradient = micro.graph_time(graph, rates, True)
-    critical = micro.source.critical_phases(graph, rates)
+    elapsed, gradient, critical = micro.source.evaluate(graph, rates)
     pipes, terms = Counter(), {}
     for (pipe, name), value, rate in zip(PARAMETERS, gradient, rates):
         pipes[pipe] += float(value * rate)
         if pipe == "mte2" and name in FEATURES:
             terms[name] = float(value * rate)
     if not math.isclose(sum(pipes.values()), elapsed, rel_tol=1e-9, abs_tol=1e-8):
-        raise ValueError("DMA critical-cost attribution does not sum to predicted latency")
+        raise ValueError(
+            "DMA critical-cost attribution does not sum to predicted latency"
+        )
     total = features(work)
-    return {"predicted_us": elapsed, "implementation": "varlen_l1", "cost_class": micro.cost_class(work.p, work.s),
-            "schedule": work.s, "matmul": work.mm, "critical_path_phase_us": critical,
-            "critical_path_pipe_us": dict(pipes), "critical_dma_terms_us": terms,
-            "dma_features": total, "dma_active_sum_us": sum(total[name] * contract["coefficients"][name] for name in FEATURES),
-            "execution_events": graph["execution_events"], "transport_contract": VERSION,
-            "api_input_transform": {"qk_width": [original["D"], kernel_inputs["D"]],
-                                    "v_width": [original["DV"], kernel_inputs["DV"]],
-                                    "scope": "FlashAttentionScore kernel after API preprocessing; Pad and Slice task latency excluded"},
-            "vector_accumulator_read_policy": contract.get("vector_accumulator_read_policy", "legacy_first_window_omitted"),
-            "execution_events_scope": "distinct representative worker timelines; dma_features contains whole-device source-copy totals",
-            "stage_costs_independently_measured": False,
-            "source_conditions": conditions}
+    return {
+        "predicted_us": elapsed,
+        "implementation": "varlen_l1",
+        "cost_class": micro.cost_class(work.p, work.s),
+        "schedule": work.s,
+        "matmul": work.mm,
+        "critical_path_phase_us": critical,
+        "critical_path_pipe_us": dict(pipes),
+        "critical_dma_terms_us": terms,
+        "dma_features": total,
+        "dma_active_sum_us": sum(
+            total[name] * contract["coefficients"][name] for name in FEATURES
+        ),
+        "execution_events": graph["execution_events"],
+        "transport_contract": VERSION,
+        "api_input_transform": {
+            "qk_width": [original["D"], kernel_inputs["D"]],
+            "v_width": [original["DV"], kernel_inputs["DV"]],
+            "scope": "FlashAttentionScore kernel after API preprocessing; Pad and Slice task latency excluded",
+        },
+        "vector_accumulator_read_policy": contract.get(
+            "vector_accumulator_read_policy", "legacy_first_window_omitted"
+        ),
+        "execution_events_scope": "distinct representative worker timelines; dma_features contains whole-device source-copy totals",
+        "stage_costs_independently_measured": False,
+        "source_conditions": conditions,
+    }

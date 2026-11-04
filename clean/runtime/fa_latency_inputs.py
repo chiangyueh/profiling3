@@ -3,7 +3,18 @@ import hashlib
 import json
 import math
 
-INPUT_FIELDS = ("B", "N1", "N2", "S1", "S2", "D", "DV", "dtype", "layout", "has_drop_mask")
+INPUT_FIELDS = (
+    "B",
+    "N1",
+    "N2",
+    "S1",
+    "S2",
+    "D",
+    "DV",
+    "dtype",
+    "layout",
+    "has_drop_mask",
+)
 
 
 def ceil_div(a: int, b: int) -> int:
@@ -17,7 +28,9 @@ def align(a: int, b: int = 16) -> int:
 def normalize(inputs: dict) -> dict:
     unexpected = set(inputs) - set(INPUT_FIELDS)
     if unexpected:
-        raise ValueError(f"prediction accepts operator inputs only: unexpected {sorted(unexpected)}")
+        raise ValueError(
+            f"prediction accepts operator inputs only: unexpected {sorted(unexpected)}"
+        )
     missing = set(INPUT_FIELDS) - set(inputs)
     if missing:
         raise ValueError(f"missing inputs: {sorted(missing)}")
@@ -36,4 +49,6 @@ def normalize(inputs: dict) -> dict:
 
 
 def sha256(value: dict) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
