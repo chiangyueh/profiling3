@@ -375,7 +375,9 @@ def predict(inputs, model, contract):
             raise ValueError(
                 "unmeasured source primitive: " + pipe + "/" + ",".join(missing)
             )
-    rates = list(entry["rates"]) + [contract["coefficients"][name] for name in FEATURES]
+    rates = list(entry["rates"]) + [
+        contract["coefficients"].get(name, 0.0) for name in FEATURES
+    ]
     graph = branch_graph(work)
     elapsed, gradient, critical = micro.source.evaluate(graph, rates)
     pipes, terms = Counter(), {}
@@ -399,7 +401,7 @@ def predict(inputs, model, contract):
         "critical_dma_terms_us": terms,
         "dma_features": total,
         "dma_active_sum_us": sum(
-            total[name] * contract["coefficients"][name] for name in FEATURES
+            total[name] * contract["coefficients"].get(name, 0.0) for name in FEATURES
         ),
         "execution_events": graph["execution_events"],
         "transport_contract": VERSION,

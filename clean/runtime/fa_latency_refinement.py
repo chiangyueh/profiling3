@@ -1,24 +1,15 @@
 from __future__ import annotations
-import copy
-import json
-import os
-from collections import Counter
 
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-import numpy as np
 from . import fa_branch_latency as base
 
 source = base.source
-VERSION = "fa_branch_execution_v4"
-PIPES = base.PIPES
+BranchGraph = base.BranchGraph
 implementation = base.implementation
 cost_class = base.cost_class
 varlen_work = base.varlen_work
 active_features = base.active_features
 parameter_names = base.parameter_names
 compact_graph = base.compact_graph
-phase_features = base.phase_features
 
 
 def matmul_microtiles(p, s, mm, stage, rows, columns, heads):
@@ -202,328 +193,19 @@ def workload(inputs, hardware):
     return base.workload(inputs, hardware, Work)
 
 
-class BranchGraph(base.BranchGraph):
-    def cube(self, owner, unit, stage, launch, slot_state):
-        phase = "bmm1" if stage == 0 else "bmm2"
-        job, mm = unit["cube"][stage // 2], self.work.mm[stage // 2]
-        if unit.get("fake"):
-            self.events["fake_matmul_messages"] += 1
-            return self.operation("cscalar", 0, job, phase, (launch,))
-        tiles = job["micro_tiles"]
-        a_count = max(1, mm["depth_a1"] // max(1, mm["step_m"]))
-        b_count = max(1, mm["depth_b1"] // max(1, mm["step_n"]))
-        ab_count = max(1, min(mm["db_l0a"], mm["db_l0b"]))
-        c_count = max(
-            1,
-            min(
-                mm["db_l0c"],
-                self.work.hardware.get("l0c_bytes", 131072)
-                // (mm["base_m"] * mm["base_n"] * 4),
-            ),
-        )
-        last_api = self.node((launch, self.tails.get(("mte1", 0), -1)))
-        prior_fix = self.tails.get(("fixpipe", 0), -1)
-        operand_data, fixed, previous_api = {}, [], None
-        batch_mode = self.work.s["family"] in ("b", "b_drop")
-        bulk = None
-        if batch_mode:
-            issued = self.operation(
-                "cscalar", 0, {"commands": job["api_steps"]}, phase, (launch,)
-            )
-            bulk = self.operation("mte2", 0, job, phase, (issued, last_api))
-        for output, tile in enumerate(tiles):
-            api_start = tile["api"] != previous_api
-            if api_start:
-                if fixed:
-                    last_api = fixed[-1]
-                if not batch_mode:
-                    self.operation(
-                        "cscalar",
-                        0,
-                        {"commands": job["api_steps"] / job["calls"]},
-                        phase,
-                        (launch, last_api),
-                    )
-                previous_api = tile["api"]
-            partial = launch
-            for k, length in enumerate(tile["k"]):
-                issued = self.operation("cscalar", 0, {"commands": 1}, phase, (launch,))
-                a_slot = (stage, "a1", (output * len(tile["k"]) + k) % a_count)
-                b_slot = (stage, "b1", (output * len(tile["k"]) + k) % b_count)
-                l0_slot = ("ab0", (output * len(tile["k"]) + k) % ab_count)
-                c_slot = ("c0", output % c_count)
-                transfer = job.get("cache_trace")
-                values = transfer[output][k] if transfer else job
-                if transfer:
-                    a_slot = (stage, "a1", values["a_slot"])
-                    b_slot = (stage, "b1", values["b_slot"])
-                dependencies = [issued, last_api]
-                for operand, slot in (("a", a_slot), ("b", b_slot)):
-                    if not transfer or values[operand + "_miss"]:
-                        dependencies.append(slot_state.get(slot, -1))
-                    else:
-                        dependencies.append(operand_data.get(slot, last_api))
-                if bulk is not None:
-                    loaded = self.node(dependencies + [bulk])
-                elif not transfer or values["loads"]:
-                    fraction = source.cost.align(length) / sum(
-                        source.cost.align(v) for v in tile["k"]
-                    )
-                    loaded = self.operation(
-                        "mte2",
-                        0,
-                        values,
-                        phase,
-                        dependencies,
-                        divisor=1 if transfer else len(tiles) / fraction,
-                    )
-                else:
-                    loaded = self.node(dependencies)
-                for operand, slot in (("a", a_slot), ("b", b_slot)):
-                    if not transfer or values[operand + "_miss"]:
-                        operand_data[slot] = loaded
-                m, n, kval = map(source.cost.align, (tile["m"], tile["n"], length))
-                local = {"l0_kb": 2 * (m + n) * kval / 1024, "tiles": 1}
-                moved = self.operation(
-                    "mte1", 0, local, phase, (loaded, slot_state.get(l0_slot, -1))
-                )
-                slot_state[a_slot] = slot_state[b_slot] = moved
-                arithmetic = {
-                    "flops_m": 2 * m * n * kval / 1e6,
-                    "tiles": 1,
-                    "output_tiles": int(k == 0),
-                }
-                computed = self.operation(
-                    "cube",
-                    0,
-                    arithmetic,
-                    phase,
-                    (
-                        moved,
-                        partial,
-                        prior_fix if output == 0 and k == 0 else -1,
-                        slot_state.get(c_slot, -1) if k == 0 else -1,
-                    ),
-                )
-                slot_state[l0_slot] = computed
-                partial = computed
-                if tile["barrier"]:
-                    self.operation("cscalar", 0, {"commands": 1}, phase, (launch,))
-                    self.events["pipe_m_barriers"] += 1
-            if batch_mode:
-                self.tails["mte1", 0] = self.node(
-                    (self.tails.get(("mte1", 0), -1), partial)
-                )
-                self.events["batch_mte1_fences"] += 1
-            write = tile["m"] * source.cost.align(tile["n"]) * 4 / 1024
-            output_job = {
-                "nz_write_kb": write if job.get("nz_write_kb") else 0,
-                "nd_write_kb": write if not job.get("nz_write_kb") else 0,
-                "stores": 1,
-                "calls": int(api_start),
-            }
-            stored = self.operation("fixpipe", 0, output_job, phase, (partial,))
-            slot_state[c_slot] = stored
-            fixed.append(stored)
-        self.events["matmul_calls"] += int(job["api_steps"])
-        self.events["k_tiles"] += sum(len(tile["k"]) for tile in tiles)
-        self.events["batch_bulk_copies"] += int(batch_mode)
-        return fixed[-1]
-
-
-def branch_graph(work):
-    components, seen = [], set()
-    for pair in work.pairs:
-        identity = tuple(tuple(id(job) for job in tasks) for tasks in pair)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        component = copy.copy(work)
-        component.pairs = [pair]
-        components.append(compact_graph(BranchGraph(component).build()))
-    if len(components) == 1:
-        return components[0]
-    a, b, labels, templates, phases, roots = [], [], [], [], [], []
-    offset, template_offset, events = 0, 0, Counter()
-    for graph in components:
-        a.append(np.where(graph["a"] >= 0, graph["a"] + offset, -1).astype(np.int32))
-        b.append(np.where(graph["b"] >= 0, graph["b"] + offset, -1).astype(np.int32))
-        labels.append(graph["which"] + template_offset)
-        templates.append(graph["templates"])
-        phases.extend(graph["phases"])
-        roots.append(graph["root"] + offset)
-        offset += len(graph["a"])
-        template_offset += len(graph["templates"])
-        events.update(graph["execution_events"])
-    root_a, root_b = [], []
-    root = roots[0]
-    for value in roots[1:]:
-        root_a.append(root)
-        root_b.append(value)
-        root = offset + len(root_a) - 1
-    return {
-        "a": np.concatenate(a + [np.array(root_a, dtype=np.int32)]),
-        "b": np.concatenate(b + [np.array(root_b, dtype=np.int32)]),
-        "which": np.concatenate(labels + [np.zeros(len(root_a), dtype=np.int32)]),
-        "templates": np.vstack(templates),
-        "phases": phases,
-        "root": root,
-        "execution_events": dict(events),
-    }
-
-
-def primitive_class(pipe, key):
-    impl, dtype, layout, path, fmt, policy = key.split("|")
-    vector_function = {
-        "varlen_gm": "general",
-        "varlen_l1": "general",
-        "varlen_same_ab": "same_ab",
-    }.get(impl, impl)
-    api = (
-        "batch"
-        if impl == "b"
-        else (
-            "manual_l1"
-            if impl == "varlen_l1" or impl == "varlen_same_ab" and path == "l1_carry"
-            else "direct" if impl in ("same_ab", "varlen_same_ab") else "kfc"
-        )
-    )
-    if pipe in ("cube", "mte1"):
-        return (
-            (pipe, dtype, policy) if policy == "STATIC" else (pipe, dtype, policy, api)
-        )
-    if pipe == "fixpipe":
-        return (pipe, policy) if policy == "STATIC" else (pipe, policy, api)
-    if pipe == "vector":
-        return pipe, vector_function, dtype
-    if pipe == "cscalar":
-        api = (
-            "batch"
-            if impl == "b"
-            else (
-                "direct_same_ab"
-                if impl in ("same_ab", "varlen_same_ab")
-                else "manual_l1" if impl == "varlen_l1" else "normal"
-            )
-        )
-        return pipe, api, policy, fmt
-    if pipe == "vscalar":
-        return (
-            pipe,
-            vector_function,
-            "direct" if impl in ("same_ab", "varlen_same_ab", "varlen_l1") else "kfc",
-            policy,
-        )
-    api = (
-        "batch"
-        if impl == "b"
-        else "normal" if impl in ("general", "s1", "varlen_gm") else impl
-    )
-    return pipe, api, layout, policy
-
-
-def primitive_pools(pipe, key):
-    exact = primitive_class(pipe, key)
-    if (
-        pipe in ("cube", "mte1")
-        and len(exact) == 4
-        or pipe == "fixpipe"
-        and len(exact) == 3
-    ):
-        return exact, exact[:-1]
-    return (exact,)
-
-
 def graph_entry(model, key, conditions=None):
     if key in model["classes"]:
         entry = model["classes"][key]
         refinement = entry.get("source_refinement")
-        if refinement and conditions is not None:
-            child = refinement["children"].get(conditions.get(refinement["condition"]))
-            if child is not None:
-                return child
+        if refinement:
+            value = (conditions or {}).get(refinement["condition"])
+            if value not in refinement["children"]:
+                raise ValueError(
+                    "source condition required: " + refinement["condition"]
+                )
+            return refinement["children"][value]
         return entry
-    pipes = {}
-    for pipe, (_, fields) in PIPES.items():
-        parent = None
-        candidates = primitive_pools(pipe, key)
-        for candidate in candidates:
-            value = model["primitive_priors"].get(json.dumps(candidate))
-            if value is not None:
-                parent = value
-                break
-        if parent is None:
-            raise ValueError(
-                "unmeasured source operation class: " + str(primitive_class(pipe, key))
-            )
-        pipes[pipe] = {
-            "coefficients": dict(zip(parent["names"], parent["rates"])),
-            "observed_features": parent["observed_features"],
-        }
-    return {
-        "pipes": pipes,
-        "rates": [
-            pipes[pipe]["coefficients"].get(name, 0) for pipe, name in parameter_names()
-        ],
-    }
-
-
-def predict_work(work, model, graph=None):
-    conditions = execution_conditions(work)
-    key = cost_class(work.p, work.s)
-    entry = graph_entry(model, key, conditions)
-    totals = active_features(work)
-    for pipe, values in totals.items():
-        missing = [
-            n
-            for n, val in values.items()
-            if val > 0 and n not in entry["pipes"][pipe]["observed_features"]
-        ]
-        if missing:
-            raise ValueError(
-                "unmeasured primitive: " + key + "/" + pipe + "/" + ",".join(missing)
-            )
-    graph = branch_graph(work) if graph is None else graph
-    predicted, gradient, critical = source.evaluate(graph, entry["rates"])
-    demands = {
-        f"{phase}.{pipe}": sum(
-            value * entry["pipes"][pipe]["coefficients"].get(n, 0)
-            for n, value in values.items()
-        )
-        for phase, pipes in phase_features(work, totals).items()
-        for pipe, values in pipes.items()
-    }
-    return {
-        "predicted_us": predicted,
-        "execution_events_scope": "distinct representative worker timelines; identical workers share a graph for maximum completion",
-        "whole_device_mmad_count": totals["cube"]["tiles"],
-        "critical_path_phase_us": critical,
-        "critical_path_pipe_us": critical_pipe_times(gradient, entry["rates"]),
-        "phase_pipe_active_us": demands,
-        "phase_pipe_active_scope": "whole-device source-operation service sums; not isolated stage wall times; Scalar excludes modeled polling",
-        "adapter_us": critical.get("drop_adapter", 0),
-        "startup_us": critical.get("startup", 0),
-        "implementation": implementation(work.p, work.s),
-        "cost_class": key,
-        "schedule": work.s,
-        "matmul": work.mm,
-        "execution_events": graph["execution_events"],
-        "source_conditions": conditions,
-        "target": "kernel Task Duration(us); source-directed FIFO and buffer hazards; training-only calibrated operation costs",
-    }
-
-
-def predict(inputs, model):
-    if model.get("version") != VERSION:
-        raise ValueError("branch model and execution code differ")
-    return predict_work(workload(inputs, model["hardware"]), model)
-
-
-def critical_pipe_times(gradient, rates):
-    result = dict.fromkeys(PIPES, 0.0)
-    for (pipe, _), derivative, rate in zip(parameter_names(), gradient, rates):
-        result[pipe] += float(derivative * rate)
-    return result
+    raise ValueError("unmeasured Varlen L1 cost class: " + key)
 
 
 def predict_selected(inputs, model):
@@ -534,12 +216,11 @@ def predict_selected(inputs, model):
     impl = implementation(p, schedule)
     decision = model["selection"][impl]
     if decision:
-        if impl == "varlen_l1" and model.get("varlen_l1_transfer"):
-            from .fa_latency_transfer import predict as predict_transfer
+        if impl != "varlen_l1" or not model.get("varlen_l1_transfer"):
+            raise ValueError("the selected cost model requires Varlen L1 DMA costs")
+        from .fa_latency_transfer import predict as predict_transfer
 
-            result = predict_transfer(p, model["refined"], model["varlen_l1_transfer"])
-        else:
-            result = predict(p, model["refined"])
+        result = predict_transfer(p, model["refined"], model["varlen_l1_transfer"])
     else:
         result = base.predict(p, model["baseline"])
     result["selected_cost_model"] = "micro_costs" if decision else "baseline"

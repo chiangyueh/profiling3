@@ -18,544 +18,531 @@
     "classes": {
       "b|FP16|BNSD|gm|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [13.074767607404045, 0.0, 0.016383098148989115], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.07117911642730984, 1.9238572456426645e-07, 0.02384483863962337]},
-          "fixpipe": {"coefficients": [0.006899406558113177, 0.0, 0.208907642906387, 0.21670591542815762]},
-          "mte1": {"coefficients": [0.003235004657281504, 0.030166384234340718]},
-          "mte2": {"coefficients": [0.0033202646739062557, 0.140841374949182, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [1.1229462057188717e-08, 6.095868133192883e-09, 2.8980858988353804e-06, 0.0, 0.0, 0.0, 0.0, 0.1345200020153762, 0.03410945285482058, 8.603748820018551e-10, 0.1371916380118639, 1.1120113298681493e-08, 0.22530311313561996], "unsupported": ["nz2nd_k", "nd2nz_k", "online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.005761737714575318, 0.0, 0.10190536207380002], "unsupported": ["alignment_read_kb"]},
-          "vmte3": {"coefficients": [0.0019816944535079877, 0.1504912082741036, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [0.3442647311330368, 0.0, 0.31084172673974064, 0.058084291331361046, 5.171051648458003], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 13.074767607404045, "commands": 0.016383098148989115}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.07117911642730984, "tiles": 1.9238572456426645e-07, "output_tiles": 0.02384483863962337}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.006899406558113177, "stores": 0.208907642906387, "calls": 0.21670591542815762}},
+          "mte1": {"coefficients": {"l0_kb": 0.003235004657281504, "tiles": 0.030166384234340718}},
+          "mte2": {"coefficients": {"read_kb": 0.0033202646739062557, "loads": 0.140841374949182}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 1.1229462057188717e-08, "reduction_k": 6.095868133192883e-09, "cast_k": 2.8980858988353804e-06, "normalize_k": 0.1345200020153762, "drop_k": 0.03410945285482058, "unpack_k": 8.603748820018551e-10, "chunks": 0.1371916380118639, "scale_k": 1.1120113298681493e-08, "duplicate_k": 0.22530311313561996}, "unsupported": ["nz2nd_k", "nd2nz_k", "online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.005761737714575318, "loads": 0.10190536207380002}, "unsupported": ["alignment_read_kb"]},
+          "vmte3": {"coefficients": {"write_kb": 0.0019816944535079877, "stores": 0.1504912082741036}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 0.3442647311330368, "chunks": 0.31084172673974064, "drop_chunks": 0.058084291331361046, "adapter_workers": 5.171051648458003}, "unsupported": ["batch_entries"]}
         }
       },
       "b|FP16|BSND|gm|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [12.66092452416899, 0.0, 0.326222956319251], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.07878564097107972, 9.869435284023703e-08, 0.023314655649598604]},
-          "fixpipe": {"coefficients": [0.0489422053911174, 0.0, 0.24170943073944517, 0.10030644883644524]},
-          "mte1": {"coefficients": [0.0034852489653428857, 0.024496507261777933]},
-          "mte2": {"coefficients": [0.0190812997963173, 0.16057349917460084, 1.9538777911562272e-33]},
-          "vector": {"coefficients": [7.771230073456717e-07, 1.9219065614658492e-05, 3.2815545353995467e-07, 0.0, 0.0, 0.0, 0.0, 0.14084876716057904, 0.0, 0.0, 0.1347844446181158, 7.771230073456245e-07, 0.0], "unsupported": ["nz2nd_k", "nd2nz_k", "online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.0033959433408017638, 0.0, 0.12428820615575357], "unsupported": ["alignment_read_kb"]},
-          "vmte3": {"coefficients": [0.011611777175646178, 0.22292409419247514, 8.463489625236546e-19]},
-          "vscalar": {"coefficients": [2.4243340956529162, 0.0, 0.20115549202892358, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 12.66092452416899, "commands": 0.326222956319251}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.07878564097107972, "tiles": 9.869435284023703e-08, "output_tiles": 0.023314655649598604}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.0489422053911174, "stores": 0.24170943073944517, "calls": 0.10030644883644524}},
+          "mte1": {"coefficients": {"l0_kb": 0.0034852489653428857, "tiles": 0.024496507261777933}},
+          "mte2": {"coefficients": {"read_kb": 0.0190812997963173, "loads": 0.16057349917460084, "address_gap_kb": 1.9538777911562272e-33}},
+          "vector": {"coefficients": {"softmax_k": 7.771230073456717e-07, "reduction_k": 1.9219065614658492e-05, "cast_k": 3.2815545353995467e-07, "normalize_k": 0.14084876716057904, "chunks": 0.1347844446181158, "scale_k": 7.771230073456245e-07}, "unsupported": ["nz2nd_k", "nd2nz_k", "online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.0033959433408017638, "loads": 0.12428820615575357}, "unsupported": ["alignment_read_kb"]},
+          "vmte3": {"coefficients": {"write_kb": 0.011611777175646178, "stores": 0.22292409419247514, "address_gap_kb": 8.463489625236546e-19}},
+          "vscalar": {"coefficients": {"workers": 2.4243340956529162, "chunks": 0.20115549202892358}, "unsupported": ["batch_entries"]}
         }
       },
       "general|BF16|BNSD|gm|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [16.89318764302936, 0.0, 0.37514529423380055], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.07136547805936846, 2.4542477560606677e-13, 0.10506403659620843]},
-          "fixpipe": {"coefficients": [0.012865195193666641, 0.0, 0.19456305892961392, 0.10120927936967394]},
-          "mte1": {"coefficients": [0.004216785645894353, 0.010246830200374243]},
-          "mte2": {"coefficients": [0.006349814391455048, 0.09743314476715227, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.04210990055852072, 0.13539377169859354, 0.034538216230784985, 0.0, 0.0, 0.2880672205736574, 0.011785323397024818, 0.012543762683628192, 0.0, 0.0, 0.12613526045307483, 4.582831427684992e-22, 0.0]},
-          "vmte2": {"coefficients": [0.0028169323761739916, 0.0, 0.272711423469693]},
-          "vmte3": {"coefficients": [0.01457972072037974, 0.018418658145214786, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [8.730726492214071, 0.0, 0.3308229133110871, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 16.89318764302936, "commands": 0.37514529423380055}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.07136547805936846, "tiles": 2.4542477560606677e-13, "output_tiles": 0.10506403659620843}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.012865195193666641, "stores": 0.19456305892961392, "calls": 0.10120927936967394}},
+          "mte1": {"coefficients": {"l0_kb": 0.004216785645894353, "tiles": 0.010246830200374243}},
+          "mte2": {"coefficients": {"read_kb": 0.006349814391455048, "loads": 0.09743314476715227}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.04210990055852072, "reduction_k": 0.13539377169859354, "cast_k": 0.034538216230784985, "online_k": 0.2880672205736574, "rescale_k": 0.011785323397024818, "normalize_k": 0.012543762683628192, "chunks": 0.12613526045307483, "scale_k": 4.582831427684992e-22}},
+          "vmte2": {"coefficients": {"read_kb": 0.0028169323761739916, "loads": 0.272711423469693}},
+          "vmte3": {"coefficients": {"write_kb": 0.01457972072037974, "stores": 0.018418658145214786}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 8.730726492214071, "chunks": 0.3308229133110871}}
         }
       },
       "general|BF16|BNSD|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [6.759427261786727, 0.0, 0.3628634903213861]},
-          "cube": {"coefficients": [0.06530054828116445, 2.7073371474889574e-08, 0.09998483159338321]},
-          "fixpipe": {"coefficients": [0.013832401037001197, 0.008938082711393541, 0.2089806147346509, 0.10372504142339921]},
-          "mte1": {"coefficients": [0.004449288463608101, 0.010277039829667184]},
-          "mte2": {"coefficients": [0.007254466823050739, 0.10421921256613123, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.04339503529801688, 0.13554179214972506, 0.034465040026892234, 0.025942890451732866, 0.010371532310954999, 0.28793855219259445, 0.0114979537257576, 0.012420509038531525, 0.0, 0.0, 0.1247674953294323, 4.371678693958273e-08, 0.0]},
-          "vmte2": {"coefficients": [0.002974901990441745, 0.0, 0.2996500760665425]},
-          "vmte3": {"coefficients": [0.01747155406649193, 0.01879136015519714, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [6.759411706177784, 0.0, 0.3293784504608779, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 6.759427261786727, "commands": 0.3628634903213861}},
+          "cube": {"coefficients": {"flops_m": 0.06530054828116445, "tiles": 2.7073371474889574e-08, "output_tiles": 0.09998483159338321}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.013832401037001197, "nz_write_kb": 0.008938082711393541, "stores": 0.2089806147346509, "calls": 0.10372504142339921}},
+          "mte1": {"coefficients": {"l0_kb": 0.004449288463608101, "tiles": 0.010277039829667184}},
+          "mte2": {"coefficients": {"read_kb": 0.007254466823050739, "loads": 0.10421921256613123}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.04339503529801688, "reduction_k": 0.13554179214972506, "cast_k": 0.034465040026892234, "nz2nd_k": 0.025942890451732866, "nd2nz_k": 0.010371532310954999, "online_k": 0.28793855219259445, "rescale_k": 0.0114979537257576, "normalize_k": 0.012420509038531525, "chunks": 0.1247674953294323, "scale_k": 4.371678693958273e-08}},
+          "vmte2": {"coefficients": {"read_kb": 0.002974901990441745, "loads": 0.2996500760665425}},
+          "vmte3": {"coefficients": {"write_kb": 0.01747155406649193, "stores": 0.01879136015519714}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 6.759411706177784, "chunks": 0.3293784504608779}}
         }
       },
       "general|BF16|BNSD|paired_reuse|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [9.662087197693666, 0.0, 0.3708796967930216], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.07099686139769373, 6.620016181009489e-09, 0.10253560054879732]},
-          "fixpipe": {"coefficients": [0.007819303161822725, 0.0, 0.18648798929014576, 0.10114126369197751]},
-          "mte1": {"coefficients": [0.003986644986261519, 0.01021746558235665]},
-          "mte2": {"coefficients": [0.0057248175974743305, 0.09258058088259037, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.04129363113380096, 0.13538002198824903, 0.034006296314303165, 0.0, 0.0, 0.2873542076000979, 0.011783708463430827, 0.01254551752591181, 0.02801783262995754, 0.0, 0.12583569688030402, 4.333589136183028e-10, 0.0]},
-          "vmte2": {"coefficients": [0.002747435021185494, 0.0, 0.24589513131678897]},
-          "vmte3": {"coefficients": [0.01625268662458959, 0.018521764441705692, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [8.730726492214071, 0.0, 0.32782329545156813, 0.11060193517788268, 0.0]}
+          "cscalar": {"coefficients": {"workers": 9.662087197693666, "commands": 0.3708796967930216}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.07099686139769373, "tiles": 6.620016181009489e-09, "output_tiles": 0.10253560054879732}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.007819303161822725, "stores": 0.18648798929014576, "calls": 0.10114126369197751}},
+          "mte1": {"coefficients": {"l0_kb": 0.003986644986261519, "tiles": 0.01021746558235665}},
+          "mte2": {"coefficients": {"read_kb": 0.0057248175974743305, "loads": 0.09258058088259037}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.04129363113380096, "reduction_k": 0.13538002198824903, "cast_k": 0.034006296314303165, "online_k": 0.2873542076000979, "rescale_k": 0.011783708463430827, "normalize_k": 0.01254551752591181, "drop_k": 0.02801783262995754, "chunks": 0.12583569688030402, "scale_k": 4.333589136183028e-10}},
+          "vmte2": {"coefficients": {"read_kb": 0.002747435021185494, "loads": 0.24589513131678897}},
+          "vmte3": {"coefficients": {"write_kb": 0.01625268662458959, "stores": 0.018521764441705692}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 8.730726492214071, "chunks": 0.32782329545156813, "drop_chunks": 0.11060193517788268}}
         }
       },
       "general|BF16|BNSD|paired_reuse|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [16.770574720221767, 0.0, 0.2893228025126699]},
-          "cube": {"coefficients": [0.0751328845622507, 8.725994206374196e-08, 0.08286329920494351]},
-          "fixpipe": {"coefficients": [0.007571942303703364, 0.009205424539683935, 0.18690033093936467, 0.10492707370335193]},
-          "mte1": {"coefficients": [0.003999923537295957, 0.010287855418383497]},
-          "mte2": {"coefficients": [0.005323813347433095, 0.08355792155493416, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.036991292445257506, 0.13727127017498514, 0.030669924327990046, 0.04265766522354926, 0.009967126897449845, 0.2937212389917635, 0.011910225555887385, 0.01261024811604708, 0.032978218928949664, 7.328305749486953e-06, 0.14046961327241952, 3.333031184618722e-07, 0.01056873462468079]},
-          "vmte2": {"coefficients": [0.0024603809088332156, 0.0, 0.2608039291967741]},
-          "vmte3": {"coefficients": [0.01835395684367365, 0.020261760956889523, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [1.894004980046385, 0.0, 0.22325324923737982, 0.10699487671096548, 13.10147983654769]}
+          "cscalar": {"coefficients": {"workers": 16.770574720221767, "commands": 0.2893228025126699}},
+          "cube": {"coefficients": {"flops_m": 0.0751328845622507, "tiles": 8.725994206374196e-08, "output_tiles": 0.08286329920494351}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.007571942303703364, "nz_write_kb": 0.009205424539683935, "stores": 0.18690033093936467, "calls": 0.10492707370335193}},
+          "mte1": {"coefficients": {"l0_kb": 0.003999923537295957, "tiles": 0.010287855418383497}},
+          "mte2": {"coefficients": {"read_kb": 0.005323813347433095, "loads": 0.08355792155493416}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.036991292445257506, "reduction_k": 0.13727127017498514, "cast_k": 0.030669924327990046, "nz2nd_k": 0.04265766522354926, "nd2nz_k": 0.009967126897449845, "online_k": 0.2937212389917635, "rescale_k": 0.011910225555887385, "normalize_k": 0.01261024811604708, "drop_k": 0.032978218928949664, "unpack_k": 7.328305749486953e-06, "chunks": 0.14046961327241952, "scale_k": 3.333031184618722e-07, "duplicate_k": 0.01056873462468079}},
+          "vmte2": {"coefficients": {"read_kb": 0.0024603809088332156, "loads": 0.2608039291967741}},
+          "vmte3": {"coefficients": {"write_kb": 0.01835395684367365, "stores": 0.020261760956889523}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 1.894004980046385, "chunks": 0.22325324923737982, "drop_chunks": 0.10699487671096548, "adapter_workers": 13.10147983654769}}
         }
       },
       "general|FP16|BNSD|gm|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [7.017181359412519, 0.0, 0.3737006118646129], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.0715435752499763, 2.2057800472653717e-09, 0.021980574287681142]},
-          "fixpipe": {"coefficients": [0.013773290733986707, 0.0, 0.1966530334346214, 0.10154945398724745]},
-          "mte1": {"coefficients": [0.003984357020351054, 0.02330065217999047]},
-          "mte2": {"coefficients": [0.008236388146434582, 0.09973720888213967, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.03829683150220213, 0.29191785620608435, 0.029323263763080313, 0.0, 0.0, 3.688905976131283e-18, 0.023526482385239147, 1.221792645281087e-08, 0.0, 0.0, 0.14581159704939126, 1.3209690358456077e-10, 0.0]},
-          "vmte2": {"coefficients": [0.0029001320976367547, 0.0, 0.298087356247377]},
-          "vmte3": {"coefficients": [0.013851619591939491, 0.01840316560502549, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [7.017186942292554, 0.0, 0.27906056430335757, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 7.017181359412519, "commands": 0.3737006118646129}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.0715435752499763, "tiles": 2.2057800472653717e-09, "output_tiles": 0.021980574287681142}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.013773290733986707, "stores": 0.1966530334346214, "calls": 0.10154945398724745}},
+          "mte1": {"coefficients": {"l0_kb": 0.003984357020351054, "tiles": 0.02330065217999047}},
+          "mte2": {"coefficients": {"read_kb": 0.008236388146434582, "loads": 0.09973720888213967}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.03829683150220213, "reduction_k": 0.29191785620608435, "cast_k": 0.029323263763080313, "online_k": 3.688905976131283e-18, "rescale_k": 0.023526482385239147, "normalize_k": 1.221792645281087e-08, "chunks": 0.14581159704939126, "scale_k": 1.3209690358456077e-10}},
+          "vmte2": {"coefficients": {"read_kb": 0.0029001320976367547, "loads": 0.298087356247377}},
+          "vmte3": {"coefficients": {"write_kb": 0.013851619591939491, "stores": 0.01840316560502549}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 7.017186942292554, "chunks": 0.27906056430335757}}
         }
       },
       "general|FP16|BNSD|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [16.46488882586732, 0.0, 0.35692231289418935]},
-          "cube": {"coefficients": [0.0693407116465135, 1.9265772557690465e-11, 0.02199954739903786]},
-          "fixpipe": {"coefficients": [0.011796392311566702, 0.008735950557201671, 0.19674591039471168, 0.10195805049198664]},
-          "mte1": {"coefficients": [0.004128801358791121, 0.023417848537088254]},
-          "mte2": {"coefficients": [0.007054615141998971, 0.10163253799118943, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.03818780715959937, 0.2921145363878105, 0.02946219105428273, 0.02505470914223028, 0.008442448427118146, 3.2801551724830327e-10, 0.023671977686143392, 1.4275056628348348e-15, 0.0, 0.0, 0.14648917186515056, 6.652708269530173e-11, 0.0]},
-          "vmte2": {"coefficients": [0.0028880015425446267, 0.0, 0.29676321653958576]},
-          "vmte3": {"coefficients": [0.018001254555986956, 0.018652031483933497, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [8.730726492214071, 0.0, 0.33059857192703523, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 16.46488882586732, "commands": 0.35692231289418935}},
+          "cube": {"coefficients": {"flops_m": 0.0693407116465135, "tiles": 1.9265772557690465e-11, "output_tiles": 0.02199954739903786}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.011796392311566702, "nz_write_kb": 0.008735950557201671, "stores": 0.19674591039471168, "calls": 0.10195805049198664}},
+          "mte1": {"coefficients": {"l0_kb": 0.004128801358791121, "tiles": 0.023417848537088254}},
+          "mte2": {"coefficients": {"read_kb": 0.007054615141998971, "loads": 0.10163253799118943}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.03818780715959937, "reduction_k": 0.2921145363878105, "cast_k": 0.02946219105428273, "nz2nd_k": 0.02505470914223028, "nd2nz_k": 0.008442448427118146, "online_k": 3.2801551724830327e-10, "rescale_k": 0.023671977686143392, "normalize_k": 1.4275056628348348e-15, "chunks": 0.14648917186515056, "scale_k": 6.652708269530173e-11}},
+          "vmte2": {"coefficients": {"read_kb": 0.0028880015425446267, "loads": 0.29676321653958576}},
+          "vmte3": {"coefficients": {"write_kb": 0.018001254555986956, "stores": 0.018652031483933497}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 8.730726492214071, "chunks": 0.33059857192703523}}
         }
       },
       "general|FP16|BNSD|paired_reuse|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [9.98684425334022, 0.0, 0.35692997836837376], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.08033778481968334, 3.848810300970958e-08, 0.021671282229520004]},
-          "fixpipe": {"coefficients": [0.005824945737463263, 0.0, 0.19946435684436306, 0.10368016041078588]},
-          "mte1": {"coefficients": [0.0036917481514918975, 0.023168597664776858]},
-          "mte2": {"coefficients": [0.006127129136496199, 0.09782976567319153, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.0369300166740643, 0.292683401047742, 0.02866791139782193, 0.0, 0.0, 1.6111298702916784e-19, 0.02373306713305746, 2.912272589912002e-18, 0.02790746532263441, 0.0, 0.14829832967463358, 4.328800458441589e-15, 0.0]},
-          "vmte2": {"coefficients": [0.0030453489699722217, 0.0, 0.22915477204433055]},
-          "vmte3": {"coefficients": [0.015761232453003298, 0.018619241190630947, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [7.844279823313049, 0.0, 0.2927132205959625, 0.09826996495650517, 0.0]}
+          "cscalar": {"coefficients": {"workers": 9.98684425334022, "commands": 0.35692997836837376}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.08033778481968334, "tiles": 3.848810300970958e-08, "output_tiles": 0.021671282229520004}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.005824945737463263, "stores": 0.19946435684436306, "calls": 0.10368016041078588}},
+          "mte1": {"coefficients": {"l0_kb": 0.0036917481514918975, "tiles": 0.023168597664776858}},
+          "mte2": {"coefficients": {"read_kb": 0.006127129136496199, "loads": 0.09782976567319153}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.0369300166740643, "reduction_k": 0.292683401047742, "cast_k": 0.02866791139782193, "online_k": 1.6111298702916784e-19, "rescale_k": 0.02373306713305746, "normalize_k": 2.912272589912002e-18, "drop_k": 0.02790746532263441, "chunks": 0.14829832967463358, "scale_k": 4.328800458441589e-15}},
+          "vmte2": {"coefficients": {"read_kb": 0.0030453489699722217, "loads": 0.22915477204433055}},
+          "vmte3": {"coefficients": {"write_kb": 0.015761232453003298, "stores": 0.018619241190630947}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 7.844279823313049, "chunks": 0.2927132205959625, "drop_chunks": 0.09826996495650517}}
         }
       },
       "general|FP16|BNSD|paired_reuse|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [16.50121442421377, 0.0, 0.31373588977249584]},
-          "cube": {"coefficients": [0.08350534785439157, 2.473467470882663e-08, 0.02167412818287352]},
-          "fixpipe": {"coefficients": [0.006980698695582671, 0.007943635623603207, 0.1964868538102726, 0.10563545353292139]},
-          "mte1": {"coefficients": [0.00378540859569462, 0.023226615948698317]},
-          "mte2": {"coefficients": [0.005177684876097254, 0.08855058590899695, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.03525045920202465, 0.2936904619962269, 0.03027240852062743, 0.02727275780158793, 0.008303723264849119, 6.808086414591535e-07, 0.02449061043794052, 1.7744804333286867e-06, 0.029442601951167883, 0.0040496991349565905, 0.15149764392697115, 1.7454176254844092e-09, 0.003622437790220162]},
-          "vmte2": {"coefficients": [0.0025434871368348925, 0.0, 0.25348105960624157]},
-          "vmte3": {"coefficients": [0.018380714942768352, 0.018977976629374206, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [7.378837527648076, 0.0, 0.28736621746678237, 0.10550629514508414, 7.6792861301795625]}
+          "cscalar": {"coefficients": {"workers": 16.50121442421377, "commands": 0.31373588977249584}},
+          "cube": {"coefficients": {"flops_m": 0.08350534785439157, "tiles": 2.473467470882663e-08, "output_tiles": 0.02167412818287352}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.006980698695582671, "nz_write_kb": 0.007943635623603207, "stores": 0.1964868538102726, "calls": 0.10563545353292139}},
+          "mte1": {"coefficients": {"l0_kb": 0.00378540859569462, "tiles": 0.023226615948698317}},
+          "mte2": {"coefficients": {"read_kb": 0.005177684876097254, "loads": 0.08855058590899695}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.03525045920202465, "reduction_k": 0.2936904619962269, "cast_k": 0.03027240852062743, "nz2nd_k": 0.02727275780158793, "nd2nz_k": 0.008303723264849119, "online_k": 6.808086414591535e-07, "rescale_k": 0.02449061043794052, "normalize_k": 1.7744804333286867e-06, "drop_k": 0.029442601951167883, "unpack_k": 0.0040496991349565905, "chunks": 0.15149764392697115, "scale_k": 1.7454176254844092e-09, "duplicate_k": 0.003622437790220162}},
+          "vmte2": {"coefficients": {"read_kb": 0.0025434871368348925, "loads": 0.25348105960624157}},
+          "vmte3": {"coefficients": {"write_kb": 0.018380714942768352, "stores": 0.018977976629374206}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 7.378837527648076, "chunks": 0.28736621746678237, "drop_chunks": 0.10550629514508414, "adapter_workers": 7.6792861301795625}}
         }
       },
       "s1|BF16|BNSD|gm|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [15.53812801482381, 0.0, 0.375472846200284], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.06918276763903475, 7.464590517025602e-19, 0.10242471603506045]},
-          "fixpipe": {"coefficients": [0.011059418462794636, 0.0, 0.19324973511588078, 0.10137536304554554]},
-          "mte1": {"coefficients": [0.004192283902883331, 0.010245506817704563]},
-          "mte2": {"coefficients": [0.00575206346360349, 0.09256898016658603, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07357370257894343, 3.4221135399663864e-17, 9.374511103971606e-20, 0.0, 0.0, 0.0, 0.0, 5.677114173595213e-20, 0.029793568222184447, 0.0, 0.18424688561258643, 6.834893378106852e-19, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.0027982259370982012, 0.0, 0.28581674200990587]},
-          "vmte3": {"coefficients": [0.01485059778249046, 0.018196575006878206, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.29593766704693386, 0.16011016994409186, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 15.53812801482381, "commands": 0.375472846200284}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.06918276763903475, "tiles": 7.464590517025602e-19, "output_tiles": 0.10242471603506045}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.011059418462794636, "stores": 0.19324973511588078, "calls": 0.10137536304554554}},
+          "mte1": {"coefficients": {"l0_kb": 0.004192283902883331, "tiles": 0.010245506817704563}},
+          "mte2": {"coefficients": {"read_kb": 0.00575206346360349, "loads": 0.09256898016658603}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07357370257894343, "reduction_k": 3.4221135399663864e-17, "cast_k": 9.374511103971606e-20, "normalize_k": 5.677114173595213e-20, "drop_k": 0.029793568222184447, "chunks": 0.18424688561258643, "scale_k": 6.834893378106852e-19}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.0027982259370982012, "loads": 0.28581674200990587}},
+          "vmte3": {"coefficients": {"write_kb": 0.01485059778249046, "stores": 0.018196575006878206}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.29593766704693386, "drop_chunks": 0.16011016994409186}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|BF16|BNSD|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [17.627325946573585, 0.0, 0.3377737175094658]},
-          "cube": {"coefficients": [0.0678303716176897, 2.1097379755181067e-08, 0.07620166551990755]},
-          "fixpipe": {"coefficients": [0.012011841185138332, 0.007861677108746397, 0.20783826937605407, 0.10512505259861187]},
-          "mte1": {"coefficients": [0.004299936885108273, 0.010312845466687835]},
-          "mte2": {"coefficients": [0.004644545966617693, 0.08183389339526952, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.06692287378331045, 1.425158567658498e-05, 1.4839090743916692e-07, 0.02631352934358377, 1.3359222695512157e-07, 0.0, 0.0, 1.0075461475225282e-05, 0.03444927137722914, 0.04480393303025396, 0.17458318616807517, 4.3184426115570856e-07, 4.972432127207484e-12], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.0026721935824984377, 1.2733540682912853e-05, 0.3086502690259032]},
-          "vmte3": {"coefficients": [0.015685523433082427, 0.019657794257729396, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [3.9356148996601665, 0.0, 0.2619658024915517, 0.1581298034523317, 7.657494780017661], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 17.627325946573585, "commands": 0.3377737175094658}},
+          "cube": {"coefficients": {"flops_m": 0.0678303716176897, "tiles": 2.1097379755181067e-08, "output_tiles": 0.07620166551990755}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.012011841185138332, "nz_write_kb": 0.007861677108746397, "stores": 0.20783826937605407, "calls": 0.10512505259861187}},
+          "mte1": {"coefficients": {"l0_kb": 0.004299936885108273, "tiles": 0.010312845466687835}},
+          "mte2": {"coefficients": {"read_kb": 0.004644545966617693, "loads": 0.08183389339526952}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.06692287378331045, "reduction_k": 1.425158567658498e-05, "cast_k": 1.4839090743916692e-07, "nz2nd_k": 0.02631352934358377, "nd2nz_k": 1.3359222695512157e-07, "normalize_k": 1.0075461475225282e-05, "drop_k": 0.03444927137722914, "unpack_k": 0.04480393303025396, "chunks": 0.17458318616807517, "scale_k": 4.3184426115570856e-07, "duplicate_k": 4.972432127207484e-12}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.0026721935824984377, "alignment_read_kb": 1.2733540682912853e-05, "loads": 0.3086502690259032}},
+          "vmte3": {"coefficients": {"write_kb": 0.015685523433082427, "stores": 0.019657794257729396}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 3.9356148996601665, "chunks": 0.2619658024915517, "drop_chunks": 0.1581298034523317, "adapter_workers": 7.657494780017661}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|BF16|BNSD|l1_carry|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [10.262535794378582, 0.0, 0.3718864386645715], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.09300463235694396, 2.421109304504071e-07, 0.11027668811612]},
-          "fixpipe": {"coefficients": [0.008471550601227807, 0.0, 0.18540127612436652, 0.10036871505761473]},
-          "mte1": {"coefficients": [0.003913337877687631, 0.01020402190830434]},
-          "mte2": {"coefficients": [0.005853817046511293, 0.09422653794982828, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07488591379765429, 4.7101739297821816e-06, 7.403943106729512e-09, 0.0, 0.0, 0.0, 0.0, 1.839912228556313e-07, 0.0, 0.0, 0.1850850259888446, 1.8263911104523014e-08, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.002738673411125467, 0.0, 0.24273283614508395]},
-          "vmte3": {"coefficients": [0.015268082374505956, 0.018229832679556354, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.2953989095233502, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 10.262535794378582, "commands": 0.3718864386645715}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.09300463235694396, "tiles": 2.421109304504071e-07, "output_tiles": 0.11027668811612}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.008471550601227807, "stores": 0.18540127612436652, "calls": 0.10036871505761473}},
+          "mte1": {"coefficients": {"l0_kb": 0.003913337877687631, "tiles": 0.01020402190830434}},
+          "mte2": {"coefficients": {"read_kb": 0.005853817046511293, "loads": 0.09422653794982828}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07488591379765429, "reduction_k": 4.7101739297821816e-06, "cast_k": 7.403943106729512e-09, "normalize_k": 1.839912228556313e-07, "chunks": 0.1850850259888446, "scale_k": 1.8263911104523014e-08}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.002738673411125467, "loads": 0.24273283614508395}},
+          "vmte3": {"coefficients": {"write_kb": 0.015268082374505956, "stores": 0.018229832679556354}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.2953989095233502}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|BF16|BNSD|l1_carry|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [17.248316735651937, 0.0, 0.3699825724309709]},
-          "cube": {"coefficients": [0.09373391608891196, 3.230219877327562e-07, 0.11142629304532307]},
-          "fixpipe": {"coefficients": [0.010834176335457791, 0.006593145360082642, 0.17788040362391466, 0.09976946739803247]},
-          "mte1": {"coefficients": [0.0038562231469072097, 0.010195133394941082]},
-          "mte2": {"coefficients": [0.005137450498303525, 0.0855255567803675, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07569022029775713, 1.556647345953509e-05, 1.1897655336003178e-08, 0.025225410411619954, 3.974860328671288e-08, 0.0, 0.0, 1.8507353310724436e-09, 0.0, 0.0, 0.18754134492518448, 3.974860328669908e-08, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.0027193472178400104, 3.639496533499543e-07, 0.23628757458890998]},
-          "vmte3": {"coefficients": [0.017628225999947594, 0.01852281959768079, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.296548947051764, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 17.248316735651937, "commands": 0.3699825724309709}},
+          "cube": {"coefficients": {"flops_m": 0.09373391608891196, "tiles": 3.230219877327562e-07, "output_tiles": 0.11142629304532307}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.010834176335457791, "nz_write_kb": 0.006593145360082642, "stores": 0.17788040362391466, "calls": 0.09976946739803247}},
+          "mte1": {"coefficients": {"l0_kb": 0.0038562231469072097, "tiles": 0.010195133394941082}},
+          "mte2": {"coefficients": {"read_kb": 0.005137450498303525, "loads": 0.0855255567803675}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07569022029775713, "reduction_k": 1.556647345953509e-05, "cast_k": 1.1897655336003178e-08, "nz2nd_k": 0.025225410411619954, "nd2nz_k": 3.974860328671288e-08, "normalize_k": 1.8507353310724436e-09, "chunks": 0.18754134492518448, "scale_k": 3.974860328669908e-08}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.0027193472178400104, "alignment_read_kb": 3.639496533499543e-07, "loads": 0.23628757458890998}},
+          "vmte3": {"coefficients": {"write_kb": 0.017628225999947594, "stores": 0.01852281959768079}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.296548947051764}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|BF16|BNSD|paired_reuse|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [7.473322130736637, 0.0, 0.37027703941807044], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.06801722943314084, 2.2770973336085834e-18, 0.10314256800949516]},
-          "fixpipe": {"coefficients": [0.004027039206708888, 0.0, 0.1859699441876633, 0.10048293005377604]},
-          "mte1": {"coefficients": [0.0038795381755065304, 0.01020921048740878]},
-          "mte2": {"coefficients": [0.005608425302174411, 0.09149372236631921, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07488903562123238, 2.540952171912026e-06, 4.48169119011477e-09, 0.0, 0.0, 0.0, 0.0, 5.25592732102942e-07, 0.0, 0.0, 0.18508524768068493, 3.649814730156967e-09, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.002719374034084526, 0.0, 0.23525139038314039]},
-          "vmte3": {"coefficients": [0.01572661902171163, 0.018353526033815983, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.29518568492943625, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 7.473322130736637, "commands": 0.37027703941807044}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.06801722943314084, "tiles": 2.2770973336085834e-18, "output_tiles": 0.10314256800949516}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.004027039206708888, "stores": 0.1859699441876633, "calls": 0.10048293005377604}},
+          "mte1": {"coefficients": {"l0_kb": 0.0038795381755065304, "tiles": 0.01020921048740878}},
+          "mte2": {"coefficients": {"read_kb": 0.005608425302174411, "loads": 0.09149372236631921}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07488903562123238, "reduction_k": 2.540952171912026e-06, "cast_k": 4.48169119011477e-09, "normalize_k": 5.25592732102942e-07, "chunks": 0.18508524768068493, "scale_k": 3.649814730156967e-09}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.002719374034084526, "loads": 0.23525139038314039}},
+          "vmte3": {"coefficients": {"write_kb": 0.01572661902171163, "stores": 0.018353526033815983}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.29518568492943625}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|BF16|BNSD|paired_reuse|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [8.115027188079502, 0.0, 0.3474799720389897]},
-          "cube": {"coefficients": [0.07090177273413686, 1.2232015172926376e-12, 0.10208664433977949]},
-          "fixpipe": {"coefficients": [0.011130608584212902, 0.007325776590805247, 0.1844288425662772, 0.10101899047258636]},
-          "mte1": {"coefficients": [0.003925045111049673, 0.010210501341678998]},
-          "mte2": {"coefficients": [0.005016323171779822, 0.08519829356734866, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07675366879644087, 1.5951659065589755e-05, 7.486938722145787e-14, 0.02534342082591686, 8.690394502731245e-08, 0.0, 0.0, 1.531106721177948e-10, 0.030260279788156704, 0.0435211226839736, 0.18862128345586746, 8.690394502731374e-08, 5.877410489607904e-29], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.0026222696346428595, 4.036707853378871e-24, 0.22056103912690028]},
-          "vmte3": {"coefficients": [0.01869805298773046, 0.01931913420593146, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.2953107570361187, 0.1601194767933027, 4.582506234403019], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 8.115027188079502, "commands": 0.3474799720389897}},
+          "cube": {"coefficients": {"flops_m": 0.07090177273413686, "tiles": 1.2232015172926376e-12, "output_tiles": 0.10208664433977949}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.011130608584212902, "nz_write_kb": 0.007325776590805247, "stores": 0.1844288425662772, "calls": 0.10101899047258636}},
+          "mte1": {"coefficients": {"l0_kb": 0.003925045111049673, "tiles": 0.010210501341678998}},
+          "mte2": {"coefficients": {"read_kb": 0.005016323171779822, "loads": 0.08519829356734866}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07675366879644087, "reduction_k": 1.5951659065589755e-05, "cast_k": 7.486938722145787e-14, "nz2nd_k": 0.02534342082591686, "nd2nz_k": 8.690394502731245e-08, "normalize_k": 1.531106721177948e-10, "drop_k": 0.030260279788156704, "unpack_k": 0.0435211226839736, "chunks": 0.18862128345586746, "scale_k": 8.690394502731374e-08, "duplicate_k": 5.877410489607904e-29}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.0026222696346428595, "alignment_read_kb": 4.036707853378871e-24, "loads": 0.22056103912690028}},
+          "vmte3": {"coefficients": {"write_kb": 0.01869805298773046, "stores": 0.01931913420593146}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.2953107570361187, "drop_chunks": 0.1601194767933027, "adapter_workers": 4.582506234403019}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|FP16|BNSD|gm|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [11.237976526663797, 0.0, 0.394706738705318], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.07763908025981073, 8.372980927369376e-17, 0.019692319065900958]},
-          "fixpipe": {"coefficients": [0.008155436777378663, 0.0, 0.24924620180452445, 0.2978078089120762]},
-          "mte1": {"coefficients": [0.003927597197697467, 0.024713586243581727]},
-          "mte2": {"coefficients": [0.005649292008892102, 0.09400886176262054, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.05184090887927099, 5.0608937410458326e-05, 3.068641973640579e-08, 0.0, 0.0, 0.0, 0.0, 0.015050483671634467, 0.03341208638304512, 0.0, 0.2744603311981475, 1.1084013494370504e-23, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.00247718419324667, 0.0, 0.2538844863336819]},
-          "vmte3": {"coefficients": [0.014527102327824951, 0.01760837031449414, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.216144665229589, 0.0, 0.26983678347704115, 0.15244340637159645, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 11.237976526663797, "commands": 0.394706738705318}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.07763908025981073, "tiles": 8.372980927369376e-17, "output_tiles": 0.019692319065900958}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.008155436777378663, "stores": 0.24924620180452445, "calls": 0.2978078089120762}},
+          "mte1": {"coefficients": {"l0_kb": 0.003927597197697467, "tiles": 0.024713586243581727}},
+          "mte2": {"coefficients": {"read_kb": 0.005649292008892102, "loads": 0.09400886176262054}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.05184090887927099, "reduction_k": 5.0608937410458326e-05, "cast_k": 3.068641973640579e-08, "normalize_k": 0.015050483671634467, "drop_k": 0.03341208638304512, "chunks": 0.2744603311981475, "scale_k": 1.1084013494370504e-23}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.00247718419324667, "loads": 0.2538844863336819}},
+          "vmte3": {"coefficients": {"write_kb": 0.014527102327824951, "stores": 0.01760837031449414}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.216144665229589, "chunks": 0.26983678347704115, "drop_chunks": 0.15244340637159645}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|FP16|BNSD|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [19.497305456534214, 0.0, 0.20668403396661164]},
-          "cube": {"coefficients": [0.0756273554496633, 2.884705977027525e-15, 0.019824775588410542]},
-          "fixpipe": {"coefficients": [0.012169867575419196, 0.006110677228048984, 0.27174926717891035, 0.11721791053422521]},
-          "mte1": {"coefficients": [0.003959715852999915, 0.02283008351002765]},
-          "mte2": {"coefficients": [0.004911665387548385, 0.08579377091663573, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.06059666184396397, 1.5382874082512963e-05, 1.4436008292242843e-08, 0.024611548205878544, 2.520422644145784e-10, 0.0, 0.0, 0.014303396143376248, 0.026567857322887398, 0.03950321260415575, 0.21717323474680575, 2.21525467899815e-10, 0.00702506322266922], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.002633675978178726, 1.0598216970833262e-05, 0.28065780271864854]},
-          "vmte3": {"coefficients": [0.016244246301152825, 0.019108528865921702, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [3.523793641528881, 0.0, 0.3062447307905179, 0.16026962679249485, 6.632966817073469], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 19.497305456534214, "commands": 0.20668403396661164}},
+          "cube": {"coefficients": {"flops_m": 0.0756273554496633, "tiles": 2.884705977027525e-15, "output_tiles": 0.019824775588410542}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.012169867575419196, "nz_write_kb": 0.006110677228048984, "stores": 0.27174926717891035, "calls": 0.11721791053422521}},
+          "mte1": {"coefficients": {"l0_kb": 0.003959715852999915, "tiles": 0.02283008351002765}},
+          "mte2": {"coefficients": {"read_kb": 0.004911665387548385, "loads": 0.08579377091663573}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.06059666184396397, "reduction_k": 1.5382874082512963e-05, "cast_k": 1.4436008292242843e-08, "nz2nd_k": 0.024611548205878544, "nd2nz_k": 2.520422644145784e-10, "normalize_k": 0.014303396143376248, "drop_k": 0.026567857322887398, "unpack_k": 0.03950321260415575, "chunks": 0.21717323474680575, "scale_k": 2.21525467899815e-10, "duplicate_k": 0.00702506322266922}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.002633675978178726, "alignment_read_kb": 1.0598216970833262e-05, "loads": 0.28065780271864854}},
+          "vmte3": {"coefficients": {"write_kb": 0.016244246301152825, "stores": 0.019108528865921702}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 3.523793641528881, "chunks": 0.3062447307905179, "drop_chunks": 0.16026962679249485, "adapter_workers": 6.632966817073469}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|FP16|BNSD|l1_carry|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [17.220879040402046, 0.0, 0.37816735684453734], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.11771612302565855, 4.206164214886804e-08, 0.02216729276575593]},
-          "fixpipe": {"coefficients": [0.005301111373824253, 0.0, 0.18691563827661115, 0.10129786031007464]},
-          "mte1": {"coefficients": [0.0035605883277040062, 0.02299863112742162]},
-          "mte2": {"coefficients": [0.005830600593178746, 0.09618017428182736, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07168798608130092, 1.1208477432396159e-06, 2.805962110924036e-09, 0.0, 0.0, 0.0, 0.0, 0.013852936617764447, 0.0, 0.0, 0.18095679377616497, 3.5403774249193277e-09, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.002746977873309994, 0.0, 0.24564079026779592]},
-          "vmte3": {"coefficients": [0.015114818536056313, 0.018211376357548, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.2957688933056557, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 17.220879040402046, "commands": 0.37816735684453734}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.11771612302565855, "tiles": 4.206164214886804e-08, "output_tiles": 0.02216729276575593}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.005301111373824253, "stores": 0.18691563827661115, "calls": 0.10129786031007464}},
+          "mte1": {"coefficients": {"l0_kb": 0.0035605883277040062, "tiles": 0.02299863112742162}},
+          "mte2": {"coefficients": {"read_kb": 0.005830600593178746, "loads": 0.09618017428182736}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07168798608130092, "reduction_k": 1.1208477432396159e-06, "cast_k": 2.805962110924036e-09, "normalize_k": 0.013852936617764447, "chunks": 0.18095679377616497, "scale_k": 3.5403774249193277e-09}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.002746977873309994, "loads": 0.24564079026779592}},
+          "vmte3": {"coefficients": {"write_kb": 0.015114818536056313, "stores": 0.018211376357548}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.2957688933056557}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|FP16|BNSD|l1_carry|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [18.95973951091286, 0.0, 0.3655588968635375]},
-          "cube": {"coefficients": [0.12900766603416025, 5.4560710849809165e-08, 0.022436944428624615]},
-          "fixpipe": {"coefficients": [0.010893067538748327, 0.006984505770469664, 0.18099307198746725, 0.10000094995807876]},
-          "mte1": {"coefficients": [0.0034734043885545005, 0.022878000039208313]},
-          "mte2": {"coefficients": [0.005262211183729776, 0.0876818462159516, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07081062876947515, 3.434630064944678e-08, 3.570619622132871e-09, 0.025897130960915886, 1.5729742953544889e-09, 0.0, 0.0, 0.01390170828091133, 0.0, 0.0, 0.17674416514753755, 1.3824969389778876e-09, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.002671208121850045, 2.2433318852290822e-29, 0.22338946480064742]},
-          "vmte3": {"coefficients": [0.01934695337842834, 0.019150471411174548, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.29623716124535115, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 18.95973951091286, "commands": 0.3655588968635375}},
+          "cube": {"coefficients": {"flops_m": 0.12900766603416025, "tiles": 5.4560710849809165e-08, "output_tiles": 0.022436944428624615}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.010893067538748327, "nz_write_kb": 0.006984505770469664, "stores": 0.18099307198746725, "calls": 0.10000094995807876}},
+          "mte1": {"coefficients": {"l0_kb": 0.0034734043885545005, "tiles": 0.022878000039208313}},
+          "mte2": {"coefficients": {"read_kb": 0.005262211183729776, "loads": 0.0876818462159516}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07081062876947515, "reduction_k": 3.434630064944678e-08, "cast_k": 3.570619622132871e-09, "nz2nd_k": 0.025897130960915886, "nd2nz_k": 1.5729742953544889e-09, "normalize_k": 0.01390170828091133, "chunks": 0.17674416514753755, "scale_k": 1.3824969389778876e-09}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.002671208121850045, "alignment_read_kb": 2.2433318852290822e-29, "loads": 0.22338946480064742}},
+          "vmte3": {"coefficients": {"write_kb": 0.01934695337842834, "stores": 0.019150471411174548}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.29623716124535115}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|FP16|BNSD|paired_reuse|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [13.468688595315552, 0.0, 0.3763381039370805], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.07935837268057913, 4.5864122656120146e-10, 0.021945727697943517]},
-          "fixpipe": {"coefficients": [0.0034087445694494637, 0.0, 0.18430091703312415, 0.1005429239387151]},
-          "mte1": {"coefficients": [0.003643159051045309, 0.02306353471733437]},
-          "mte2": {"coefficients": [0.005713453880327002, 0.0919168305044797, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07069010583806579, 7.131314005590734e-07, 1.2793983495567168e-09, 0.0, 0.0, 0.0, 0.0, 0.013861145146230143, 0.0, 0.0, 0.1797813010447999, 1.0821950136068126e-09, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.002733747229559835, 0.0, 0.2325731610923844]},
-          "vmte3": {"coefficients": [0.01542415551417941, 0.018411797465901835, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.29617700780937106, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 13.468688595315552, "commands": 0.3763381039370805}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.07935837268057913, "tiles": 4.5864122656120146e-10, "output_tiles": 0.021945727697943517}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.0034087445694494637, "stores": 0.18430091703312415, "calls": 0.1005429239387151}},
+          "mte1": {"coefficients": {"l0_kb": 0.003643159051045309, "tiles": 0.02306353471733437}},
+          "mte2": {"coefficients": {"read_kb": 0.005713453880327002, "loads": 0.0919168305044797}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07069010583806579, "reduction_k": 7.131314005590734e-07, "cast_k": 1.2793983495567168e-09, "normalize_k": 0.013861145146230143, "chunks": 0.1797813010447999, "scale_k": 1.0821950136068126e-09}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.002733747229559835, "loads": 0.2325731610923844}},
+          "vmte3": {"coefficients": {"write_kb": 0.01542415551417941, "stores": 0.018411797465901835}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.29617700780937106}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|FP16|BNSD|paired_reuse|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [18.128686445020374, 0.0, 0.3261565610534499]},
-          "cube": {"coefficients": [0.07844832084211292, 3.11399058101036e-08, 0.02210360997888761]},
-          "fixpipe": {"coefficients": [0.011147855588842969, 0.005290453982762445, 0.19169947571817625, 0.10239054971184411]},
-          "mte1": {"coefficients": [0.0037275469419912775, 0.0230690111989062]},
-          "mte2": {"coefficients": [0.004972391011382365, 0.08520943147143553, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.07126810877002894, 1.6181814500814432e-17, 1.4788831549178453e-20, 0.0259587497682117, 2.866703511763924e-09, 0.0, 0.0, 0.013767009333052475, 0.027306011445710883, 0.04561017627694138, 0.17020294600277708, 2.519556772792182e-09, 0.007604066859583761], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.0026878057866387187, 8.004699243646477e-14, 0.1989027813664462]},
-          "vmte3": {"coefficients": [0.02022672555972446, 0.020265061803948242, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.2946926253660255, 0.1603957383164775, 4.801839389922896], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 18.128686445020374, "commands": 0.3261565610534499}},
+          "cube": {"coefficients": {"flops_m": 0.07844832084211292, "tiles": 3.11399058101036e-08, "output_tiles": 0.02210360997888761}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.011147855588842969, "nz_write_kb": 0.005290453982762445, "stores": 0.19169947571817625, "calls": 0.10239054971184411}},
+          "mte1": {"coefficients": {"l0_kb": 0.0037275469419912775, "tiles": 0.0230690111989062}},
+          "mte2": {"coefficients": {"read_kb": 0.004972391011382365, "loads": 0.08520943147143553}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.07126810877002894, "reduction_k": 1.6181814500814432e-17, "cast_k": 1.4788831549178453e-20, "nz2nd_k": 0.0259587497682117, "nd2nz_k": 2.866703511763924e-09, "normalize_k": 0.013767009333052475, "drop_k": 0.027306011445710883, "unpack_k": 0.04561017627694138, "chunks": 0.17020294600277708, "scale_k": 2.519556772792182e-09, "duplicate_k": 0.007604066859583761}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.0026878057866387187, "alignment_read_kb": 8.004699243646477e-14, "loads": 0.1989027813664462}},
+          "vmte3": {"coefficients": {"write_kb": 0.02022672555972446, "stores": 0.020265061803948242}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.2946926253660255, "drop_chunks": 0.1603957383164775, "adapter_workers": 4.801839389922896}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|FP16|BSND|gm|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [17.220949999995717, 0.0, 0.3825850239797127], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.07456123912554331, 2.169287078815771e-22, 0.021888149138461287]},
-          "fixpipe": {"coefficients": [0.01169509907255505, 0.0, 0.19613997873125372, 0.10174715948556576]},
-          "mte1": {"coefficients": [0.003703995264811675, 0.02308840553948615]},
-          "mte2": {"coefficients": [9.85184012620001e-06, 0.9146713345132674, 0.0015266053822557057]},
-          "vector": {"coefficients": [0.07069611245648047, 1.1800294379201082e-19, 6.893406459803876e-11, 0.0, 0.0, 0.0, 0.0, 0.013832299692949992, 0.0, 0.0, 0.17675270636929888, 1.0958378152131734e-09, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.0014919795646933126, 0.0, 0.4508441906981117]},
-          "vmte3": {"coefficients": [0.0074299158825818406, 0.07634689015720418, 0.006681816848652458]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.30045764970286676, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 17.220949999995717, "commands": 0.3825850239797127}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.07456123912554331, "tiles": 2.169287078815771e-22, "output_tiles": 0.021888149138461287}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.01169509907255505, "stores": 0.19613997873125372, "calls": 0.10174715948556576}},
+          "mte1": {"coefficients": {"l0_kb": 0.003703995264811675, "tiles": 0.02308840553948615}},
+          "mte2": {"coefficients": {"read_kb": 9.85184012620001e-06, "loads": 0.9146713345132674, "address_gap_kb": 0.0015266053822557057}},
+          "vector": {"coefficients": {"softmax_k": 0.07069611245648047, "reduction_k": 1.1800294379201082e-19, "cast_k": 6.893406459803876e-11, "normalize_k": 0.013832299692949992, "chunks": 0.17675270636929888, "scale_k": 1.0958378152131734e-09}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.0014919795646933126, "loads": 0.4508441906981117}},
+          "vmte3": {"coefficients": {"write_kb": 0.0074299158825818406, "stores": 0.07634689015720418, "address_gap_kb": 0.006681816848652458}},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.30045764970286676}, "unsupported": ["batch_entries"]}
         }
       },
       "s1|FP16|BSND|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [20.235260355637827, 0.0, 0.358461287817241]},
-          "cube": {"coefficients": [0.07123505698001312, 1.5893252971718076e-23, 0.021810157602616963]},
-          "fixpipe": {"coefficients": [0.011255793455720125, 0.008744636050171466, 0.19787993268649984, 0.10217274054684035]},
-          "mte1": {"coefficients": [0.0034737222649010523, 0.022911851773333356]},
-          "mte2": {"coefficients": [7.828624260935121e-18, 0.8508069131941284, 0.0015190387969783007]},
-          "vector": {"coefficients": [0.06791894835577966, 7.746808176165204e-20, 5.0758316300133215e-22, 0.025517959410834384, 4.735591989668881e-22, 0.0, 0.0, 0.013805188907403254, 0.0, 0.0, 0.17345356499863399, 9.29215095060565e-22, 0.0], "unsupported": ["online_k", "rescale_k"]},
-          "vmte2": {"coefficients": [0.001429876399068377, 2.9736382148222114e-20, 0.3614870015689389]},
-          "vmte3": {"coefficients": [0.0074499471354752675, 0.07692781829265465, 0.006663605026713318]},
-          "vscalar": {"coefficients": [5.813335, 0.0, 0.2957782057878901, 0.0, 0.0], "unsupported": ["batch_entries"]}
+          "cscalar": {"coefficients": {"workers": 20.235260355637827, "commands": 0.358461287817241}},
+          "cube": {"coefficients": {"flops_m": 0.07123505698001312, "tiles": 1.5893252971718076e-23, "output_tiles": 0.021810157602616963}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.011255793455720125, "nz_write_kb": 0.008744636050171466, "stores": 0.19787993268649984, "calls": 0.10217274054684035}},
+          "mte1": {"coefficients": {"l0_kb": 0.0034737222649010523, "tiles": 0.022911851773333356}},
+          "mte2": {"coefficients": {"read_kb": 7.828624260935121e-18, "loads": 0.8508069131941284, "address_gap_kb": 0.0015190387969783007}},
+          "vector": {"coefficients": {"softmax_k": 0.06791894835577966, "reduction_k": 7.746808176165204e-20, "cast_k": 5.0758316300133215e-22, "nz2nd_k": 0.025517959410834384, "nd2nz_k": 4.735591989668881e-22, "normalize_k": 0.013805188907403254, "chunks": 0.17345356499863399, "scale_k": 9.29215095060565e-22}, "unsupported": ["online_k", "rescale_k"]},
+          "vmte2": {"coefficients": {"read_kb": 0.001429876399068377, "alignment_read_kb": 2.9736382148222114e-20, "loads": 0.3614870015689389}},
+          "vmte3": {"coefficients": {"write_kb": 0.0074499471354752675, "stores": 0.07692781829265465, "address_gap_kb": 0.006663605026713318}},
+          "vscalar": {"coefficients": {"workers": 5.813335, "chunks": 0.2957782057878901}, "unsupported": ["batch_entries"]}
         }
       },
       "same_ab|BF16|BNSD|gm|ND|UNSPLITK": {
         "pipes": {
-          "cscalar": {"coefficients": [26.7619268418337, 0.0, 1.6194967839606817e-06], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [6.192673789893418e-16, 0.24381187813753505, 0.00233775789741028]},
-          "fixpipe": {"coefficients": [0.010230208505419811, 1.0756272781621356e-05, 7.79033817151712e-06, 0.0003063455285243817]},
-          "mte1": {"coefficients": [0.003935494937803233, 7.033496284207531e-06]},
-          "mte2": {"coefficients": [1.3910502932819774e-15, 0.7111422059566683, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.06982566912573367, 2.0670761655786798e-16, 5.450643302166453e-11, 0.019713663384935787, 1.33010969445812e-30, 0.7717727644159037, 0.0009135605741128416, 0.00010211881972787136, 0.024041587073302544, 0.0, 0.21304878679749256, 5.4248783647956495e-33, 0.0]},
-          "vmte2": {"coefficients": [0.007092485278785507, 0.0, 0.19488358496237737], "unsupported": ["alignment_read_kb"]},
-          "vmte3": {"coefficients": [0.02294407488029043, 5.8455769352171836e-18, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [10.175613768476994, 0.0, 0.34753781940077105, 0.14115417726014687, 0.0], "unsupported": ["batch_entries", "adapter_workers"]}
+          "cscalar": {"coefficients": {"workers": 26.7619268418337, "commands": 1.6194967839606817e-06}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 6.192673789893418e-16, "tiles": 0.24381187813753505, "output_tiles": 0.00233775789741028}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.010230208505419811, "nz_write_kb": 1.0756272781621356e-05, "stores": 7.79033817151712e-06, "calls": 0.0003063455285243817}},
+          "mte1": {"coefficients": {"l0_kb": 0.003935494937803233, "tiles": 7.033496284207531e-06}},
+          "mte2": {"coefficients": {"read_kb": 1.3910502932819774e-15, "loads": 0.7111422059566683}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.06982566912573367, "reduction_k": 2.0670761655786798e-16, "cast_k": 5.450643302166453e-11, "nz2nd_k": 0.019713663384935787, "nd2nz_k": 1.33010969445812e-30, "online_k": 0.7717727644159037, "rescale_k": 0.0009135605741128416, "normalize_k": 0.00010211881972787136, "drop_k": 0.024041587073302544, "chunks": 0.21304878679749256, "scale_k": 5.4248783647956495e-33}},
+          "vmte2": {"coefficients": {"read_kb": 0.007092485278785507, "loads": 0.19488358496237737}, "unsupported": ["alignment_read_kb"]},
+          "vmte3": {"coefficients": {"write_kb": 0.02294407488029043, "stores": 5.8455769352171836e-18}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 10.175613768476994, "chunks": 0.34753781940077105, "drop_chunks": 0.14115417726014687}, "unsupported": ["batch_entries", "adapter_workers"]}
         }
       },
       "same_ab|BF16|BNSD|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [2.3499338267769048, 0.0, 0.2871055384749044]},
-          "cube": {"coefficients": [0.07327269641019475, 1.323480916135941e-07, 0.09766966337157093]},
-          "fixpipe": {"coefficients": [0.011021673925336432, 0.02211360304585186, 0.21675938938081007, 0.10403644607047935]},
-          "mte1": {"coefficients": [0.004129274737473408, 0.010257002056351435]},
-          "mte2": {"coefficients": [0.01607561752403068, 0.0001878149622921873, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.09887209359760032, 3.672131493899258e-05, 9.630588932198504e-07, 0.02042908880781123, 1.4961712580197928e-07, 0.7107172838089857, 0.000912277079891861, 9.759730548641711e-05, 0.025815086378885632, 0.0009202566636666207, 0.18255509063612121, 1.496171258019772e-07, 0.11515696236974984]},
-          "vmte2": {"coefficients": [2.2395519871525914e-06, 2.783813348686441e-12, 0.33420812393451915]},
-          "vmte3": {"coefficients": [0.015420644614661153, 0.053435097322728595, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [11.443124052616229, 0.0, 0.3576251264288546, 0.1320938851189126, 0.4065340029764885]}
+          "cscalar": {"coefficients": {"workers": 2.3499338267769048, "commands": 0.2871055384749044}},
+          "cube": {"coefficients": {"flops_m": 0.07327269641019475, "tiles": 1.323480916135941e-07, "output_tiles": 0.09766966337157093}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.011021673925336432, "nz_write_kb": 0.02211360304585186, "stores": 0.21675938938081007, "calls": 0.10403644607047935}},
+          "mte1": {"coefficients": {"l0_kb": 0.004129274737473408, "tiles": 0.010257002056351435}},
+          "mte2": {"coefficients": {"read_kb": 0.01607561752403068, "loads": 0.0001878149622921873}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.09887209359760032, "reduction_k": 3.672131493899258e-05, "cast_k": 9.630588932198504e-07, "nz2nd_k": 0.02042908880781123, "nd2nz_k": 1.4961712580197928e-07, "online_k": 0.7107172838089857, "rescale_k": 0.000912277079891861, "normalize_k": 9.759730548641711e-05, "drop_k": 0.025815086378885632, "unpack_k": 0.0009202566636666207, "chunks": 0.18255509063612121, "scale_k": 1.496171258019772e-07, "duplicate_k": 0.11515696236974984}},
+          "vmte2": {"coefficients": {"read_kb": 2.2395519871525914e-06, "alignment_read_kb": 2.783813348686441e-12, "loads": 0.33420812393451915}},
+          "vmte3": {"coefficients": {"write_kb": 0.015420644614661153, "stores": 0.053435097322728595}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 11.443124052616229, "chunks": 0.3576251264288546, "drop_chunks": 0.1320938851189126, "adapter_workers": 0.4065340029764885}}
         }
       },
       "same_ab|BF16|SBH|gm|ND|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [1.937167928735015e-09, 0.0, 0.32111115103453514], "unsupported": ["batch_entries"]},
-          "cube": {"coefficients": [0.07517832113387231, 3.649098903135366e-08, 0.10048419243447176]},
-          "fixpipe": {"coefficients": [0.007803858370751882, 0.009540292647525638, 0.19468833262371377, 0.10185865902573142]},
-          "mte1": {"coefficients": [0.004074182546443691, 0.01023695429917354]},
-          "mte2": {"coefficients": [3.483825331262316e-13, 0.37345447895807093, 1.999317553195055e-05]},
-          "vector": {"coefficients": [0.07628659077302732, 4.1404818410546653e-10, 1.3601609388633009e-13, 0.018502854952903706, 2.1281661160591806e-13, 0.7015925219707132, 0.0009091294524337282, 1.7017593412517512e-21, 0.0, 0.0, 0.1852916534554156, 2.3356948106747025e-13, 0.0]},
-          "vmte2": {"coefficients": [0.009587782619965986, 0.0, 0.12279572997767661], "unsupported": ["alignment_read_kb"]},
-          "vmte3": {"coefficients": [0.00649904543371181, 0.24897246817541735, 4.871743989798142e-26]},
-          "vscalar": {"coefficients": [11.443124052616229, 0.0, 0.38122823890710245, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 1.937167928735015e-09, "commands": 0.32111115103453514}, "unsupported": ["batch_entries"]},
+          "cube": {"coefficients": {"flops_m": 0.07517832113387231, "tiles": 3.649098903135366e-08, "output_tiles": 0.10048419243447176}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.007803858370751882, "nz_write_kb": 0.009540292647525638, "stores": 0.19468833262371377, "calls": 0.10185865902573142}},
+          "mte1": {"coefficients": {"l0_kb": 0.004074182546443691, "tiles": 0.01023695429917354}},
+          "mte2": {"coefficients": {"read_kb": 3.483825331262316e-13, "loads": 0.37345447895807093, "address_gap_kb": 1.999317553195055e-05}},
+          "vector": {"coefficients": {"softmax_k": 0.07628659077302732, "reduction_k": 4.1404818410546653e-10, "cast_k": 1.3601609388633009e-13, "nz2nd_k": 0.018502854952903706, "nd2nz_k": 2.1281661160591806e-13, "online_k": 0.7015925219707132, "rescale_k": 0.0009091294524337282, "normalize_k": 1.7017593412517512e-21, "chunks": 0.1852916534554156, "scale_k": 2.3356948106747025e-13}},
+          "vmte2": {"coefficients": {"read_kb": 0.009587782619965986, "loads": 0.12279572997767661}, "unsupported": ["alignment_read_kb"]},
+          "vmte3": {"coefficients": {"write_kb": 0.00649904543371181, "stores": 0.24897246817541735, "address_gap_kb": 4.871743989798142e-26}},
+          "vscalar": {"coefficients": {"workers": 11.443124052616229, "chunks": 0.38122823890710245}}
         }
       },
       "same_ab|FP16|BNSD|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [19.291864050590267, 0.0, 0.09933215190037446]},
-          "cube": {"coefficients": [0.08812436407658872, 3.0663755671543005e-07, 0.028273450264679957]},
-          "fixpipe": {"coefficients": [0.009415695388373365, 0.011834210308628083, 0.026016750540683895, 0.10785303672545056]},
-          "mte1": {"coefficients": [0.0038108678845289517, 0.023049234424726135]},
-          "mte2": {"coefficients": [0.008959387627057133, 1.258778469767256e-09, 0.0], "unsupported": ["address_gap_kb"]},
-          "vector": {"coefficients": [0.05856263522708798, 0.00024122755367134353, 3.407191746017891e-15, 0.03513756686763345, 3.641267252150669e-13, 0.5415352731979831, 2.8653319398876168e-05, 0.0004074746164724527, 0.06113659942294263, 7.092568037946445e-14, 0.21155099273403244, 3.641267249109914e-13, 8.430715401510885e-07]},
-          "vmte2": {"coefficients": [5.754293547609798e-16, 1.7445074073106292e-13, 0.3385426611546048]},
-          "vmte3": {"coefficients": [0.016064355589563505, 0.051902953570360844, 0.0], "unsupported": ["address_gap_kb"]},
-          "vscalar": {"coefficients": [7.701350321955835, 0.0, 0.21945866345874157, 0.08226296210395213, 10.502220919622225]}
+          "cscalar": {"coefficients": {"workers": 19.291864050590267, "commands": 0.09933215190037446}},
+          "cube": {"coefficients": {"flops_m": 0.08812436407658872, "tiles": 3.0663755671543005e-07, "output_tiles": 0.028273450264679957}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.009415695388373365, "nz_write_kb": 0.011834210308628083, "stores": 0.026016750540683895, "calls": 0.10785303672545056}},
+          "mte1": {"coefficients": {"l0_kb": 0.0038108678845289517, "tiles": 0.023049234424726135}},
+          "mte2": {"coefficients": {"read_kb": 0.008959387627057133, "loads": 1.258778469767256e-09}, "unsupported": ["address_gap_kb"]},
+          "vector": {"coefficients": {"softmax_k": 0.05856263522708798, "reduction_k": 0.00024122755367134353, "cast_k": 3.407191746017891e-15, "nz2nd_k": 0.03513756686763345, "nd2nz_k": 3.641267252150669e-13, "online_k": 0.5415352731979831, "rescale_k": 2.8653319398876168e-05, "normalize_k": 0.0004074746164724527, "drop_k": 0.06113659942294263, "unpack_k": 7.092568037946445e-14, "chunks": 0.21155099273403244, "scale_k": 3.641267249109914e-13, "duplicate_k": 8.430715401510885e-07}},
+          "vmte2": {"coefficients": {"read_kb": 5.754293547609798e-16, "alignment_read_kb": 1.7445074073106292e-13, "loads": 0.3385426611546048}},
+          "vmte3": {"coefficients": {"write_kb": 0.016064355589563505, "stores": 0.051902953570360844}, "unsupported": ["address_gap_kb"]},
+          "vscalar": {"coefficients": {"workers": 7.701350321955835, "chunks": 0.21945866345874157, "drop_chunks": 0.08226296210395213, "adapter_workers": 10.502220919622225}}
         }
       },
       "varlen_gm|BF16|TND|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [19.822389272047563, 5.586835382834089, 0.35716739112411944]},
-          "cube": {"coefficients": [0.07175258484004345, 1.4602456338086548e-26, 0.10495154724906201]},
-          "fixpipe": {"coefficients": [0.01080924301705183, 0.008577315567097381, 0.19162051050829224, 0.10092366607648613]},
-          "mte1": {"coefficients": [0.004059931534865458, 0.010225367716843077]},
-          "mte2": {"coefficients": [6.036396915118767e-28, 0.2343384414490381, 0.00545096150084646]},
-          "vector": {"coefficients": [0.041923381670457935, 0.13534206753001793, 0.03426022632304325, 0.025902834292248527, 0.010277750604917124, 0.0, 0.0, 0.012534149131582394, 0.0, 0.0, 0.12578368389676897, 3.0484573316911667e-25, 0.0]},
-          "vmte2": {"coefficients": [0.008797605923361002, 0.0, 0.15283955723004441], "unsupported": ["alignment_read_kb"]},
-          "vmte3": {"coefficients": [1.2436568200375493e-22, 0.37949918838431984, 6.480919467189353e-23]},
-          "vscalar": {"coefficients": [8.730726492214071, 2.4760206324345297, 0.33079672268910376, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 19.822389272047563, "batch_entries": 5.586835382834089, "commands": 0.35716739112411944}},
+          "cube": {"coefficients": {"flops_m": 0.07175258484004345, "tiles": 1.4602456338086548e-26, "output_tiles": 0.10495154724906201}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.01080924301705183, "nz_write_kb": 0.008577315567097381, "stores": 0.19162051050829224, "calls": 0.10092366607648613}},
+          "mte1": {"coefficients": {"l0_kb": 0.004059931534865458, "tiles": 0.010225367716843077}},
+          "mte2": {"coefficients": {"read_kb": 6.036396915118767e-28, "loads": 0.2343384414490381, "address_gap_kb": 0.00545096150084646}},
+          "vector": {"coefficients": {"softmax_k": 0.041923381670457935, "reduction_k": 0.13534206753001793, "cast_k": 0.03426022632304325, "nz2nd_k": 0.025902834292248527, "nd2nz_k": 0.010277750604917124, "normalize_k": 0.012534149131582394, "chunks": 0.12578368389676897, "scale_k": 3.0484573316911667e-25}},
+          "vmte2": {"coefficients": {"read_kb": 0.008797605923361002, "loads": 0.15283955723004441}, "unsupported": ["alignment_read_kb"]},
+          "vmte3": {"coefficients": {"write_kb": 1.2436568200375493e-22, "stores": 0.37949918838431984, "address_gap_kb": 6.480919467189353e-23}},
+          "vscalar": {"coefficients": {"workers": 8.730726492214071, "batch_entries": 2.4760206324345297, "chunks": 0.33079672268910376}}
         }
       },
       "varlen_gm|FP16|TND|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [21.394385003660908, 5.699663690146282, 0.357315583244323]},
-          "cube": {"coefficients": [0.08173764879656778, 6.684070205311938e-12, 0.022085055253815936]},
-          "fixpipe": {"coefficients": [0.011224947963661932, 0.008580318422419755, 0.19315006272165494, 0.10103115276288568]},
-          "mte1": {"coefficients": [0.003712632417345584, 0.02309902121566127]},
-          "mte2": {"coefficients": [2.727333662253399e-06, 0.24086892130824528, 0.005502439848144432]},
-          "vector": {"coefficients": [0.03780148911717897, 0.29152117012003465, 0.02918240565930587, 0.02478607066587228, 0.008423571683355207, 0.0, 0.0, 1.0092430212059806e-21, 0.0, 0.0, 0.145296903043785, 2.5998634142972395e-23, 0.0]},
-          "vmte2": {"coefficients": [0.008902754179351954, 0.0, 0.15374939431710322], "unsupported": ["alignment_read_kb"]},
-          "vmte3": {"coefficients": [2.3232849489318583e-05, 0.4173434641341368, 1.891721180783212e-05]},
-          "vscalar": {"coefficients": [8.730726492214071, 2.4760206324345297, 0.33090922917340554, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 21.394385003660908, "batch_entries": 5.699663690146282, "commands": 0.357315583244323}},
+          "cube": {"coefficients": {"flops_m": 0.08173764879656778, "tiles": 6.684070205311938e-12, "output_tiles": 0.022085055253815936}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.011224947963661932, "nz_write_kb": 0.008580318422419755, "stores": 0.19315006272165494, "calls": 0.10103115276288568}},
+          "mte1": {"coefficients": {"l0_kb": 0.003712632417345584, "tiles": 0.02309902121566127}},
+          "mte2": {"coefficients": {"read_kb": 2.727333662253399e-06, "loads": 0.24086892130824528, "address_gap_kb": 0.005502439848144432}},
+          "vector": {"coefficients": {"softmax_k": 0.03780148911717897, "reduction_k": 0.29152117012003465, "cast_k": 0.02918240565930587, "nz2nd_k": 0.02478607066587228, "nd2nz_k": 0.008423571683355207, "normalize_k": 1.0092430212059806e-21, "chunks": 0.145296903043785, "scale_k": 2.5998634142972395e-23}},
+          "vmte2": {"coefficients": {"read_kb": 0.008902754179351954, "loads": 0.15374939431710322}, "unsupported": ["alignment_read_kb"]},
+          "vmte3": {"coefficients": {"write_kb": 2.3232849489318583e-05, "stores": 0.4173434641341368, "address_gap_kb": 1.891721180783212e-05}},
+          "vscalar": {"coefficients": {"workers": 8.730726492214071, "batch_entries": 2.4760206324345297, "chunks": 0.33090922917340554}}
         }
       },
       "varlen_same_ab|BF16|TND|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [11.462521464088129, 4.997999646497848e-22, 0.3037401421587164]},
-          "cube": {"coefficients": [0.07652363606758401, 8.429908266222783e-08, 0.10480875212611043]},
-          "fixpipe": {"coefficients": [0.010048304931001492, 0.00845324404344247, 0.19079091580204893, 0.10120333068593138]},
-          "mte1": {"coefficients": [0.0039997570011708426, 0.010215954136399235]},
-          "mte2": {"coefficients": [0.0027691244559056145, 0.22756829587214358, 0.003734254276454923]},
-          "vector": {"coefficients": [0.07405774060482294, 2.1111139209605401e-19, 1.069906900952371e-16, 0.01854171484842637, 6.428176144552542e-22, 0.7014272964645996, 0.0009093608685393416, 3.3335587275314632e-06, 0.0, 0.0, 0.18430325580000484, 6.397068391100543e-22, 0.0]},
-          "vmte2": {"coefficients": [0.009471338415109547, 5.884205260385041e-07, 0.08488051457688815]},
-          "vmte3": {"coefficients": [0.004478742031867709, 0.335337356846432, 0.0014825129659699387]},
-          "vscalar": {"coefficients": [9.204351711444009, 3.3536204423170703, 0.38298526130385885, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 11.462521464088129, "batch_entries": 4.997999646497848e-22, "commands": 0.3037401421587164}},
+          "cube": {"coefficients": {"flops_m": 0.07652363606758401, "tiles": 8.429908266222783e-08, "output_tiles": 0.10480875212611043}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.010048304931001492, "nz_write_kb": 0.00845324404344247, "stores": 0.19079091580204893, "calls": 0.10120333068593138}},
+          "mte1": {"coefficients": {"l0_kb": 0.0039997570011708426, "tiles": 0.010215954136399235}},
+          "mte2": {"coefficients": {"read_kb": 0.0027691244559056145, "loads": 0.22756829587214358, "address_gap_kb": 0.003734254276454923}},
+          "vector": {"coefficients": {"softmax_k": 0.07405774060482294, "reduction_k": 2.1111139209605401e-19, "cast_k": 1.069906900952371e-16, "nz2nd_k": 0.01854171484842637, "nd2nz_k": 6.428176144552542e-22, "online_k": 0.7014272964645996, "rescale_k": 0.0009093608685393416, "normalize_k": 3.3335587275314632e-06, "chunks": 0.18430325580000484, "scale_k": 6.397068391100543e-22}},
+          "vmte2": {"coefficients": {"read_kb": 0.009471338415109547, "alignment_read_kb": 5.884205260385041e-07, "loads": 0.08488051457688815}},
+          "vmte3": {"coefficients": {"write_kb": 0.004478742031867709, "stores": 0.335337356846432, "address_gap_kb": 0.0014825129659699387}},
+          "vscalar": {"coefficients": {"workers": 9.204351711444009, "batch_entries": 3.3536204423170703, "chunks": 0.38298526130385885}}
         }
       },
       "varlen_same_ab|BF16|TND|l1_carry|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [4.519614708050221, 3.779686270863347e-12, 0.21236662682578972]},
-          "cube": {"coefficients": [0.07123211964248141, 1.0458614562635014e-07, 0.10416784382996541]},
-          "fixpipe": {"coefficients": [0.00631605563502956, 0.007892025610267535, 0.18427109215741483, 0.10041955880074607]},
-          "mte1": {"coefficients": [0.003980989407128394, 0.0102170066070478]},
-          "mte2": {"coefficients": [0.002658776990549257, 0.22894649392037195, 0.003512930619403853]},
-          "vector": {"coefficients": [0.07222284517379693, 6.089878490707281e-06, 5.0271018659668445e-08, 0.019131130657444668, 4.037195111210095e-08, 0.7012325266104403, 0.000910124689486858, 4.232182090494771e-05, 0.0, 0.0, 0.18822217626524265, 1.910152521430312e-08, 0.0]},
-          "vmte2": {"coefficients": [0.007771027254378372, 0.001698860299991509, 0.08188658388611401]},
-          "vmte3": {"coefficients": [0.004343655006850912, 0.30031390136441993, 0.0014609279383492027]},
-          "vscalar": {"coefficients": [4.216134340271475, 3.314252322894231, 0.3720311841909133, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 4.519614708050221, "batch_entries": 3.779686270863347e-12, "commands": 0.21236662682578972}},
+          "cube": {"coefficients": {"flops_m": 0.07123211964248141, "tiles": 1.0458614562635014e-07, "output_tiles": 0.10416784382996541}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.00631605563502956, "nz_write_kb": 0.007892025610267535, "stores": 0.18427109215741483, "calls": 0.10041955880074607}},
+          "mte1": {"coefficients": {"l0_kb": 0.003980989407128394, "tiles": 0.0102170066070478}},
+          "mte2": {"coefficients": {"read_kb": 0.002658776990549257, "loads": 0.22894649392037195, "address_gap_kb": 0.003512930619403853}},
+          "vector": {"coefficients": {"softmax_k": 0.07222284517379693, "reduction_k": 6.089878490707281e-06, "cast_k": 5.0271018659668445e-08, "nz2nd_k": 0.019131130657444668, "nd2nz_k": 4.037195111210095e-08, "online_k": 0.7012325266104403, "rescale_k": 0.000910124689486858, "normalize_k": 4.232182090494771e-05, "chunks": 0.18822217626524265, "scale_k": 1.910152521430312e-08}},
+          "vmte2": {"coefficients": {"read_kb": 0.007771027254378372, "alignment_read_kb": 0.001698860299991509, "loads": 0.08188658388611401}},
+          "vmte3": {"coefficients": {"write_kb": 0.004343655006850912, "stores": 0.30031390136441993, "address_gap_kb": 0.0014609279383492027}},
+          "vscalar": {"coefficients": {"workers": 4.216134340271475, "batch_entries": 3.314252322894231, "chunks": 0.3720311841909133}}
         }
       },
       "varlen_same_ab|FP16|TND|gm|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [16.921024889029425, 5.554973960930712e-11, 0.30485160707678827]},
-          "cube": {"coefficients": [0.08244035485652108, 2.215482661100917e-09, 0.022085080743174074]},
-          "fixpipe": {"coefficients": [0.010730912483668822, 0.008446944050979842, 0.19115008927009755, 0.1008777192332477]},
-          "mte1": {"coefficients": [0.003731293927304572, 0.02311477549684324]},
-          "mte2": {"coefficients": [0.0028095110812431487, 0.2492203276285553, 0.0038988264100452454]},
-          "vector": {"coefficients": [0.0729053262475707, 3.94619514261326e-18, 6.846395779330601e-19, 0.02500069658755669, 6.449482143515825e-19, 0.5223384778341594, 6.471807153933001e-16, 3.88007763001629e-15, 0.0, 0.0, 0.17849962224576643, 2.31832666625433e-20, 0.0]},
-          "vmte2": {"coefficients": [0.008885752462530414, 4.914825561934664e-05, 0.08348799396010546]},
-          "vmte3": {"coefficients": [0.004464623895473037, 0.3297505468325468, 0.0014834944698246958]},
-          "vscalar": {"coefficients": [11.202072203897917, 3.398009063710395, 0.384751280596357, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 16.921024889029425, "batch_entries": 5.554973960930712e-11, "commands": 0.30485160707678827}},
+          "cube": {"coefficients": {"flops_m": 0.08244035485652108, "tiles": 2.215482661100917e-09, "output_tiles": 0.022085080743174074}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.010730912483668822, "nz_write_kb": 0.008446944050979842, "stores": 0.19115008927009755, "calls": 0.1008777192332477}},
+          "mte1": {"coefficients": {"l0_kb": 0.003731293927304572, "tiles": 0.02311477549684324}},
+          "mte2": {"coefficients": {"read_kb": 0.0028095110812431487, "loads": 0.2492203276285553, "address_gap_kb": 0.0038988264100452454}},
+          "vector": {"coefficients": {"softmax_k": 0.0729053262475707, "reduction_k": 3.94619514261326e-18, "cast_k": 6.846395779330601e-19, "nz2nd_k": 0.02500069658755669, "nd2nz_k": 6.449482143515825e-19, "online_k": 0.5223384778341594, "rescale_k": 6.471807153933001e-16, "normalize_k": 3.88007763001629e-15, "chunks": 0.17849962224576643, "scale_k": 2.31832666625433e-20}},
+          "vmte2": {"coefficients": {"read_kb": 0.008885752462530414, "alignment_read_kb": 4.914825561934664e-05, "loads": 0.08348799396010546}},
+          "vmte3": {"coefficients": {"write_kb": 0.004464623895473037, "stores": 0.3297505468325468, "address_gap_kb": 0.0014834944698246958}},
+          "vscalar": {"coefficients": {"workers": 11.202072203897917, "batch_entries": 3.398009063710395, "chunks": 0.384751280596357}}
         }
       },
       "varlen_same_ab|FP16|TND|l1_carry|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [5.02541664843816, 0.01743890329855586, 0.22712847115213539]},
-          "cube": {"coefficients": [0.07752300685637271, 3.592215358498479e-08, 0.02156210677983188]},
-          "fixpipe": {"coefficients": [0.005044124576408368, 0.007926124313421637, 0.19347343442331122, 0.087455015407498]},
-          "mte1": {"coefficients": [0.0037309710268448077, 0.0230783839558107]},
-          "mte2": {"coefficients": [0.0028357929768969316, 0.24771292454272392, 0.0031634954383066636]},
-          "vector": {"coefficients": [0.07273498942416524, 1.0968424400352906e-05, 7.836799320464245e-11, 0.024451700807724863, 9.543533660366808e-09, 0.526656629386487, 2.4363028654586086e-06, 6.6602377023088815e-06, 0.0, 0.0, 0.18347956713425734, 9.53744213377192e-09, 0.0]},
-          "vmte2": {"coefficients": [0.009151155254801134, 7.430397921719817e-15, 0.08085215045034536]},
-          "vmte3": {"coefficients": [0.004680390344320502, 0.34866946120410597, 0.0014399957768199045]},
-          "vscalar": {"coefficients": [0.4437664311139804, 2.325225375401201, 0.3688148330203941, 0.0, 0.0]}
+          "cscalar": {"coefficients": {"workers": 5.02541664843816, "batch_entries": 0.01743890329855586, "commands": 0.22712847115213539}},
+          "cube": {"coefficients": {"flops_m": 0.07752300685637271, "tiles": 3.592215358498479e-08, "output_tiles": 0.02156210677983188}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.005044124576408368, "nz_write_kb": 0.007926124313421637, "stores": 0.19347343442331122, "calls": 0.087455015407498}},
+          "mte1": {"coefficients": {"l0_kb": 0.0037309710268448077, "tiles": 0.0230783839558107}},
+          "mte2": {"coefficients": {"read_kb": 0.0028357929768969316, "loads": 0.24771292454272392, "address_gap_kb": 0.0031634954383066636}},
+          "vector": {"coefficients": {"softmax_k": 0.07273498942416524, "reduction_k": 1.0968424400352906e-05, "cast_k": 7.836799320464245e-11, "nz2nd_k": 0.024451700807724863, "nd2nz_k": 9.543533660366808e-09, "online_k": 0.526656629386487, "rescale_k": 2.4363028654586086e-06, "normalize_k": 6.6602377023088815e-06, "chunks": 0.18347956713425734, "scale_k": 9.53744213377192e-09}},
+          "vmte2": {"coefficients": {"read_kb": 0.009151155254801134, "alignment_read_kb": 7.430397921719817e-15, "loads": 0.08085215045034536}},
+          "vmte3": {"coefficients": {"write_kb": 0.004680390344320502, "stores": 0.34866946120410597, "address_gap_kb": 0.0014399957768199045}},
+          "vscalar": {"coefficients": {"workers": 0.4437664311139804, "batch_entries": 2.325225375401201, "chunks": 0.3688148330203941}}
         }
       }
     },
     "primitive_priors": {
-      "cscalar|batch|NORMAL|ND": {"coefficients": [13.074767607404045, 0.0, 0.016383098148989115], "unsupported": ["batch_entries"]},
-      "cscalar|direct_same_ab|NORMAL|ND": {"coefficients": [1.937167928735015e-09, 0.0, 0.32111115103453514], "unsupported": ["batch_entries"]},
-      "cscalar|direct_same_ab|NORMAL|NZ": {"coefficients": [5.02541664843816, 0.0, 0.22712847115213539]},
-      "cscalar|direct_same_ab|UNSPLITK|ND": {"coefficients": [26.7619268418337, 0.0, 1.6194967839606817e-06], "unsupported": ["batch_entries"]},
-      "cscalar|normal|NORMAL|ND": {"coefficients": [11.237976526663797, 0.0, 0.375472846200284], "unsupported": ["batch_entries"]},
-      "cscalar|normal|NORMAL|NZ": {"coefficients": [16.770574720221767, 0.0, 0.3261565610534499]},
-      "cube|BF16|NORMAL": {"coefficients": [0.07249432642237903, 0.0, 0.10516864071017211]},
-      "cube|BF16|UNSPLITK": {"coefficients": [0.0, 0.24688410241299463, 0.0023085915971245282]},
-      "cube|FP16|NORMAL": {"coefficients": [0.08161713023637727, 0.0, 0.022085725006106116]},
-      "fixpipe|NORMAL": {"coefficients": [0.011033616687163402, 0.008432189347228022, 0.19159235375731848, 0.10085863430869339]},
-      "fixpipe|UNSPLITK": {"coefficients": [0.010783727411598191, 0.0, 0.0, 0.0]},
-      "mte1|BF16|NORMAL": {"coefficients": [0.004079844015831966, 0.010228183739627998]},
-      "mte1|BF16|UNSPLITK": {"coefficients": [0.0039711814849553665, 0.0]},
-      "mte1|FP16|NORMAL": {"coefficients": [0.00375468444288996, 0.023138923367788694]},
-      "mte2|batch|BNSD|NORMAL": {"coefficients": [0.005492195646551055, 0.11454722903797543, 0.0], "unsupported": ["address_gap_kb"]},
-      "mte2|batch|BSND|NORMAL": {"coefficients": [0.018116187791874273, 0.165327388408614, 0.0]},
-      "mte2|normal|BNSD|NORMAL": {"coefficients": [0.0056156484930614085, 0.09148463089934133, 0.0], "unsupported": ["address_gap_kb"]},
-      "mte2|normal|BSND|NORMAL": {"coefficients": [0.0, 0.8759969321695337, 0.0015123113990004632]},
-      "mte2|normal|TND|NORMAL": {"coefficients": [0.0, 0.23844357303100813, 0.005478141813343362]},
-      "mte2|same_ab|BNSD|NORMAL": {"coefficients": [0.011676556999605146, 0.0, 0.0], "unsupported": ["address_gap_kb"]},
-      "mte2|same_ab|BNSD|UNSPLITK": {"coefficients": [0.0, 0.7453478347562087, 0.0], "unsupported": ["address_gap_kb"]},
-      "mte2|same_ab|SBH|NORMAL": {"coefficients": [0.0, 0.4333769702480107, 1.804593408250971e-05]},
-      "mte2|varlen_same_ab|TND|NORMAL": {"coefficients": [0.0028202964669793275, 0.25396220107189005, 0.0039030569816439348]},
-      "vector|b|FP16": {"coefficients": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.12508855940853322, 0.037320233132503766, 0.0, 0.13422251327256865, 0.0, 0.2265342001772029], "unsupported": ["nz2nd_k", "nd2nz_k", "online_k", "rescale_k"]},
-      "vector|general|BF16": {"coefficients": [0.04237483269190826, 0.13542287640449416, 0.03474412501529378, 0.026102286906055372, 0.01031065815671961, 0.28809579615086683, 0.01179376968895122, 0.012547386812432795, 0.027521671469775008, 0.0, 0.12649759560450058, 0.0, 0.004260289526954603]},
-      "vector|general|FP16": {"coefficients": [0.03809195018256099, 0.29205176530032123, 0.029436374834177444, 0.024968235244699957, 0.008437745481848832, 0.0, 0.023778763216888793, 0.0, 0.026685719956830303, 0.004047897799960571, 0.14617530557433592, 0.0, 0.003207879477858287]},
-      "vector|s1|BF16": {"coefficients": [0.07480823252630239, 0.0, 0.0, 0.025126116253689018, 0.0, 0.0, 0.0, 0.0, 0.029320902118770472, 0.04081196518298993, 0.18448122448662474, 0.0, 0.0], "unsupported": ["online_k", "rescale_k"]},
-      "vector|s1|FP16": {"coefficients": [0.07025549761986656, 0.0, 0.0, 0.025822178425611863, 0.0, 0.0, 0.0, 0.013852766271544456, 0.024802111001320046, 0.039292242041194664, 0.17742942901122621, 0.0, 0.007992587076333942], "unsupported": ["online_k", "rescale_k"]},
-      "vector|same_ab|BF16": {"coefficients": [0.07669627047587507, 0.0, 0.0, 0.0185048843704171, 0.0, 0.703412215779108, 0.0009092444693228208, 0.0, 0.024085005610886313, 0.03395626218619026, 0.1855407082471299, 0.0, 0.03981449028528421]},
-      "vector|same_ab|FP16": {"coefficients": [0.07494234881642901, 0.0, 0.0, 0.025000714026661926, 0.0, 0.5230498330049582, 0.0, 0.0, 0.05365467870204661, 0.0, 0.1798442096151233, 0.0, 0.006671306355755378]},
-      "vmte2|batch|BNSD|NORMAL": {"coefficients": [0.005417315761674355, 0.0, 0.1086722898323595], "unsupported": ["alignment_read_kb"]},
-      "vmte2|batch|BSND|NORMAL": {"coefficients": [0.0033433476581142567, 0.0, 0.12835653989106088], "unsupported": ["alignment_read_kb"]},
-      "vmte2|normal|BNSD|NORMAL": {"coefficients": [0.002756309189469309, 0.0, 0.25253551986926454]},
-      "vmte2|normal|BSND|NORMAL": {"coefficients": [0.001461454807538264, 0.0, 0.40516398953558996]},
-      "vmte2|normal|TND|NORMAL": {"coefficients": [0.008885684033991903, 0.0, 0.15362283517177577], "unsupported": ["alignment_read_kb"]},
-      "vmte2|same_ab|BNSD|NORMAL": {"coefficients": [0.0, 0.0, 0.34174896221089257]},
-      "vmte2|same_ab|BNSD|UNSPLITK": {"coefficients": [0.0064645682515736755, 0.0, 0.20301139037237115], "unsupported": ["alignment_read_kb"]},
-      "vmte2|same_ab|SBH|NORMAL": {"coefficients": [0.00935166393447881, 0.0, 0.12145384733939482], "unsupported": ["alignment_read_kb"]},
-      "vmte2|varlen_same_ab|TND|NORMAL": {"coefficients": [0.008764833672472676, 0.0, 0.08312529797591559]},
-      "vmte3|batch|BNSD|NORMAL": {"coefficients": [0.002438770756879294, 0.15055709003064666, 0.0], "unsupported": ["address_gap_kb"]},
-      "vmte3|batch|BSND|NORMAL": {"coefficients": [0.011259712983377497, 0.2137195499377591, 0.0]},
-      "vmte3|normal|BNSD|NORMAL": {"coefficients": [0.016635564506869684, 0.018519468746267486, 0.0], "unsupported": ["address_gap_kb"]},
-      "vmte3|normal|BSND|NORMAL": {"coefficients": [0.0074438592218653305, 0.07678689213592327, 0.006631029757352885]},
-      "vmte3|normal|TND|NORMAL": {"coefficients": [0.0, 0.4025808387369946, 0.0]},
-      "vmte3|same_ab|BNSD|NORMAL": {"coefficients": [0.015848162904056304, 0.05175730926728798, 0.0], "unsupported": ["address_gap_kb"]},
-      "vmte3|same_ab|BNSD|UNSPLITK": {"coefficients": [0.022898614736748656, 0.0, 0.0], "unsupported": ["address_gap_kb"]},
-      "vmte3|same_ab|SBH|NORMAL": {"coefficients": [0.006480530384528647, 0.2489663715050039, 0.0]},
-      "vmte3|varlen_same_ab|TND|NORMAL": {"coefficients": [0.00447129250008537, 0.33210196384870366, 0.001483704518236163]},
-      "vscalar|b|kfc|NORMAL": {"coefficients": [0.3442647311330368, 0.0, 0.31084172673974064, 0.058084291331361046, 5.171051648458003], "unsupported": ["batch_entries"]},
-      "vscalar|general|kfc|NORMAL": {"coefficients": [7.378837527648076, 0.0, 0.28736621746678237, 0.10550629514508414, 0.0]},
-      "vscalar|s1|kfc|NORMAL": {"coefficients": [5.813335, 0.0, 0.2953107570361187, 0.15244340637159645, 0.0], "unsupported": ["batch_entries"]},
-      "vscalar|same_ab|direct|NORMAL": {"coefficients": [7.701350321955835, 0.0, 0.3576251264288546, 0.08226296210395213, 0.4065340029764885]},
-      "vscalar|same_ab|direct|UNSPLITK": {"coefficients": [10.175613768476994, 0.0, 0.34753781940077105, 0.14115417726014687, 0.0], "unsupported": ["batch_entries", "adapter_workers"]}
+      "cscalar|batch|NORMAL|ND": {"use_class": "b|FP16|BNSD|gm|ND|NORMAL"},
+      "cscalar|direct_same_ab|NORMAL|ND": {"use_class": "same_ab|BF16|SBH|gm|ND|NORMAL"},
+      "cscalar|direct_same_ab|NORMAL|NZ": {"coefficients": {"workers": 5.02541664843816, "commands": 0.22712847115213539}},
+      "cscalar|direct_same_ab|UNSPLITK|ND": {"use_class": "same_ab|BF16|BNSD|gm|ND|UNSPLITK"},
+      "cscalar|normal|NORMAL|ND": {"coefficients": {"workers": 11.237976526663797, "commands": 0.375472846200284}, "unsupported": ["batch_entries"]},
+      "cscalar|normal|NORMAL|NZ": {"coefficients": {"workers": 16.770574720221767, "commands": 0.3261565610534499}},
+      "cube|BF16|NORMAL": {"coefficients": {"flops_m": 0.07249432642237903, "output_tiles": 0.10516864071017211}},
+      "cube|BF16|UNSPLITK": {"coefficients": {"tiles": 0.24688410241299463, "output_tiles": 0.0023085915971245282}},
+      "cube|FP16|NORMAL": {"coefficients": {"flops_m": 0.08161713023637727, "output_tiles": 0.022085725006106116}},
+      "fixpipe|NORMAL": {"coefficients": {"nd_write_kb": 0.011033616687163402, "nz_write_kb": 0.008432189347228022, "stores": 0.19159235375731848, "calls": 0.10085863430869339}},
+      "fixpipe|UNSPLITK": {"coefficients": {"nd_write_kb": 0.010783727411598191}},
+      "mte1|BF16|NORMAL": {"coefficients": {"l0_kb": 0.004079844015831966, "tiles": 0.010228183739627998}},
+      "mte1|BF16|UNSPLITK": {"coefficients": {"l0_kb": 0.0039711814849553665}},
+      "mte1|FP16|NORMAL": {"coefficients": {"l0_kb": 0.00375468444288996, "tiles": 0.023138923367788694}},
+      "mte2|batch|BNSD|NORMAL": {"coefficients": {"read_kb": 0.005492195646551055, "loads": 0.11454722903797543}, "unsupported": ["address_gap_kb"]},
+      "mte2|batch|BSND|NORMAL": {"coefficients": {"read_kb": 0.018116187791874273, "loads": 0.165327388408614}},
+      "mte2|normal|BNSD|NORMAL": {"coefficients": {"read_kb": 0.0056156484930614085, "loads": 0.09148463089934133}, "unsupported": ["address_gap_kb"]},
+      "mte2|normal|BSND|NORMAL": {"coefficients": {"loads": 0.8759969321695337, "address_gap_kb": 0.0015123113990004632}},
+      "mte2|normal|TND|NORMAL": {"coefficients": {"loads": 0.23844357303100813, "address_gap_kb": 0.005478141813343362}},
+      "mte2|same_ab|BNSD|NORMAL": {"coefficients": {"read_kb": 0.011676556999605146}, "unsupported": ["address_gap_kb"]},
+      "mte2|same_ab|BNSD|UNSPLITK": {"coefficients": {"loads": 0.7453478347562087}, "unsupported": ["address_gap_kb"]},
+      "mte2|same_ab|SBH|NORMAL": {"coefficients": {"loads": 0.4333769702480107, "address_gap_kb": 1.804593408250971e-05}},
+      "mte2|varlen_same_ab|TND|NORMAL": {"coefficients": {"read_kb": 0.0028202964669793275, "loads": 0.25396220107189005, "address_gap_kb": 0.0039030569816439348}},
+      "vector|b|FP16": {"coefficients": {"normalize_k": 0.12508855940853322, "drop_k": 0.037320233132503766, "chunks": 0.13422251327256865, "duplicate_k": 0.2265342001772029}, "unsupported": ["nz2nd_k", "nd2nz_k", "online_k", "rescale_k"]},
+      "vector|general|BF16": {"coefficients": {"softmax_k": 0.04237483269190826, "reduction_k": 0.13542287640449416, "cast_k": 0.03474412501529378, "nz2nd_k": 0.026102286906055372, "nd2nz_k": 0.01031065815671961, "online_k": 0.28809579615086683, "rescale_k": 0.01179376968895122, "normalize_k": 0.012547386812432795, "drop_k": 0.027521671469775008, "chunks": 0.12649759560450058, "duplicate_k": 0.004260289526954603}},
+      "vector|general|FP16": {"coefficients": {"softmax_k": 0.03809195018256099, "reduction_k": 0.29205176530032123, "cast_k": 0.029436374834177444, "nz2nd_k": 0.024968235244699957, "nd2nz_k": 0.008437745481848832, "rescale_k": 0.023778763216888793, "drop_k": 0.026685719956830303, "unpack_k": 0.004047897799960571, "chunks": 0.14617530557433592, "duplicate_k": 0.003207879477858287}},
+      "vector|s1|BF16": {"coefficients": {"softmax_k": 0.07480823252630239, "nz2nd_k": 0.025126116253689018, "drop_k": 0.029320902118770472, "unpack_k": 0.04081196518298993, "chunks": 0.18448122448662474}, "unsupported": ["online_k", "rescale_k"]},
+      "vector|s1|FP16": {"coefficients": {"softmax_k": 0.07025549761986656, "nz2nd_k": 0.025822178425611863, "normalize_k": 0.013852766271544456, "drop_k": 0.024802111001320046, "unpack_k": 0.039292242041194664, "chunks": 0.17742942901122621, "duplicate_k": 0.007992587076333942}, "unsupported": ["online_k", "rescale_k"]},
+      "vector|same_ab|BF16": {"coefficients": {"softmax_k": 0.07669627047587507, "nz2nd_k": 0.0185048843704171, "online_k": 0.703412215779108, "rescale_k": 0.0009092444693228208, "drop_k": 0.024085005610886313, "unpack_k": 0.03395626218619026, "chunks": 0.1855407082471299, "duplicate_k": 0.03981449028528421}},
+      "vector|same_ab|FP16": {"coefficients": {"softmax_k": 0.07494234881642901, "nz2nd_k": 0.025000714026661926, "online_k": 0.5230498330049582, "drop_k": 0.05365467870204661, "chunks": 0.1798442096151233, "duplicate_k": 0.006671306355755378}},
+      "vmte2|batch|BNSD|NORMAL": {"coefficients": {"read_kb": 0.005417315761674355, "loads": 0.1086722898323595}, "unsupported": ["alignment_read_kb"]},
+      "vmte2|batch|BSND|NORMAL": {"coefficients": {"read_kb": 0.0033433476581142567, "loads": 0.12835653989106088}, "unsupported": ["alignment_read_kb"]},
+      "vmte2|normal|BNSD|NORMAL": {"coefficients": {"read_kb": 0.002756309189469309, "loads": 0.25253551986926454}},
+      "vmte2|normal|BSND|NORMAL": {"coefficients": {"read_kb": 0.001461454807538264, "loads": 0.40516398953558996}},
+      "vmte2|normal|TND|NORMAL": {"coefficients": {"read_kb": 0.008885684033991903, "loads": 0.15362283517177577}, "unsupported": ["alignment_read_kb"]},
+      "vmte2|same_ab|BNSD|NORMAL": {"coefficients": {"loads": 0.34174896221089257}},
+      "vmte2|same_ab|BNSD|UNSPLITK": {"coefficients": {"read_kb": 0.0064645682515736755, "loads": 0.20301139037237115}, "unsupported": ["alignment_read_kb"]},
+      "vmte2|same_ab|SBH|NORMAL": {"coefficients": {"read_kb": 0.00935166393447881, "loads": 0.12145384733939482}, "unsupported": ["alignment_read_kb"]},
+      "vmte2|varlen_same_ab|TND|NORMAL": {"coefficients": {"read_kb": 0.008764833672472676, "loads": 0.08312529797591559}},
+      "vmte3|batch|BNSD|NORMAL": {"coefficients": {"write_kb": 0.002438770756879294, "stores": 0.15055709003064666}, "unsupported": ["address_gap_kb"]},
+      "vmte3|batch|BSND|NORMAL": {"coefficients": {"write_kb": 0.011259712983377497, "stores": 0.2137195499377591}},
+      "vmte3|normal|BNSD|NORMAL": {"coefficients": {"write_kb": 0.016635564506869684, "stores": 0.018519468746267486}, "unsupported": ["address_gap_kb"]},
+      "vmte3|normal|BSND|NORMAL": {"coefficients": {"write_kb": 0.0074438592218653305, "stores": 0.07678689213592327, "address_gap_kb": 0.006631029757352885}},
+      "vmte3|normal|TND|NORMAL": {"coefficients": {"stores": 0.4025808387369946}},
+      "vmte3|same_ab|BNSD|NORMAL": {"coefficients": {"write_kb": 0.015848162904056304, "stores": 0.05175730926728798}, "unsupported": ["address_gap_kb"]},
+      "vmte3|same_ab|BNSD|UNSPLITK": {"coefficients": {"write_kb": 0.022898614736748656}, "unsupported": ["address_gap_kb"]},
+      "vmte3|same_ab|SBH|NORMAL": {"coefficients": {"write_kb": 0.006480530384528647, "stores": 0.2489663715050039}},
+      "vmte3|varlen_same_ab|TND|NORMAL": {"coefficients": {"write_kb": 0.00447129250008537, "stores": 0.33210196384870366, "address_gap_kb": 0.001483704518236163}},
+      "vscalar|b|kfc|NORMAL": {"use_class": "b|FP16|BNSD|gm|ND|NORMAL"},
+      "vscalar|general|kfc|NORMAL": {"coefficients": {"workers": 7.378837527648076, "chunks": 0.28736621746678237, "drop_chunks": 0.10550629514508414}},
+      "vscalar|s1|kfc|NORMAL": {"coefficients": {"workers": 5.813335, "chunks": 0.2953107570361187, "drop_chunks": 0.15244340637159645}, "unsupported": ["batch_entries"]},
+      "vscalar|same_ab|direct|NORMAL": {"coefficients": {"workers": 7.701350321955835, "chunks": 0.3576251264288546, "drop_chunks": 0.08226296210395213, "adapter_workers": 0.4065340029764885}},
+      "vscalar|same_ab|direct|UNSPLITK": {"use_class": "same_ab|BF16|BNSD|gm|ND|UNSPLITK"}
     },
     "version": "fa_branch_execution_v3"
   },
   "refined": {
     "classes": {
       "varlen_l1|BF16|TND|l1_carry|NZ|NORMAL": {
-        "pipes": {
-          "cscalar": {"coefficients": [24.470053065016902, 0.4966824794300318, 0.0015658376981283314]},
-          "cube": {"coefficients": [0.07146190332932098, 1.2560042530372285e-05, 1.0996882121816632e-05]},
-          "fixpipe": {"coefficients": [0.00727714734383873, 0.008034955828209737, 0.19344593856597533, 0.17287501878283176]},
-          "mte1": {"coefficients": [0.003525679277265659, 0.02872845113843313]},
-          "mte2": {"coefficients": [0.00669315500729277, 0.020198495949455626, 0.002999317410163628]},
-          "vector": {"coefficients": [0.039252101708914244, 0.1357918734956924, 0.036936711977390194, 0.028468100190406593, 0.010130445810245695, 0.2838943482978906, 0.011671850409177894, 0.012634442050637679, 0.03205711718103142, 6.157581795300738e-11, 0.12899151969701186, 1.2057423211383204e-08, 2.873355037233104e-14]},
-          "vmte2": {"coefficients": [0.002637321563278525, 0.0, 0.300646535467336], "unsupported": ["alignment_read_kb"]},
-          "vmte3": {"coefficients": [0.016104688293597767, 0.10144570091198418, 2.7896813676368213e-07]},
-          "vscalar": {"coefficients": [6.4440123370552875, 0.5806747943254912, 0.6065546042307239, 1.7184145814283005e-05, 7.722656554103675]}
-        },
         "source_refinement": {
           "children": {
             "False": {
               "pipes": {
-                "cscalar": {"coefficients": [23.848135857267472, 0.5972412357256434, 0.024145746125286704]},
-                "cube": {"coefficients": [0.07320183742535946, 1.7406412512331445e-05, 1.7829083784193435e-05]},
-                "fixpipe": {"coefficients": [0.009372962365550186, 0.008376242000959629, 0.19840455761474754, 0.17686328671234433]},
-                "mte1": {"coefficients": [0.0035412322646906228, 0.028837278208463813]},
-                "mte2": {"coefficients": [0.008187075356258292, 0.020285499000138967, 0.0032751902690897907]},
-                "vector": {"coefficients": [0.039459094619582795, 0.13584061923208432, 0.03710943484316262, 0.02983105368508885, 0.010140548762768757, 0.0, 0.0, 0.012675019478305781, 0.03147972586773964, 5.951150063559618e-11, 0.12921649030036972, 4.103327276154762e-07, 5.210133023516994e-17]},
-                "vmte2": {"coefficients": [0.002988564398618622, 0.0, 0.37393210849276115], "unsupported": ["alignment_read_kb"]},
-                "vmte3": {"coefficients": [0.015902982944326242, 0.09835003539932839, 4.888119019517016e-07]},
-                "vscalar": {"coefficients": [5.8388812610186305, 0.5686156164539778, 0.6459654390915412, 2.473682187457373e-05, 8.139069977149092]}
+                "cscalar": {"coefficients": {"workers": 23.848135857267472, "batch_entries": 0.5972412357256434, "commands": 0.024145746125286704}},
+                "cube": {"coefficients": {"flops_m": 0.07320183742535946, "tiles": 1.7406412512331445e-05, "output_tiles": 1.7829083784193435e-05}},
+                "fixpipe": {"coefficients": {"nd_write_kb": 0.009372962365550186, "nz_write_kb": 0.008376242000959629, "stores": 0.19840455761474754, "calls": 0.17686328671234433}},
+                "mte1": {"coefficients": {"l0_kb": 0.0035412322646906228, "tiles": 0.028837278208463813}},
+                "vector": {"coefficients": {"softmax_k": 0.039459094619582795, "reduction_k": 0.13584061923208432, "cast_k": 0.03710943484316262, "nz2nd_k": 0.02983105368508885, "nd2nz_k": 0.010140548762768757, "normalize_k": 0.012675019478305781, "drop_k": 0.03147972586773964, "unpack_k": 5.951150063559618e-11, "chunks": 0.12921649030036972, "scale_k": 4.103327276154762e-07, "duplicate_k": 5.210133023516994e-17}},
+                "vmte2": {"coefficients": {"read_kb": 0.002988564398618622, "loads": 0.37393210849276115}, "unsupported": ["alignment_read_kb"]},
+                "vmte3": {"coefficients": {"write_kb": 0.015902982944326242, "stores": 0.09835003539932839, "address_gap_kb": 4.888119019517016e-07}},
+                "vscalar": {"coefficients": {"workers": 5.8388812610186305, "batch_entries": 0.5686156164539778, "chunks": 0.6459654390915412, "drop_chunks": 2.473682187457373e-05, "adapter_workers": 8.139069977149092}}
               }
             },
             "True": {
               "pipes": {
-                "cscalar": {"coefficients": [24.741969995091473, 0.510643563530136, 7.099332875912172e-13]},
-                "cube": {"coefficients": [0.0700420431799871, 1.477904820544261e-05, 1.0520041716146766e-05]},
-                "fixpipe": {"coefficients": [0.006438311843677867, 0.0078123030364238965, 0.19370359460556322, 0.17308273393123322]},
-                "mte1": {"coefficients": [0.003518154753104158, 0.02867114233098781]},
-                "mte2": {"coefficients": [0.00618437729952346, 0.020220996640759294, 0.002794205879373314]},
-                "vector": {"coefficients": [0.03710290371757013, 0.13559072179676646, 0.037265033826082476, 0.027987923614327302, 0.01000804431793615, 0.2830066138941683, 0.011646164761266628, 0.012626535175488032, 0.03223276712494492, 3.664368918991196e-25, 0.12657067551698722, 1.440871421891399e-20, 5.170797697082941e-21]},
-                "vmte2": {"coefficients": [0.0022940135912282184, 0.0, 0.2829780175309047], "unsupported": ["alignment_read_kb"]},
-                "vmte3": {"coefficients": [0.016628124777748683, 0.09965403856494674, 2.4842952885263283e-07]},
-                "vscalar": {"coefficients": [6.4440123370552875, 0.5806747943254912, 0.6062961514748736, 1.7950323649764703e-05, 7.921195817129768]}
+                "cscalar": {"coefficients": {"workers": 24.741969995091473, "batch_entries": 0.510643563530136, "commands": 7.099332875912172e-13}},
+                "cube": {"coefficients": {"flops_m": 0.0700420431799871, "tiles": 1.477904820544261e-05, "output_tiles": 1.0520041716146766e-05}},
+                "fixpipe": {"coefficients": {"nd_write_kb": 0.006438311843677867, "nz_write_kb": 0.0078123030364238965, "stores": 0.19370359460556322, "calls": 0.17308273393123322}},
+                "mte1": {"coefficients": {"l0_kb": 0.003518154753104158, "tiles": 0.02867114233098781}},
+                "vector": {"coefficients": {"softmax_k": 0.03710290371757013, "reduction_k": 0.13559072179676646, "cast_k": 0.037265033826082476, "nz2nd_k": 0.027987923614327302, "nd2nz_k": 0.01000804431793615, "online_k": 0.2830066138941683, "rescale_k": 0.011646164761266628, "normalize_k": 0.012626535175488032, "drop_k": 0.03223276712494492, "unpack_k": 3.664368918991196e-25, "chunks": 0.12657067551698722, "scale_k": 1.440871421891399e-20, "duplicate_k": 5.170797697082941e-21}},
+                "vmte2": {"coefficients": {"read_kb": 0.0022940135912282184, "loads": 0.2829780175309047}, "unsupported": ["alignment_read_kb"]},
+                "vmte3": {"coefficients": {"write_kb": 0.016628124777748683, "stores": 0.09965403856494674, "address_gap_kb": 2.4842952885263283e-07}},
+                "vscalar": {"coefficients": {"workers": 6.4440123370552875, "batch_entries": 0.5806747943254912, "chunks": 0.6062961514748736, "drop_chunks": 1.7950323649764703e-05, "adapter_workers": 7.921195817129768}}
               }
             }
           },
@@ -564,43 +551,19 @@
       },
       "varlen_l1|FP16|TND|l1_carry|NZ|NORMAL": {
         "pipes": {
-          "cscalar": {"coefficients": [22.82031237392074, 0.8924613151256247, 5.3844549236297545e-06]},
-          "cube": {"coefficients": [0.07326048821178076, 6.7701444024476515e-06, 4.2570224304162965e-05]},
-          "fixpipe": {"coefficients": [0.006275544131049267, 0.009511882753698847, 0.26180269514628457, 0.22558937934941115]},
-          "mte1": {"coefficients": [0.003813157713400288, 0.01702283814721206]},
-          "mte2": {"coefficients": [0.008430203561044841, 0.022415084782779492, 0.0009606522199299202]},
-          "vector": {"coefficients": [0.03525875675611999, 0.38751608392636405, 0.007695954464289772, 0.0381909547058968, 0.00829653045736131, 3.926913207572693e-14, 0.02179886300730282, 0.00011282040576074989, 0.03842631887064745, 0.004145924148068926, 0.2609956985816587, 7.069727627153564e-10, 0.01510720654813759]},
-          "vmte2": {"coefficients": [0.01007243408596739, 0.0, 0.14922651799380807], "unsupported": ["alignment_read_kb"]},
-          "vmte3": {"coefficients": [0.010402909771407736, 0.16594368654216662, 1.2674094151598527e-07]},
-          "vscalar": {"coefficients": [2.1509827275468263, 0.3773584975607867, 0.6392528666925127, 0.00012858932862407996, 10.150540342936935]}
+          "cscalar": {"coefficients": {"workers": 22.82031237392074, "batch_entries": 0.8924613151256247, "commands": 5.3844549236297545e-06}},
+          "cube": {"coefficients": {"flops_m": 0.07326048821178076, "tiles": 6.7701444024476515e-06, "output_tiles": 4.2570224304162965e-05}},
+          "fixpipe": {"coefficients": {"nd_write_kb": 0.006275544131049267, "nz_write_kb": 0.009511882753698847, "stores": 0.26180269514628457, "calls": 0.22558937934941115}},
+          "mte1": {"coefficients": {"l0_kb": 0.003813157713400288, "tiles": 0.01702283814721206}},
+          "vector": {"coefficients": {"softmax_k": 0.03525875675611999, "reduction_k": 0.38751608392636405, "cast_k": 0.007695954464289772, "nz2nd_k": 0.0381909547058968, "nd2nz_k": 0.00829653045736131, "online_k": 3.926913207572693e-14, "rescale_k": 0.02179886300730282, "normalize_k": 0.00011282040576074989, "drop_k": 0.03842631887064745, "unpack_k": 0.004145924148068926, "chunks": 0.2609956985816587, "scale_k": 7.069727627153564e-10, "duplicate_k": 0.01510720654813759}},
+          "vmte2": {"coefficients": {"read_kb": 0.01007243408596739, "loads": 0.14922651799380807}, "unsupported": ["alignment_read_kb"]},
+          "vmte3": {"coefficients": {"write_kb": 0.010402909771407736, "stores": 0.16594368654216662, "address_gap_kb": 1.2674094151598527e-07}},
+          "vscalar": {"coefficients": {"workers": 2.1509827275468263, "batch_entries": 0.3773584975607867, "chunks": 0.6392528666925127, "drop_chunks": 0.00012858932862407996, "adapter_workers": 10.150540342936935}}
         }
       }
     },
-    "primitive_priors": {
-      "cscalar|manual_l1|NORMAL|NZ": {"coefficients": [22.82031237392074, 0.8924613151256247, 5.3844549236297545e-06]},
-      "cube|BF16|NORMAL|manual_l1": {"coefficients": [0.07700157664772285, 0.0, 0.0]},
-      "cube|BF16|UNSPLITK": {"coefficients": [0.0, 0.24688410241299474, 0.0023085915971241848]},
-      "cube|FP16|NORMAL|manual_l1": {"coefficients": [0.07800808850377158, 0.0, 0.0]},
-      "fixpipe|NORMAL|manual_l1": {"coefficients": [0.009554040534009003, 0.008367814411599405, 0.18478803203109198, 0.1659163273186946]},
-      "fixpipe|UNSPLITK": {"coefficients": [0.010783727411598191, 0.0, 0.0, 0.0]},
-      "mte1|BF16|NORMAL|manual_l1": {"coefficients": [0.0035623909718691476, 0.028725605246261224]},
-      "mte1|BF16|UNSPLITK": {"coefficients": [0.0039711814849553665, 0.0]},
-      "mte1|FP16|NORMAL|manual_l1": {"coefficients": [0.003884273928744109, 0.015856395146007056]},
-      "mte2|varlen_l1|TND|NORMAL": {"coefficients": [0.007920556573522987, 0.019828130797346376, 0.0020907559147111455]},
-      "vector|general|BF16": {"coefficients": [0.04237483269190826, 0.13542287640449416, 0.03474412501529378, 0.026102286906055372, 0.01031065815671961, 0.28809579615086683, 0.01179376968895122, 0.012547386812432795, 0.027521671469775008, 0.0, 0.12649759560450058, 0.0, 0.004260289526954603]},
-      "vector|general|FP16": {"coefficients": [0.03809195018256099, 0.29205176530032123, 0.029436374834177444, 0.024968235244699957, 0.008437745481848832, 0.0, 0.023778763216888793, 0.0, 0.026685719956830303, 0.004047897799960571, 0.14617530557433592, 0.0, 0.003207879477858287]},
-      "vmte2|varlen_l1|TND|NORMAL": {"coefficients": [0.005759101374389151, 0.0, 0.23753557322511107], "unsupported": ["alignment_read_kb"]},
-      "vmte3|varlen_l1|TND|NORMAL": {"coefficients": [0.015360065384069654, 0.1149771739640264, 0.0]},
-      "vscalar|general|direct|NORMAL": {"coefficients": [2.1509827275468263, 0.3773584975607867, 0.6392528666925127, 0.00012858932862407996, 10.150540342936935]}
-    },
+    "primitive_priors": {},
     "version": "fa_branch_execution_v4"
   },
-  "varlen_l1_transfer": {
-    "api_input_normalization": {
-      "constants": {"HEAD_DIM_128": 88, "HEAD_DIM_64": 64, "HEAD_DIM_80": 80, "PAD_ALIGN_128": 128, "PAD_ALIGN_SPL_SHAPE": 448, "PAD_BASIC_BLOCK": 16, "PAD_LOWER_BOUND_196": 196, "TND_UNPAD_MAX_DDIM": 96, "TND_UNPAD_MAX_S1_SUM": 163840, "TND_UNPAD_MAX_S2": 1024}
-    },
-    "coefficients": {"capacity_pressure_kb": 0.018284937661923347, "copy_calls": 0.17103808657041772, "nd2nz_partial_rows": 0.0, "nd2nz_split_sector_kb": 0.0852697126633232, "payload_kb": 0.004276449268121219, "strided_rows": 0.0013825789042399424},
-    "vector_accumulator_read_policy": "source_unconditional",
-    "version": "varlen_l1_nd2nz_v4"
-  }
+  "varlen_l1_transfer": {"api_input_normalization": {"constants": {"HEAD_DIM_128": 88, "HEAD_DIM_64": 64, "HEAD_DIM_80": 80, "PAD_ALIGN_128": 128, "PAD_ALIGN_SPL_SHAPE": 448, "PAD_BASIC_BLOCK": 16, "PAD_LOWER_BOUND_196": 196, "TND_UNPAD_MAX_DDIM": 96, "TND_UNPAD_MAX_S1_SUM": 163840, "TND_UNPAD_MAX_S2": 1024}}, "coefficients": {"capacity_pressure_kb": 0.018284937661923347, "copy_calls": 0.17103808657041772, "nd2nz_split_sector_kb": 0.0852697126633232, "payload_kb": 0.004276449268121219, "strided_rows": 0.0013825789042399424}, "vector_accumulator_read_policy": "source_unconditional", "version": "varlen_l1_nd2nz_v4"}
 }

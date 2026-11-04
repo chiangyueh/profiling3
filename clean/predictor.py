@@ -15,10 +15,10 @@ def _load_pipe(pipe, record, parameters):
     names = parameters[pipe]
     values = record["coefficients"]
     unsupported = set(record.get("unsupported", []))
-    if len(values) != len(names) or unsupported - set(names):
+    if set(values) - set(names) or unsupported - set(names):
         raise ValueError("invalid cost parameters: " + pipe)
     return {
-        "coefficients": dict(zip(names, values)),
+        "coefficients": {name: values.get(name, 0.0) for name in names},
         "observed_features": [name for name in names if name not in unsupported],
     }
 
@@ -26,10 +26,10 @@ def _load_pipe(pipe, record, parameters):
 def _load_entry(entry, parameters):
     entry["pipes"] = {
         pipe: _load_pipe(pipe, record, parameters)
-        for pipe, record in entry["pipes"].items()
+        for pipe, record in entry.get("pipes", {}).items()
     }
     entry["rates"] = [
-        float(entry["pipes"][pipe]["coefficients"].get(name, 0))
+        float(entry["pipes"].get(pipe, {}).get("coefficients", {}).get(name, 0))
         for pipe, name in engine.parameter_names()
     ]
     refinement = entry.get("source_refinement")
@@ -52,10 +52,14 @@ def _load_model():
         priors = {}
         for key, record in bank["primitive_priors"].items():
             pipe = key.split("|")[0]
-            profile = _load_pipe(pipe, record, parameters)
+            profile = (
+                bank["classes"][record["use_class"]]["pipes"][pipe]
+                if "use_class" in record
+                else _load_pipe(pipe, record, parameters)
+            )
             priors[json.dumps(key.split("|"))] = {
                 "names": parameters[pipe],
-                "rates": record["coefficients"],
+                "rates": [profile["coefficients"][name] for name in parameters[pipe]],
                 "observed_features": profile["observed_features"],
             }
         bank["primitive_priors"] = priors
