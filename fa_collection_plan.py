@@ -422,7 +422,7 @@ def validation_model(specification, directory):
             item = saved["predictions"].get(case["name"], {})
             if item.get("status") != "predicted" or item.get("input_sha256") != cost.sha256(case["inputs"]) or item.get("model_sha256") != saved["model_sha256"]:
                 raise RuntimeError("archived model has unfinished forecasts; retained data cannot be mixed with a newer predictor")
-        print("ARCHIVED FORECASTS: retaining the completed campaign and its original predictions; no reforecast or NPU remeasurement", flush=True)
+        print("ARCHIVED FORECASTS: retaining original predictions and recorded samples; unfinished measurements continue without recalibration", flush=True)
     elif model["source_sha256"] != branches.signature() or model["refined"]["source_sha256"] != micro.signature():
         raise RuntimeError("frozen predictor and execution source differ")
     if model["hardware"] != specification["hardware"]:
@@ -607,7 +607,7 @@ def validation_report(collector, directory, forecasts=None, final=False):
               "stable", "stability_assessed", "launcher_warmup", "profiler_warmup", "round1_us", "round2_us", "round3_us", "sample_count", "ci95_low_us", "ci95_high_us", "repeat_halfspan_percent",
               "checked_elements", "failed_elements", "failed_rows", "max_abs_error", "validation_version", "pmu_complete",
               "refinement_status", "source_conditions", "unseen_source_conditions", "micro_context_extrapolation", "sdk_api_matches_calibration",
-              "transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us", "transfer_cost_support",
+              "transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us", "transfer_cost_support", "api_input_transform",
               *(f"predicted_{phase}_critical_us" for phase in phases),
               *collector.REPORT_TILING, "profile_launches", "freq_min_mhz", "freq_max_mhz", "pmu_notes", "profiler_artifacts", *collector.PMU_FIELDS)
     errors, baseline_errors, noise, unstable, unassessed, paired_errors, strata = [], [], [], 0, 0, [], {}
@@ -636,7 +636,7 @@ def validation_report(collector, directory, forecasts=None, final=False):
                           profiler_warmup=derived.get("profiler_warmup", previous_protocol.get("profiler_warmup", "")),
                           stability_assessed=str(row.get("stable")).lower() in ("true", "false"))
             result.update({key: refined.get(key, "") for key in ("source_conditions", "unseen_source_conditions", "micro_context_extrapolation")})
-            result.update({key: prediction.get(key, "") for key in ("transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us", "transfer_cost_support")})
+            result.update({key: prediction.get(key, "") for key in ("transport_contract", "dma_features", "dma_active_sum_us", "critical_dma_terms_us", "transfer_cost_support", "api_input_transform")})
             result.update({f"predicted_{phase}_critical_us": prediction.get("critical_path_phase_us", {}).get(phase, "") for phase in phases})
             medians = row.get("round_medians_us") or []
             result.update({f"round{number}_us": value for number, value in enumerate(medians, 1)})

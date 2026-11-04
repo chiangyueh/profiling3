@@ -15,11 +15,30 @@ BASE_FEATURES = ("payload_kb", "copy_calls", "strided_rows")
 EXTRA_FEATURES = ("nd2nz_partial_rows", "nd2nz_split_sector_kb", "capacity_pressure_kb")
 FEATURES = BASE_FEATURES + EXTRA_FEATURES
 PARAMETERS = micro.parameter_names() + tuple(("mte2", name) for name in FEATURES)
-VERSION = "varlen_l1_nd2nz_v2"
+VERSION = "varlen_l1_nd2nz_v3"
 
 
 def signature():
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def api_kernel_inputs(inputs, policy=None):
+    p = micro.source.cost.normalize(inputs)
+    if policy is None:
+        return p
+    if p["layout"] != "TND":
+        raise ValueError("the API normalization policy covers uniform TND inputs")
+    if p["DV"] > p["D"]:
+        raise ValueError("official FlashAttentionScore API requires Dqk >= Dv")
+    constants = policy["constants"]
+    alignment = constants["PAD_BASIC_BLOCK"] if p["D"] < constants["PAD_LOWER_BOUND_196"] or p["D"] == constants["PAD_ALIGN_SPL_SHAPE"] else constants["PAD_ALIGN_128"]
+    qpad, vpad = (-p["D"]) % alignment, (-p["DV"]) % alignment
+    padded = bool(qpad or vpad)
+    if p["D"] != p["DV"] and p["D"] in tuple(constants[name] for name in ("HEAD_DIM_64", "HEAD_DIM_80", "HEAD_DIM_128")):
+        padded, vpad = True, qpad + p["D"] - p["DV"]
+    if p["D"] < constants["TND_UNPAD_MAX_DDIM"] and p["S2"] <= constants["TND_UNPAD_MAX_S2"] and p["B"] * p["S1"] < constants["TND_UNPAD_MAX_S1_SUM"]:
+        padded, qpad, vpad = False, 0, 0
+    return {**p, "D": p["D"] + qpad if padded else p["D"], "DV": p["DV"] + vpad if padded else p["DV"]}
 
 
 def transfer(rows, width, stride, name, pressure=0):
@@ -296,7 +315,9 @@ def fit_extensions(samples, hardware, previous):
 def predict(inputs, model, contract):
     if contract["source_sha256"] != signature():
         raise ValueError("DMA cost model and source differ")
-    work = workload(inputs, model["hardware"])
+    original = micro.source.cost.normalize(inputs)
+    kernel_inputs = api_kernel_inputs(original, contract.get("api_input_normalization"))
+    work = workload(kernel_inputs, model["hardware"])
     entry = micro.graph_entry(model, micro.cost_class(work.p, work.s), micro.execution_conditions(work))
     for pipe, values in micro.active_features(work).items():
         if pipe == "mte2":
@@ -321,6 +342,9 @@ def predict(inputs, model, contract):
             "critical_path_pipe_us": dict(pipes), "critical_dma_terms_us": terms,
             "dma_features": total, "dma_active_sum_us": sum(total[name] * contract["coefficients"][name] for name in FEATURES),
             "execution_events": graph["execution_events"], "transport_contract": VERSION,
+            "api_input_transform": {"qk_width": [original["D"], kernel_inputs["D"]],
+                                    "v_width": [original["DV"], kernel_inputs["DV"]],
+                                    "scope": "FlashAttentionScore kernel after API preprocessing; Pad and Slice task latency excluded"},
             "transfer_cost_support": {name: len(contract.get("extension_feature_support", {}).get(name, [])) for name in EXTRA_FEATURES if total[name] > 0},
             "execution_events_scope": "distinct representative worker timelines; dma_features contains whole-device source-copy totals",
             "stage_costs_independently_measured": False,

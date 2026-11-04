@@ -1,5 +1,7 @@
 {
-  "archived_model_sha256s": [],
+  "archived_model_sha256s": [
+    "401f89a6ab0aa01ea081a5b240d43a79a2b16195e834d49c968f3820f48b6804"
+  ],
   "cases": [
     {
       "hypothesis": "nd2nz_equal_dimensions",
@@ -5442,7 +5444,7 @@
       "stratum": "long_kv_core_fill"
     }
   ],
-  "evaluation_scope": "Prospective validation of the unchanged Varlen L1 model. Sixteen input-condition strata include eight complementary long-KV studies; these are measurement strata of the same implementation, not additional kernel families. Every seven-dimensional geometry is unique. No calibration or model change in this plan extension.",
+  "evaluation_scope": "Varlen L1 validation with per-campaign frozen predictions. Existing v4 campaigns retain their archived model and predictions; fresh campaigns use source API input normalization. Sixteen measurement strata, 320 unique seven-dimensional geometries. No DMA-cost coefficient refit is activated.",
   "execution_order": "Two independently shuffled passes, round-robin across 16 equally sized strata; each block of 16 collections includes every stratum. All forecasts frozen before any measurement. Failures continue; no total runtime limit.",
   "hardware": {
     "aic_cores": 20,
@@ -5458,7 +5460,7 @@
   "measurement_count": 640,
   "measurement_protocol": "Two separate profiler collections per input, one kernel launch each, no explicit warmup; no automatic retries; retain all samples and use their median. Resume skips recorded outcomes, including failures.",
   "measurement_repeats": 2,
-  "model_sha256": "401f89a6ab0aa01ea081a5b240d43a79a2b16195e834d49c968f3820f48b6804",
+  "model_sha256": "ccb1e3324540f69860bb4c0e231b001889ed47ad83c8596ed76b5a56d8d22998",
   "novelty_rule": "320 distinct seven-dimensional geometries, each assigned one dtype; FP16/BF16 balanced within every stratum. All inputs and S1/S2 pairs exclude previously measured data and the entire prior v3 plan, whether or not it has started.",
   "order_seed": 20261105,
   "previous_input_hashes": [

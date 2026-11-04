@@ -1,4 +1,12 @@
 {
+  "api_input_normalization_revision": {
+    "candidate_cost_refinements_activated": false,
+    "dma_coefficients_unchanged": true,
+    "evaluation": "fa_condition_audit.csv",
+    "reference_model_sha256": "401f89a6ab0aa01ea081a5b240d43a79a2b16195e834d49c968f3820f48b6804",
+    "retrospective_validation_only": true,
+    "source_only_correction": true
+  },
   "baseline": {
     "calibration_geometry": "recorded Host fields; CPU API fills fields not present in the exported trace",
     "calibration_source_sha256": "3d8da1dc4e0e67c8d3b2e6891555920cd6aae92d3ffda628b5dd4a2544064378",
@@ -74420,6 +74428,30 @@
   "varlen_l1_transfer": {
     "alignment_reference": "https://www.hiascend.com/doc_center/source/zh/CANNCommunityEdition/83RC1alpha002/opdevg/ascendcbestP/atlas_ascendc_best_practices_10_10014.html",
     "alignment_semantics": "ND2NZ partial rows plus excess 256-byte sector capacity of rows not aligned to 128 bytes, weighted by complete sectors; geometric efficiency proxy, not additional payload; P is already NZ and excluded",
+    "api_input_normalization": {
+      "constants": {
+        "HEAD_DIM_128": 88,
+        "HEAD_DIM_64": 64,
+        "HEAD_DIM_80": 80,
+        "PAD_ALIGN_128": 128,
+        "PAD_ALIGN_SPL_SHAPE": 448,
+        "PAD_BASIC_BLOCK": 16,
+        "PAD_LOWER_BOUND_196": 196,
+        "TND_UNPAD_MAX_DDIM": 96,
+        "TND_UNPAD_MAX_S1_SUM": 163840,
+        "TND_UNPAD_MAX_S2": 1024
+      },
+      "fitted_parameters": 0,
+      "functions": [
+        "AnalysisAxis",
+        "AnalysisInput",
+        "IsNeedPad",
+        "PreprocessQKV"
+      ],
+      "scope": "FP16/BF16 uniform TND API inputs to the FlashAttentionScore kernel; no Pad/Slice task latency added",
+      "source": "attention/flash_attention_score/op_api/aclnn_flash_attention_score.cpp",
+      "source_sha256": "50fac2a4788663de2414b0930f0bf30d005b412d7a594a217e1bf9b6eb965687"
+    },
     "cache_miss_cost_independently_calibrated": false,
     "calibration_samples": 109,
     "calibration_target": "original measured whole-kernel AIC MTE2 active-sum microseconds; no kernel latency target",
@@ -74627,7 +74659,7 @@
       "https://www.hiascend.com/doc_center/source/zh/canncommercial/700/operatordev/Ascendcopdevg/atlasascendc_api_07_0151.html",
       "attention/flash_attention_score/op_kernel/arch32/flash_attention_var_len_score.h:858-1001"
     ],
-    "source_sha256": "bbd08ab6148e80d17bd503ae1a9b4510a647c3ca70d6ed433049629f45d0b585",
+    "source_sha256": "10ddaf12266c11bb0d771eaeda347d538929c9337969287b3d58689a5cd15dfa",
     "stage_costs_independently_measured": false,
     "stride_semantics": "srcDValue selects the next row; skipped address holes are not payload",
     "training_inputs": [
@@ -74741,7 +74773,7 @@
       "f488ab0ce89c908d346fc5adf31d5dcb8fb6bf69b7133372196a028da157234e",
       "fb8308e9ed75e3558e637a7356278c79cc9f526867c4c1a74cfaf54961af38db"
     ],
-    "version": "varlen_l1_nd2nz_v2"
+    "version": "varlen_l1_nd2nz_v3"
   },
   "version": "fa_branch_execution_v4"
 }
