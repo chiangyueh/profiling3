@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import argparse
 import csv
 import json
@@ -7,10 +6,7 @@ import math
 import statistics
 from collections import defaultdict
 from pathlib import Path
-
 import numpy as np
-
-
 DATASET_VERSION = "sameab_latency_v4"
 MODEL_VERSION = "sameab_latency_model_v1"
 SHAPE_FIELDS = ("B", "N1", "N2", "S1", "S2", "D", "DV", "dtype", "layout")

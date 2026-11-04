@@ -1,11 +1,8 @@
 from __future__ import annotations
-
 import os
-
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
-
 import argparse
 import ast
 import csv
@@ -16,11 +13,8 @@ import json
 import re
 import statistics
 from pathlib import Path
-
-import fa_latency_model as model_api
-
-
-ROOT = Path(__file__).resolve().parent
+from research import fa_latency_model as model_api
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def target_cases():
@@ -205,7 +199,7 @@ def main():
     args = parser.parse_args()
     if hasattr(os, "sched_getaffinity"):
         os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
-    reference_path = args.reference or (ROOT / "fa_source_model.json" if (ROOT / "fa_source_model.json").is_file() else args.output / "model.json")
+    reference_path = args.reference or (ROOT / "research" / "models" / "fa_source_model.json" if (ROOT / "research" / "models" / "fa_source_model.json").is_file() else args.output / "model.json")
     reference = json.loads(reference_path.read_text())
     if reference["source_sha256"] != model_api.source_hash():
         raise RuntimeError("reference predictor source differs")

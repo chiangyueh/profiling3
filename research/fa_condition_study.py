@@ -5,10 +5,9 @@ os.environ['OMP_NUM_THREADS']='1'
 import csv,json,math,re,statistics,collections,gc,time,hashlib,warnings
 from pathlib import Path
 import numpy as np
-import fa_latency_transfer as t
+from research import fa_latency_transfer as t
 from scipy.optimize import linprog,OptimizeWarning
-
-ROOT=Path(__file__).resolve().parent
+ROOT=Path(__file__).resolve().parents[1]
 EXTRA=('unique_kv_share_kb','evicted_repeat_kv_kb')
 NAMES=t.PARAMETERS+tuple(('mte2',x) for x in EXTRA)
 DMA=t.FEATURES+EXTRA
@@ -17,6 +16,7 @@ MODELS={
  'copy_only_refit':t.BASE_FEATURES,
  'reuse_traffic_refit':t.BASE_FEATURES+('nd2nz_split_sector_kb',)+EXTRA,
 }
+
 
 def fraction(w):
     return 1/((w.p['N1']//w.p['N2'])*w.s['s1_outer'])
@@ -94,7 +94,7 @@ def stats(values):
     a=np.array(values);return {'n':len(a),'median':float(np.median(a)),'p90':float(np.quantile(a,.9)),'max':float(max(a)),'above10':int(sum(a>10)),'above20':int(sum(a>20)),'above30':int(sum(a>30))}
 
 def run(paths, destination):
-    model=json.load(open('fa_branch_model.json'));hw=model['hardware']
+    model=json.load(open(ROOT / 'prediction/models/fa_branch_model.json'));hw=model['hardware']
     samples=[];raw=[]
     reference_contract={k:v for k,v in model['varlen_l1_transfer'].items() if k not in ('api_input_normalization','vector_accumulator_read_policy')}
     for path in paths:
@@ -224,6 +224,6 @@ if __name__=='__main__':
     import argparse
     parser=argparse.ArgumentParser()
     parser.add_argument('paths',nargs='+',type=Path)
-    parser.add_argument('--output',type=Path,default=ROOT/'fa_condition_audit.csv')
+    parser.add_argument('--output',type=Path,default=ROOT/'research' / 'reports' / 'fa_condition_audit.csv')
     args=parser.parse_args()
     run(args.paths,args.output)

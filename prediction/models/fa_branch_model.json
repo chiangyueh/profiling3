@@ -24902,7 +24902,7 @@
         435
       ]
     },
-    "source_sha256": "64ca4bec040e4ac51805f8064973e98c6382966fd5bbf7e4a007c28f255bb92e",
+    "source_sha256": "af121dcf5548564cac8cd52f729117c03aa6c8a8e9d65415add8cd3c043a2332",
     "stage_costs_independently_measured": false,
     "training_inputs": [
       "0016e0c962a773460c0a40a67e093b38f621f9519ca5b3086cc71b39aacf539e",
@@ -73161,7 +73161,7 @@
       }
     ],
     "source_refinement_policy": "at most one input-derived source-condition split per class; inner heldout median improves beyond repeat halfspan, p90 and >20% count do not worsen; outer sequence-group evaluation remains separate",
-    "source_sha256": "8c62f81a4ecd4b0215ded5323c91c346ec5a38acef5df286389898d09f26ae78",
+    "source_sha256": "942ad8ed9fd4884fba15f2e956bc65e20f9d3c3f439b42f54721b203dfd10daf",
     "stage_costs_independently_measured": false,
     "training_inputs": [
       "0016e0c962a773460c0a40a67e093b38f621f9519ca5b3086cc71b39aacf539e",
@@ -74349,7 +74349,7 @@
     "scope": "Varlen L1 first-window accumulator transfer accounting; all nine engine targets audited; stage durations are not independently measured",
     "source_only_correction": true
   },
-  "source_sha256": "64ca4bec040e4ac51805f8064973e98c6382966fd5bbf7e4a007c28f255bb92e",
+  "source_sha256": "af121dcf5548564cac8cd52f729117c03aa6c8a8e9d65415add8cd3c043a2332",
   "stage_costs_independently_measured": false,
   "transfer_evaluation": {
     "extension_calibration_replay": {
@@ -74668,7 +74668,7 @@
       "https://www.hiascend.com/doc_center/source/zh/canncommercial/700/operatordev/Ascendcopdevg/atlasascendc_api_07_0151.html",
       "attention/flash_attention_score/op_kernel/arch32/flash_attention_var_len_score.h:858-1001"
     ],
-    "source_sha256": "9e1ea0b24d93785ad01fa4f796c5c23e63363b9e1a47651b7b954e9b077c3e9b",
+    "source_sha256": "ab95de4a876d0cd71fadcccc4fe58c10ad595073ee3596ca3f45005136865467",
     "stage_costs_independently_measured": false,
     "stride_semantics": "srcDValue selects the next row; skipped address holes are not payload",
     "training_inputs": [

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import argparse
 import collections
 import csv
@@ -13,13 +12,10 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
-
-import collect_fa_stages as stages
-
-ROOT = Path(__file__).resolve().parent
+from research import collect_fa_stages as stages
+ROOT = Path(__file__).resolve().parents[1]
 CASE, SHAPE, _ = stages.CASES[-1]
 INPUTS = dict(zip(stages.cost.INPUT_FIELDS, SHAPE))
 WORK = ROOT / 'out/fa_stage_profile/instructions'
@@ -255,7 +251,7 @@ def export_report(metadata, reference_rows):
     verified = attempt.is_file() and all(metadata.get(name) == value for name, value in json.loads(attempt.read_text()).items())
     profile = WORK / 'profile' if verified else WORK / 'no_matching_trace'
     metadata['trace_matches_current_run'] = verified
-    predictions = json.loads((ROOT / 'fa_instruction_predictions.json').read_text())
+    predictions = json.loads((ROOT / 'research' / 'models' / 'fa_instruction_predictions.json').read_text())
     if predictions['inputs'] != INPUTS or predictions['case'] != CASE:
         raise ValueError('frozen instruction-study predictions do not match the selected inputs')
     metadata['frozen_forecast_model_sha256'] = predictions['model_sha256']

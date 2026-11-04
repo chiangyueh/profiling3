@@ -1,10 +1,7 @@
 from __future__ import annotations
-
 import os
-
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
-
 import collections
 import csv
 import gc
@@ -13,14 +10,10 @@ import json
 import statistics
 import warnings
 from pathlib import Path
-
 import numpy as np
 from scipy.optimize import OptimizeWarning, linprog
-
-import fa_condition_study as conditions
-import fa_latency_transfer as transfer
-
-
+from research import fa_condition_study as conditions
+from research import fa_latency_transfer as transfer
 AXES = {
     "sequence_pair": lambda p: (p["S1"], p["S2"]),
     "head_combination": lambda p: (p["N1"], p["N2"]),
@@ -29,7 +22,7 @@ AXES = {
 REFIT_PIPES = ("fixpipe", "vmte2", "vmte3")
 QUANTITIES = ("gm_to_l1_kb", "l0c_to_gm_kb", "gm_to_ub_kb", "ub_to_gm_kb",
               "aic_cube_instructions", "aiv_mte2_instructions", "aiv_mte3_instructions")
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_samples(paths, model):
@@ -294,9 +287,9 @@ def main():
     resource.setrlimit(resource.RLIMIT_AS, (1100 * 1024 ** 2, 1100 * 1024 ** 2))
     parser = argparse.ArgumentParser()
     parser.add_argument("paths", nargs="+", type=Path)
-    parser.add_argument("--output", type=Path, default=ROOT / "fa_pipeline_audit.csv")
+    parser.add_argument("--output", type=Path, default=ROOT / "research" / "reports" / "fa_pipeline_audit.csv")
     args = parser.parse_args()
-    model = json.loads((ROOT / "fa_branch_model.json").read_text())
+    model = json.loads((ROOT / "prediction" / "models" / "fa_branch_model.json").read_text())
     samples, failed = read_samples(args.paths, model)
     evaluate(samples, model)
     write_report(args.output, samples, failed, args.paths, model)

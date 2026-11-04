@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import argparse
 import csv
 import hashlib
@@ -10,13 +9,9 @@ import statistics
 import subprocess
 import sys
 from pathlib import Path
-
 import numpy as np
-
 import main as fa
 from tiling import base
-
-
 VERSION = "sameab_latency_v4"
 EXTERNAL_VERSION = "sameab_latency_external_v1"
 WARMUP = 3
@@ -813,7 +808,7 @@ def main() -> None:
     fa.NPU_ID = args.id
     fa.PROFILE_WARMUP = WARMUP
     fa.PROFILE_REPEAT = REPEAT
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[1]
     os.chdir(root)
     cases = {str(case["name"]): case for case in fa.CASES}
     if args.external or not args.calibration:
@@ -843,7 +838,7 @@ def main() -> None:
         evaluation = subprocess.run(
             [
                 sys.executable,
-                str(root / "fit_sameab_latency.py"),
+                str(root / "research" / "fit_sameab_latency.py"),
                 str(calibration),
                 str(holdout),
                 "--external-csv",

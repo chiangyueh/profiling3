@@ -14,10 +14,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-import fa_latency_inputs as cost
-import fa_latency_model as source
-
-
+from prediction import fa_latency_inputs as cost
+from research import fa_latency_model as source
 ROOT = Path(__file__).resolve().parent
 GROUPS = ("same_ab", "general", "s1", "b", "varlen", "drop_adapter")
 TARGETS = {group: 20 if group == "same_ab" else 100 for group in GROUPS}
@@ -204,8 +202,8 @@ def execute(collector, plan, hardware, forecasts, directory):
                 attempted[group] += 1
                 item = forecasts["predictions"].get(case["name"], {})
                 case_model = forecasts["model"]
-                if (ROOT / "fa_branch_model.json").is_file():
-                    import fa_branch_latency as branches
+                if (ROOT / "prediction" / "models" / "fa_branch_model.json").is_file():
+                    from research import fa_branch_latency as branches
                     try:
                         item, case_model = branches.freeze_case(case, hardware, directory)
                     except Exception as error:
@@ -404,13 +402,13 @@ def validation_design(specification):
 
 
 def validation_model(specification, directory):
-    import fa_branch_latency as branches
-    import fa_latency_refinement as micro
+    from research import fa_branch_latency as branches
+    from research import fa_latency_refinement as micro
     path = directory / "predictions_before_measurement.json"
     if path.is_file():
         saved = json.loads(path.read_text())
     else:
-        model = json.loads((ROOT / "fa_branch_model.json").read_text())
+        model = json.loads((ROOT / "prediction" / "models" / "fa_branch_model.json").read_text())
         saved = {"model": model, "model_sha256": cost.sha256(model), "predictions": {},
                  "frozen_utc": datetime.now(timezone.utc).isoformat()}
     model = saved["model"]
@@ -420,7 +418,7 @@ def validation_model(specification, directory):
     if archived:
         for case in validation_design(specification):
             item = saved["predictions"].get(case["name"], {})
-            if item.get("status") != "predicted" or item.get("input_sha256") != cost.sha256(case["inputs"]) or item.get("model_sha256") != saved["model_sha256"]:
+            if item.get("status") not in ("predicted", "unavailable") or item.get("input_sha256") != cost.sha256(case["inputs"]) or item.get("model_sha256") != saved["model_sha256"]:
                 raise RuntimeError("archived model has unfinished forecasts; retained data cannot be mixed with a newer predictor")
         print("ARCHIVED FORECASTS: retaining original predictions and recorded samples; unfinished measurements continue without recalibration", flush=True)
     elif model["source_sha256"] != branches.signature() or model["refined"]["source_sha256"] != micro.signature():
@@ -438,7 +436,7 @@ def validation_model(specification, directory):
 
 
 def validation_forecast(case, forecasts, directory):
-    import fa_branch_latency as branches
+    from research import fa_branch_latency as branches
     identity = cost.sha256(case["inputs"])
     saved = forecasts["predictions"].get(case["name"])
     if saved is not None:

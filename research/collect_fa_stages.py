@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import argparse
 import csv
 import fcntl
@@ -15,14 +14,11 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['OMP_NUM_THREADS'] = '1'
-
 import numpy as np
-import fa_latency_inputs as cost
-
-ROOT = Path(__file__).resolve().parent
+from research import fa_latency_inputs as cost
+ROOT = Path(__file__).resolve().parents[1]
 KEY = 1153197616
 LIMIT_SECONDS = 900
 REPEATS = 3
@@ -135,7 +131,7 @@ def command(argv, env, cwd, log, deadline, maximum):
 
 def prepare_runner(ops_root, folder):
     base = ROOT / 'patches/fa_candidate_hook.patch'
-    stage = ROOT / 'patches/fa_stage_profile.patch'
+    stage = ROOT / 'research/patches/fa_stage_profile.patch'
     files = sorted({line[6:] for patch in (base, stage) for line in patch.read_text().splitlines() if line.startswith('+++ b/')})
     dirty = subprocess.run(['git', '-C', str(ops_root), 'diff', '--quiet', '--', *files])
     if dirty.returncode:

@@ -25,10 +25,8 @@ os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
 
 import main as fa
-import fa_latency_inputs as cost
-import fit_fa_latency as family_models
-
-
+from prediction import fa_latency_inputs as cost
+from research import fit_fa_latency as family_models
 VERSION = cost.VERSION
 WARMUP = 0
 REPEAT = 1
