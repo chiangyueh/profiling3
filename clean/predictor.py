@@ -10,42 +10,22 @@ else:
 ROOT = Path(__file__).resolve().parent
 
 
-def _load_entry(entry, diagnostics):
-    allowed = {"local_identifiability", "micro_context_ranges", "source_condition_support", "children"}
-    if set(diagnostics) - allowed:
-        raise ValueError("unknown diagnostic fields")
-    for name, value in diagnostics.items():
-        if name == "children":
-            continue
-        if name in entry:
-            raise ValueError("diagnostics cannot replace model parameters: " + name)
-        entry[name] = value
+def _load_entry(entry):
     entry["rates"] = [float(entry["pipes"][pipe]["coefficients"].get(name, 0))
                       for pipe, name in engine.parameter_names()]
     refinement = entry.get("source_refinement")
     if refinement:
-        for name, child in refinement["children"].items():
-            _load_entry(child, diagnostics.get("children", {}).get(name, {}))
+        for child in refinement["children"].values():
+            _load_entry(child)
 
 
 def _load_model():
     model = json.loads((ROOT / "model.json").read_text())
-    diagnostics = json.loads((ROOT / "diagnostics.json").read_text())
-    choices = {}
-    for name, approved in model["selection"].items():
-        evidence = diagnostics["selection"][name]
-        if "approved" in evidence:
-            raise ValueError("diagnostics cannot replace model selection")
-        choices[name] = {"approved": approved, **evidence}
-    model["selection"] = choices
     for name in ("baseline", "refined"):
-        bank, metadata = model[name], diagnostics[name]
+        bank = model[name]
         bank["hardware"] = model["hardware"]
-        bank["sdk_api_sha256"] = metadata["sdk_api_sha256"]
-        if "refinement_candidates" in metadata:
-            bank["refinement_candidates"] = metadata["refinement_candidates"]
-        for key, entry in bank["classes"].items():
-            _load_entry(entry, metadata["classes"].get(key, {}))
+        for entry in bank["classes"].values():
+            _load_entry(entry)
     return model
 
 

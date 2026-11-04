@@ -443,19 +443,18 @@ def graph_entry(model, key, conditions=None):
         candidates = primitive_pools(pipe, key)
         for candidate in candidates:
             value = model['primitive_priors'].get(json.dumps(candidate))
-            if value is not None and (value['calibration_input_count'] >= len(value['observed_features']) or candidate == candidates[-1]):
+            if value is not None:
                 parent = value
                 break
         if parent is None:
             raise ValueError('unmeasured source operation class: '+str(primitive_class(pipe,key)))
-        pipes[pipe]={'coefficients':dict(zip(parent['names'],parent['rates'])),'observed_features':parent['observed_features'],
-                     'rank':parent['rank'],'terms':parent['terms'],'samples':parent['calibration_input_count']}
-    return {'pipes':pipes,'rates':[pipes[pipe]['coefficients'].get(name,0) for pipe,name in parameter_names()],
-            'calibration_input_count':0,'cost_scope':'source-matched primitives, no direct execution-class latency samples'}
+        pipes[pipe]={'coefficients':dict(zip(parent['names'],parent['rates'])),'observed_features':parent['observed_features']}
+    return {'pipes':pipes,'rates':[pipes[pipe]['coefficients'].get(name,0) for pipe,name in parameter_names()]}
 
 
 def predict_work(work, model, graph=None):
-    key=cost_class(work.p,work.s);entry=graph_entry(model,key,execution_conditions(work))
+    conditions=execution_conditions(work)
+    key=cost_class(work.p,work.s);entry=graph_entry(model,key,conditions)
     for pipe,values in active_features(work).items():
         missing=[n for n,val in values.items() if val>0 and n not in entry['pipes'][pipe]['observed_features']]
         if missing:raise ValueError('unmeasured primitive: '+key+'/'+pipe+'/'+','.join(missing))
@@ -464,18 +463,12 @@ def predict_work(work, model, graph=None):
     critical=source.critical_phases(graph,entry['rates'])
     demands={f'{phase}.{pipe}':sum(value*entry['pipes'][pipe]['coefficients'].get(n,0) for n,value in values.items())
              for phase,pipes in phase_features(work).items() for pipe,values in pipes.items()}
-    assessment = refinement_status(work,model)
     return {'predicted_us':predicted,'execution_events_scope':'distinct representative worker timelines; identical workers share a graph for maximum completion',
-            'whole_device_mmad_count':active_features(work)['cube']['tiles'],'out_of_calibration_range':list(assessment['micro_context_extrapolation']) + [item['condition']+'='+item['value'] for item in assessment['unseen_source_conditions']], 'critical_path_phase_us':critical,'critical_path_pipe_us':critical_pipe_times(gradient,entry['rates']),'phase_pipe_active_us':demands,
+            'whole_device_mmad_count':active_features(work)['cube']['tiles'],'critical_path_phase_us':critical,'critical_path_pipe_us':critical_pipe_times(gradient,entry['rates']),'phase_pipe_active_us':demands,
             'phase_pipe_active_scope':'whole-device source-operation service sums; not isolated stage wall times; Scalar excludes modeled polling',
             'adapter_us':critical.get('drop_adapter',0),'startup_us':critical.get('startup',0),
             'implementation':implementation(work.p,work.s),'cost_class':key,'schedule':work.s,'matmul':work.mm,
-            'execution_events':graph['execution_events'],'max_resource_bytes':{},
-            'calibration_sdk_api_sha256':model.get('sdk_api_sha256'),'prediction_sdk_api_sha256':tiler()[1],
-            'sdk_api_matches_calibration':model.get('sdk_api_sha256')==tiler()[1],
-            'unidentified_pipe_terms':[p for p,x in entry['pipes'].items() if x['rank']<x['terms']],
-            'direct_class_calibration_samples':entry['calibration_input_count'],
-            'refinement':assessment,
+            'execution_events':graph['execution_events'],'source_conditions':conditions,
             'target':'kernel Task Duration(us); source-directed FIFO and buffer hazards; training-only calibrated operation costs'}
 
 
@@ -483,55 +476,6 @@ def predict(inputs, model):
     if model.get('version')!=VERSION:
         raise ValueError('branch model and execution code differ')
     return predict_work(workload(inputs,model['hardware']),model)
-
-
-def refinement_status(work, model):
-    key = cost_class(work.p, work.s)
-    conditions = execution_conditions(work)
-    entry = graph_entry(model,key,conditions) if key in model.get('classes', {}) else None
-    support = (entry or {}).get('source_condition_support', {})
-    unseen = [{'condition': name, 'value': value} for name, value in conditions.items()
-              if value not in support.get(name, {})]
-    matched = [row for row in model.get('refinement_candidates', [])
-               if row['cost_class'] == key and conditions.get(row['condition']) == row['value']]
-    warnings = [row for row in matched if row.get('systematic_bias_evidence') and row['median_ape_percent'] > 10]
-    suggestive = [row for row in matched if row['median_ape_percent'] > 10
-                  and row['stable_outside_repeat_interval_count'] > 0 and not row.get('systematic_bias_evidence')]
-    context = micro_context(active_features(work))
-    ranges = (entry or {}).get('micro_context_ranges', {})
-    extrapolated = {name: {'input': value, 'calibration_range': ranges.get(name)} for name, value in context.items()
-                    if name not in ranges or value < ranges[name][0] - max(1e-12, abs(ranges[name][0])*1e-10)
-                    or value > ranges[name][1] + max(1e-12, abs(ranges[name][1])*1e-10)}
-    def compact(rows):
-        keys = ('condition','value','sequence_groups','median_ape_percent','median_signed_error_percent','sign_test_fdr_q','suggested_action')
-        return [{name: row[name] for name in keys} for row in rows]
-    attribution = {pipe:{'rank':stats['rank'],'terms':stats['terms']} for pipe,stats in (entry or {}).get('local_identifiability',{}).items() if stats['rank']<stats['terms']}
-    return {'source_conditions': conditions, 'unseen_source_conditions': unseen,
-            'costs_not_individually_identified':attribution,
-            'cost_attribution_scope':'micro cost library; unresolved terms need independent information before further separation; validated combined costs still predict kernel latency',
-            'micro_context_extrapolation': extrapolated,
-            'known_systematic_bias': compact(warnings), 'suggestive_refinement_candidates': compact(suggestive),
-            'status': 'unmeasured_source_condition' if unseen else 'source_condition_requires_refinement_study' if warnings else 'micro_cost_context_extrapolation' if extrapolated else 'more_independent_shapes_needed_for_candidate' if suggestive else 'no_confirmed_refinement_trigger',
-            'accuracy_guaranteed': False,
-            'split_acceptance': 'source branch or resource dependency explains it; stable group residuals exceed repeat variation; new costs are identifiable; nested sequence-group validation improves without family regression',
-            'runtime_inputs': 'operator inputs, hardware and frozen calibration metadata only; no measured latency needed'}
-
-
-def micro_context(features):
-    def ratio(pipe, numerator, denominator):
-        values = features[pipe]
-        return float(values.get(numerator, 0)) / max(float(values.get(denominator, 0)), 1e-30)
-    return {'flops_m_per_mmad': ratio('cube', 'flops_m', 'tiles'),
-            'outputs_per_mmad': ratio('cube', 'output_tiles', 'tiles'),
-            'l0_kb_per_mmad': ratio('mte1', 'l0_kb', 'tiles'),
-            'gm_read_kb_per_load': ratio('mte2', 'read_kb', 'loads'),
-            'gm_gap_per_read': ratio('mte2', 'address_gap_kb', 'read_kb'),
-            'nd_kb_per_store': ratio('fixpipe', 'nd_write_kb', 'stores'),
-            'nz_kb_per_store': ratio('fixpipe', 'nz_write_kb', 'stores'),
-            'softmax_k_per_chunk': ratio('vector', 'softmax_k', 'chunks'),
-            'scalar_commands_per_aic': ratio('cscalar', 'commands', 'workers'),
-            'vector_chunks_per_aiv': ratio('vscalar', 'chunks', 'workers'),
-            'active_aic': float(features['cscalar'].get('workers', 0))}
 
 
 def critical_pipe_times(gradient, rates):
@@ -548,7 +492,7 @@ def predict_selected(inputs, model):
         schedule['l1'] = schedule['s1_base'] <= 128 and max(p['D'],p['DV']) <= 256
     impl = implementation(p,schedule)
     decision = model['selection'][impl]
-    if decision['approved']:
+    if decision:
         if impl == 'varlen_l1' and model.get('varlen_l1_transfer'):
             from .fa_latency_transfer import predict as predict_transfer
             result = predict_transfer(p,model['refined'],model['varlen_l1_transfer'])
@@ -556,9 +500,5 @@ def predict_selected(inputs, model):
             result = predict(p,model['refined'])
     else:
         result = base.predict(p,model['baseline'])
-        work = workload(p,model['hardware'])
-        result['refinement'] = refinement_status(work,model['refined'])
-    result['selected_cost_model'] = 'micro_costs' if decision['approved'] else 'baseline'
-    result['model_selection_evidence'] = decision
-    result['accuracy_guaranteed'] = False
+    result['selected_cost_model'] = 'micro_costs' if decision else 'baseline'
     return result

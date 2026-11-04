@@ -677,10 +677,8 @@ def graph_entry(model, key):
         parent=model['primitive_priors'].get(json.dumps(primitive_class(pipe,key)))
         if parent is None:
             raise ValueError('unmeasured source operation class: '+str(primitive_class(pipe,key)))
-        pipes[pipe]={'coefficients':dict(zip(parent['names'],parent['rates'])),'observed_features':parent['observed_features'],
-                     'rank':parent['rank'],'terms':parent['terms'],'samples':parent['calibration_input_count']}
-    return {'pipes':pipes,'rates':[pipes[pipe]['coefficients'].get(name,0) for pipe,name in parameter_names()],
-            'calibration_input_count':0,'cost_scope':'source-matched primitives, no direct execution-class latency samples'}
+        pipes[pipe]={'coefficients':dict(zip(parent['names'],parent['rates'])),'observed_features':parent['observed_features']}
+    return {'pipes':pipes,'rates':[pipes[pipe]['coefficients'].get(name,0) for pipe,name in parameter_names()]}
 
 
 def phase_features(work):
@@ -722,11 +720,7 @@ def predict_work(work, model, graph=None):
             'phase_pipe_active_scope':'whole-device source-operation service sums; not isolated stage wall times; Scalar excludes modeled polling',
             'adapter_us':critical.get('drop_adapter',0),'startup_us':critical.get('startup',0),
             'implementation':implementation(work.p,work.s),'cost_class':key,'schedule':work.s,'matmul':work.mm,
-            'execution_events':graph['execution_events'],'max_resource_bytes':{},
-            'calibration_sdk_api_sha256':model.get('sdk_api_sha256'),'prediction_sdk_api_sha256':tiler()[1],
-            'sdk_api_matches_calibration':model.get('sdk_api_sha256')==tiler()[1],
-            'unidentified_pipe_terms':[p for p,x in entry['pipes'].items() if x['rank']<x['terms']],
-            'direct_class_calibration_samples':entry['calibration_input_count'],
+            'execution_events':graph['execution_events'],
             'target':'kernel Task Duration(us); source-directed FIFO and buffer hazards; training-only calibrated operation costs'}
 
 

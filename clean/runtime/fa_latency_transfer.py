@@ -244,7 +244,8 @@ def predict(inputs, model, contract):
     kernel_inputs = api_kernel_inputs(original, contract.get("api_input_normalization"))
     work = workload(kernel_inputs, model["hardware"],
                     source_vector_reads=contract.get("vector_accumulator_read_policy") == "source_unconditional")
-    entry = micro.graph_entry(model, micro.cost_class(work.p, work.s), micro.execution_conditions(work))
+    conditions = micro.execution_conditions(work)
+    entry = micro.graph_entry(model, micro.cost_class(work.p, work.s), conditions)
     for pipe, values in micro.active_features(work).items():
         if pipe == "mte2":
             continue
@@ -272,12 +273,6 @@ def predict(inputs, model, contract):
                                     "v_width": [original["DV"], kernel_inputs["DV"]],
                                     "scope": "FlashAttentionScore kernel after API preprocessing; Pad and Slice task latency excluded"},
             "vector_accumulator_read_policy": contract.get("vector_accumulator_read_policy", "legacy_first_window_omitted"),
-            "transfer_cost_support": {name: contract.get("extension_feature_support_count", {}).get(name, 0) for name in EXTRA_FEATURES if total[name] > 0},
             "execution_events_scope": "distinct representative worker timelines; dma_features contains whole-device source-copy totals",
             "stage_costs_independently_measured": False,
-            "refinement": {"source_conditions": micro.execution_conditions(work),
-                           "status": "capacity_pressure_proxy_requires_validation" if total["capacity_pressure_kb"] > 0 else "nd2nz_alignment_cost_requires_validation" if total["nd2nz_split_sector_kb"] > 0 else "source_dma_accounting",
-                           "cache_hit_assumed": False},
-            "calibration_sdk_api_sha256": model.get("sdk_api_sha256"), "prediction_sdk_api_sha256": micro.tiler()[1],
-            "sdk_api_matches_calibration": model.get("sdk_api_sha256") == micro.tiler()[1],
-            "accuracy_guaranteed": False}
+            "source_conditions": conditions}
