@@ -1,6 +1,7 @@
 {
   "archived_model_sha256s": [
-    "401f89a6ab0aa01ea081a5b240d43a79a2b16195e834d49c968f3820f48b6804"
+    "401f89a6ab0aa01ea081a5b240d43a79a2b16195e834d49c968f3820f48b6804",
+    "ccb1e3324540f69860bb4c0e231b001889ed47ad83c8596ed76b5a56d8d22998"
   ],
   "cases": [
     {
@@ -5444,7 +5445,7 @@
       "stratum": "long_kv_core_fill"
     }
   ],
-  "evaluation_scope": "Varlen L1 validation with per-campaign frozen predictions. Existing v4 campaigns retain their archived model and predictions; fresh campaigns use source API input normalization. Sixteen measurement strata, 320 unique seven-dimensional geometries. No DMA-cost coefficient refit is activated.",
+  "evaluation_scope": "Varlen L1 validation with per-campaign frozen predictions. Existing v4 campaigns retain their archived model and predictions; fresh campaigns use source API input normalization. Sixteen measurement strata, 320 unique seven-dimensional geometries. No DMA-cost coefficient refit is activated. Fresh campaigns also include the source unconditional Vec2 accumulator read in the first S2 window; previously frozen forecasts remain unchanged.",
   "execution_order": "Two independently shuffled passes, round-robin across 16 equally sized strata; each block of 16 collections includes every stratum. All forecasts frozen before any measurement. Failures continue; no total runtime limit.",
   "hardware": {
     "aic_cores": 20,
@@ -5460,7 +5461,7 @@
   "measurement_count": 640,
   "measurement_protocol": "Two separate profiler collections per input, one kernel launch each, no explicit warmup; no automatic retries; retain all samples and use their median. Resume skips recorded outcomes, including failures.",
   "measurement_repeats": 2,
-  "model_sha256": "ccb1e3324540f69860bb4c0e231b001889ed47ad83c8596ed76b5a56d8d22998",
+  "model_sha256": "5370f240ad7dc3ba45eb7688886b3f030d563ebc8693065f8e31b2c0d6baed2f",
   "novelty_rule": "320 distinct seven-dimensional geometries, each assigned one dtype; FP16/BF16 balanced within every stratum. All inputs and S1/S2 pairs exclude previously measured data and the entire prior v3 plan, whether or not it has started.",
   "order_seed": 20261105,
   "previous_input_hashes": [

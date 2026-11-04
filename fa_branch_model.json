@@ -74340,6 +74340,15 @@
       "selection_scope": "development sequence-group validation; promotion used these validation results; prospective new-shape accuracy is not guaranteed"
     }
   },
+  "source_pipeline_revision": {
+    "all_cost_coefficients_unchanged": true,
+    "evaluation": "fa_pipeline_audit.csv",
+    "new_cost_refits_activated": false,
+    "reference_model_sha256": "ccb1e3324540f69860bb4c0e231b001889ed47ad83c8596ed76b5a56d8d22998",
+    "retrospective_validation_only": true,
+    "scope": "Varlen L1 first-window accumulator transfer accounting; all nine engine targets audited; stage durations are not independently measured",
+    "source_only_correction": true
+  },
   "source_sha256": "64ca4bec040e4ac51805f8064973e98c6382966fd5bbf7e4a007c28f255bb92e",
   "stage_costs_independently_measured": false,
   "transfer_evaluation": {
@@ -74659,7 +74668,7 @@
       "https://www.hiascend.com/doc_center/source/zh/canncommercial/700/operatordev/Ascendcopdevg/atlasascendc_api_07_0151.html",
       "attention/flash_attention_score/op_kernel/arch32/flash_attention_var_len_score.h:858-1001"
     ],
-    "source_sha256": "10ddaf12266c11bb0d771eaeda347d538929c9337969287b3d58689a5cd15dfa",
+    "source_sha256": "9e1ea0b24d93785ad01fa4f796c5c23e63363b9e1a47651b7b954e9b077c3e9b",
     "stage_costs_independently_measured": false,
     "stride_semantics": "srcDValue selects the next row; skipped address holes are not payload",
     "training_inputs": [
@@ -74773,7 +74782,9 @@
       "f488ab0ce89c908d346fc5adf31d5dcb8fb6bf69b7133372196a028da157234e",
       "fb8308e9ed75e3558e637a7356278c79cc9f526867c4c1a74cfaf54961af38db"
     ],
-    "version": "varlen_l1_nd2nz_v3"
+    "vector_accumulator_read_policy": "source_unconditional",
+    "vector_accumulator_read_source": "flash_attention_score_s1s2_bn2gs1.h ProcessVec2: unconditional DataCopy(vec2Res) before the s2LoopCount==0 branch",
+    "version": "varlen_l1_nd2nz_v4"
   },
   "version": "fa_branch_execution_v4"
 }

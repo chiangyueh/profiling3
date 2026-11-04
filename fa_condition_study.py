@@ -96,7 +96,7 @@ def stats(values):
 def run(paths, destination):
     model=json.load(open('fa_branch_model.json'));hw=model['hardware']
     samples=[];raw=[]
-    reference_contract={k:v for k,v in model['varlen_l1_transfer'].items() if k!='api_input_normalization'}
+    reference_contract={k:v for k,v in model['varlen_l1_transfer'].items() if k not in ('api_input_normalization','vector_accumulator_read_policy')}
     for path in paths:
         grouped=collections.defaultdict(list)
         for r in csv.DictReader(path.open()):
@@ -188,13 +188,14 @@ def promotion_decisions(report):
 def write_audit(destination, paths, model, report, results, raw):
     indexes={r['id']:r for r in results}
     api_predictions={}
+    api_contract={k:v for k,v in model['varlen_l1_transfer'].items() if k!='vector_accumulator_read_policy'}
     methods=list(next(iter(results))['predictions']) if results else []
     fields=['record_kind','dataset','case','inputs','dtype','quality_passed','quality_flags','reference_us','api_corrected_us','measured_us','reference_ape_percent','api_ape_percent','effective_Dqk','effective_Dv',*methods,'method','cases','median_ape_percent','p90_ape_percent','max_ape_percent','above10','above20','above30','notes']
     with destination.open('w',newline='') as stream:
         writer=csv.DictWriter(stream,fieldnames=fields,lineterminator='\n');writer.writeheader()
         writer.writerow(dict(record_kind='methodology',method='source_API_normalization_and_grouped_CV',notes=json.dumps({'model_sha256':t.micro.source.cost.sha256(model),'study_source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'policy':model['varlen_l1_transfer']['api_input_normalization'],'datasets':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},'quality_policy':'PMU fields present; numerical check; correct route; each per-core and pipe maximum within 2% of task duration; MTE2 ratio in [0,1.02]; exact source/Host MMAD count; payload within 10%; no APE-based filtering','fit_target':'whole-device MTE2 active-sum only; pipeline dependencies and other costs unchanged','held_out_units':'entire S1/S2 pair, head combination, or effective Dqk/Dv pair; all repeats and dtypes of the same group excluded from training','candidate_cost_refinements_activated':False},sort_keys=True)))
         for item in raw:
-            r=indexes.get(item['id']);api=r['api_source'] if r else t.predict(item['p'],model['refined'],model['varlen_l1_transfer'])['predicted_us']
+            r=indexes.get(item['id']);api=r['api_source'] if r else t.predict(item['p'],model['refined'],api_contract)['predicted_us']
             api_predictions[item['id']]=api
             result=dict(record_kind='sample',dataset=item['dataset'],case='varlen_'+item['id'][:16],inputs=json.dumps({k:item['p'][k] for k in t.micro.source.cost.INPUT_FIELDS[:7]},sort_keys=True),dtype=item['p']['dtype'],quality_passed=not item['flags'],quality_flags=';'.join(item['flags']),reference_us=item['published'],api_corrected_us=api,measured_us=item['actual'],reference_ape_percent=100*abs(item['published']/item['actual']-1),api_ape_percent=100*abs(api/item['actual']-1),effective_Dqk=item['eff']['D'],effective_Dv=item['eff']['DV'])
             if r:result.update(r['predictions'])

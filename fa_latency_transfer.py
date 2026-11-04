@@ -15,7 +15,7 @@ BASE_FEATURES = ("payload_kb", "copy_calls", "strided_rows")
 EXTRA_FEATURES = ("nd2nz_partial_rows", "nd2nz_split_sector_kb", "capacity_pressure_kb")
 FEATURES = BASE_FEATURES + EXTRA_FEATURES
 PARAMETERS = micro.parameter_names() + tuple(("mte2", name) for name in FEATURES)
-VERSION = "varlen_l1_nd2nz_v3"
+VERSION = "varlen_l1_nd2nz_v4"
 
 
 def signature():
@@ -75,11 +75,19 @@ class Work(micro.Work):
         return unit
 
 
-def workload(inputs, hardware, calibration_geometry=None):
+def workload(inputs, hardware, calibration_geometry=None, source_vector_reads=False):
     work = Work(inputs, hardware, calibration_geometry)
     if micro.implementation(work.p, work.s) != "varlen_l1":
         raise ValueError("ND2NZ transfer model requires the Varlen L1 implementation")
     work.pairs = micro.varlen_work(work)
+    if source_vector_reads:
+        for unit in work.cache.values():
+            for _, stage2 in unit["vector"]:
+                if not stage2["accumulator_read_bytes"]:
+                    size = 4 * unit["rows"] * micro.source.cost.align(work.p["DV"])
+                    stage2["read_kb"] += size / 1024
+                    stage2["loads"] += stage2["chunks"]
+                    stage2["accumulator_read_bytes"] = size
     return work
 
 
@@ -317,7 +325,8 @@ def predict(inputs, model, contract):
         raise ValueError("DMA cost model and source differ")
     original = micro.source.cost.normalize(inputs)
     kernel_inputs = api_kernel_inputs(original, contract.get("api_input_normalization"))
-    work = workload(kernel_inputs, model["hardware"])
+    work = workload(kernel_inputs, model["hardware"],
+                    source_vector_reads=contract.get("vector_accumulator_read_policy") == "source_unconditional")
     entry = micro.graph_entry(model, micro.cost_class(work.p, work.s), micro.execution_conditions(work))
     for pipe, values in micro.active_features(work).items():
         if pipe == "mte2":
@@ -345,6 +354,7 @@ def predict(inputs, model, contract):
             "api_input_transform": {"qk_width": [original["D"], kernel_inputs["D"]],
                                     "v_width": [original["DV"], kernel_inputs["DV"]],
                                     "scope": "FlashAttentionScore kernel after API preprocessing; Pad and Slice task latency excluded"},
+            "vector_accumulator_read_policy": contract.get("vector_accumulator_read_policy", "legacy_first_window_omitted"),
             "transfer_cost_support": {name: len(contract.get("extension_feature_support", {}).get(name, [])) for name in EXTRA_FEATURES if total[name] > 0},
             "execution_events_scope": "distinct representative worker timelines; dma_features contains whole-device source-copy totals",
             "stage_costs_independently_measured": False,
