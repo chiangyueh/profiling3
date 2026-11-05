@@ -52,3 +52,37 @@ def sha256(value: dict) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def api_kernel_inputs(inputs, policy=None):
+    p = normalize(inputs)
+    if policy is None:
+        return p
+    if p["layout"] != "TND":
+        raise ValueError("the API normalization policy covers uniform TND inputs")
+    if p["DV"] > p["D"]:
+        raise ValueError("official FlashAttentionScore API requires Dqk >= Dv")
+    constants = policy["constants"]
+    alignment = (
+        constants["PAD_BASIC_BLOCK"]
+        if p["D"] < constants["PAD_LOWER_BOUND_196"]
+        or p["D"] == constants["PAD_ALIGN_SPL_SHAPE"]
+        else constants["PAD_ALIGN_128"]
+    )
+    qpad, vpad = (-p["D"]) % alignment, (-p["DV"]) % alignment
+    padded = bool(qpad or vpad)
+    if p["D"] != p["DV"] and p["D"] in tuple(
+        constants[name] for name in ("HEAD_DIM_64", "HEAD_DIM_80", "HEAD_DIM_128")
+    ):
+        padded, vpad = True, qpad + p["D"] - p["DV"]
+    if (
+        p["D"] < constants["TND_UNPAD_MAX_DDIM"]
+        and p["S2"] <= constants["TND_UNPAD_MAX_S2"]
+        and p["B"] * p["S1"] < constants["TND_UNPAD_MAX_S1_SUM"]
+    ):
+        padded, qpad, vpad = False, 0, 0
+    return {
+        **p,
+        "D": p["D"] + qpad if padded else p["D"],
+        "DV": p["DV"] + vpad if padded else p["DV"],
+    }

@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import least_squares, nnls
 
-from clean.runtime import fa_latency_transfer as transfer
+from prediction import fa_latency_transfer as transfer
 from prediction import fa_latency_refinement as micro
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -151,7 +151,7 @@ def dataset():
     CACHE.mkdir(parents=True, exist_ok=True)
     index = CACHE / "l1_graphs.json"
     identity = hashlib.sha256(b"".join(
-        path.read_bytes() for path in sorted((ROOT / "clean/runtime").rglob("*.py"))
+        path.read_bytes() for path in sorted((ROOT / "prediction").rglob("*.py"))
     ) + json.dumps(contract, sort_keys=True).encode()
       + json.dumps(sorted(row["input_sha256"] for row in rows)).encode()).hexdigest()
     cached = json.loads(index.read_text()) if index.exists() else {}

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .. import fa_latency_inputs as input_cost
+from .. import inputs as input_cost
 from .schedule_common import controlled_program as program, sequence_work
 
 
