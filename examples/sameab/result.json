@@ -1,0 +1,12 @@
+{
+  "predicted_us": 26.612963138495523,
+  "implementation": "same_ab",
+  "critical_path_phase_us": {
+    "startup": 21.26629590897119,
+    "drop_adapter": 0.0,
+    "bmm1": 1.9783846888806518,
+    "vec1": 0.9662202931048136,
+    "bmm2": 1.8487289362288226,
+    "vec2": 0.55333331131004
+  }
+}
