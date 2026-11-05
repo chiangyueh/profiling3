@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 import numpy as np
 from . import fa_latency_inputs as cost
-from . import b_schedule, drop_adapter_schedule, general_schedule, s1_schedule, sameab_schedule, varlen_schedule
+from .schedules import b_schedule, drop_adapter_schedule, general_schedule, s1_schedule, sameab_schedule, varlen_schedule
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPES = {

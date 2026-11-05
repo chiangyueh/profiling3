@@ -1,4 +1,4 @@
-from . import fa_latency_inputs as cost
+from .. import fa_latency_inputs as cost
 
 
 def finish(p, hardware, family, priority, base, ratio, reuse=False, l1=False, nz=False):

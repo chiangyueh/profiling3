@@ -151,7 +151,7 @@ def dataset():
     CACHE.mkdir(parents=True, exist_ok=True)
     index = CACHE / "l1_graphs.json"
     identity = hashlib.sha256(b"".join(
-        path.read_bytes() for path in sorted((ROOT / "clean/runtime").glob("*.py"))
+        path.read_bytes() for path in sorted((ROOT / "clean/runtime").rglob("*.py"))
     ) + json.dumps(contract, sort_keys=True).encode()
       + json.dumps(sorted(row["input_sha256"] for row in rows)).encode()).hexdigest()
     cached = json.loads(index.read_text()) if index.exists() else {}

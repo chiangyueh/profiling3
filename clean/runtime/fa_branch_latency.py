@@ -10,8 +10,8 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
 from . import fa_latency_model as source
-from .drop_adapter_schedule import jobs as adapter_jobs
-from .varlen_schedule import workload as varlen_work
+from .schedules.drop_adapter_schedule import jobs as adapter_jobs
+from .schedules.varlen_schedule import workload as varlen_work
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPES = dict(source.PIPES)
