@@ -1,9 +1,8 @@
 from __future__ import annotations
 import hashlib
-import json
 import os
 import subprocess
-from collections import Counter, defaultdict
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 
@@ -13,7 +12,6 @@ import numpy as np
 from . import fa_latency_model as source
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "fa_branch_execution_v3"
 PIPES = dict(source.PIPES)
 PIPES["vector"] = (PIPES["vector"][0], PIPES["vector"][1] + ("scale_k", "duplicate_k"))
 
@@ -632,7 +630,6 @@ class BranchGraph:
         self.left, self.right, self.labels = [], [], []
         self.tails, self.buffers = {}, {}
         self.zero = self.template("cscalar", {}, "startup")
-        self.phase_features = defaultdict(lambda: defaultdict(Counter))
         self.events = Counter()
 
     def template(self, pipe, values, phase, divisor=1):
@@ -755,97 +752,6 @@ class BranchGraph:
         self.events["vector_chunks"] += chunks if not unit.get("fake") else 0
         return issued, finished
 
-    def cube(self, owner, unit, stage, launch, slot_state):
-        phase = "bmm1" if stage == 0 else "bmm2"
-        job, mm = unit["cube"][stage // 2], self.work.mm[stage // 2]
-        if unit.get("fake"):
-            self.events["fake_matmul_messages"] += 1
-            return self.operation("cscalar", 0, job, phase, (launch,))
-        count = max(1, int(job["stores"]))
-        slices = job.get("k_slices") or job.get("pipeline_k_slices") or [1.0]
-        a_count = max(1, mm["depth_a1"] // max(1, mm["step_m"]))
-        b_count = max(1, mm["depth_b1"] // max(1, mm["step_n"]))
-        ab_count = max(1, min(mm["db_l0a"], mm["db_l0b"]))
-        c_count = max(
-            1,
-            min(
-                mm["db_l0c"],
-                self.work.hardware.get("l0c_bytes", 131072)
-                // (mm["base_m"] * mm["base_n"] * 4),
-            ),
-        )
-        api_size = max(1, int(job.get("output_group_tiles", count)))
-        last_api = self.node((launch, self.tails.get(("mte1", 0), -1)))
-        prior_fix = self.tails.get(("fixpipe", 0), -1)
-        fixed = []
-        operand_data = {}
-        for output in range(count):
-            if output and output % api_size == 0:
-                last_api = fixed[-1]
-            partial = launch
-            for k, fraction in enumerate(slices):
-                issued = self.operation(
-                    "cscalar", 0, job, phase, (launch,), divisor=count / fraction
-                )
-                a_slot = (stage, "a1", (output * len(slices) + k) % a_count)
-                b_slot = (stage, "b1", (output * len(slices) + k) % b_count)
-                l0_slot = ("ab0", (output * len(slices) + k) % ab_count)
-                c_slot = ("c0", output % c_count)
-                transfer = job.get("cache_trace")
-                values = transfer[output][k] if transfer else job
-                if transfer:
-                    a_slot = (stage, "a1", values["a_slot"])
-                    b_slot = (stage, "b1", values["b_slot"])
-                dependencies = [issued, last_api]
-                for operand, slot in (("a", a_slot), ("b", b_slot)):
-                    if not transfer or values[operand + "_miss"]:
-                        dependencies.append(slot_state.get(slot, -1))
-                    else:
-                        dependencies.append(operand_data.get(slot, last_api))
-                if not transfer or values["loads"]:
-                    loaded = self.operation(
-                        "mte2",
-                        0,
-                        values,
-                        phase,
-                        dependencies,
-                        divisor=1 if transfer else count / fraction,
-                    )
-                else:
-                    loaded = self.node(dependencies)
-                for operand, slot in (("a", a_slot), ("b", b_slot)):
-                    if not transfer or values[operand + "_miss"]:
-                        operand_data[slot] = loaded
-                moved = self.operation(
-                    "mte1",
-                    0,
-                    job,
-                    phase,
-                    (loaded, slot_state.get(l0_slot, -1)),
-                    divisor=count / fraction,
-                )
-                slot_state[a_slot] = slot_state[b_slot] = moved
-                computed = self.operation(
-                    "cube",
-                    0,
-                    job,
-                    phase,
-                    (
-                        moved,
-                        partial,
-                        prior_fix if output == 0 and k == 0 else -1,
-                        slot_state.get(c_slot, -1) if k == 0 else -1,
-                    ),
-                    divisor=count / fraction,
-                )
-                slot_state[l0_slot] = computed
-                partial = computed
-            stored = self.operation("fixpipe", 0, job, phase, (partial,), divisor=count)
-            slot_state[c_slot] = stored
-            fixed.append(stored)
-        self.events["matmul_calls"] += int(job.get("calls", 1))
-        self.events["k_tiles"] += count * len(slices)
-        return fixed[-1]
 
     def pair(self, pair, prefix):
         self.tails, self.buffers = {}, {}
@@ -1097,153 +1003,3 @@ def compact_graph(graph):
         "which": labels[:count].copy(),
         "root": root.value,
     }
-
-
-def branch_graph(work):
-    return compact_graph(BranchGraph(work).build())
-
-
-def primitive_class(pipe, key):
-    impl, dtype, layout, path, fmt, policy = key.split("|")
-    vector_function = {
-        "varlen_gm": "general",
-        "varlen_l1": "general",
-        "varlen_same_ab": "same_ab",
-    }.get(impl, impl)
-    if pipe in ("cube", "mte1"):
-        return pipe, dtype, policy
-    if pipe == "fixpipe":
-        return pipe, policy
-    if pipe == "vector":
-        return pipe, vector_function, dtype
-    if pipe == "cscalar":
-        api = (
-            "batch"
-            if impl == "b"
-            else (
-                "direct_same_ab"
-                if impl in ("same_ab", "varlen_same_ab")
-                else "manual_l1" if impl == "varlen_l1" else "normal"
-            )
-        )
-        return pipe, api, policy, fmt
-    if pipe == "vscalar":
-        return (
-            pipe,
-            vector_function,
-            "direct" if impl in ("same_ab", "varlen_same_ab", "varlen_l1") else "kfc",
-            policy,
-        )
-    api = (
-        "batch"
-        if impl == "b"
-        else "normal" if impl in ("general", "s1", "varlen_gm") else impl
-    )
-    return pipe, api, layout, policy
-
-
-def graph_entry(model, key):
-    if key in model["classes"]:
-        return model["classes"][key]
-    pipes = {}
-    for pipe, (_, fields) in PIPES.items():
-        parent = model["primitive_priors"].get(json.dumps(primitive_class(pipe, key)))
-        if parent is None:
-            raise ValueError(
-                "unmeasured source operation class: " + str(primitive_class(pipe, key))
-            )
-        pipes[pipe] = {
-            "coefficients": dict(zip(parent["names"], parent["rates"])),
-            "observed_features": parent["observed_features"],
-        }
-    return {
-        "pipes": pipes,
-        "rates": [
-            pipes[pipe]["coefficients"].get(name, 0) for pipe, name in parameter_names()
-        ],
-    }
-
-
-def phase_features(work, totals):
-    result = defaultdict(lambda: defaultdict(Counter))
-    for pair in work.pairs:
-        for tasks in pair:
-            for task in tasks:
-                for stage, job in enumerate(task["cube"]):
-                    for pipe in ("cube", "mte1", "mte2", "fixpipe", "cscalar"):
-                        result[("bmm1", "bmm2")[stage]][pipe].update(
-                            {n: job.get(n, 0) for n in PIPES[pipe][1]}
-                        )
-                for owner in task["vector"]:
-                    for stage, job in enumerate(owner):
-                        for pipe in ("vector", "vmte2", "vmte3", "vscalar"):
-                            result[("vec1", "vec2")[stage]][pipe].update(
-                                {n: job.get(n, 0) for n in PIPES[pipe][1]}
-                            )
-    for pipe in ("cscalar", "vscalar"):
-        result["startup"][pipe].update(
-            {n: totals[pipe].get(n, 0) for n in ("workers", "batch_entries")}
-        )
-    for job in adapter_jobs(work):
-        for pipe in ("vector", "vmte2", "vmte3", "vscalar"):
-            result["drop_adapter"][pipe].update(
-                {n: job.get(n, 0) for n in PIPES[pipe][1]}
-            )
-    result["drop_adapter"]["vscalar"]["adapter_workers"] = totals["vscalar"].get(
-        "adapter_workers", 0
-    )
-    return result
-
-
-def predict_work(work, model, graph=None):
-    if model.get("version") == "fa_branch_execution_v4" and "baseline" in model:
-        from .fa_latency_refinement import predict_selected
-
-        return predict_selected(work.p, model)
-    key = cost_class(work.p, work.s)
-    entry = graph_entry(model, key)
-    totals = active_features(work)
-    for pipe, values in totals.items():
-        missing = [
-            n
-            for n, val in values.items()
-            if val > 0 and n not in entry["pipes"][pipe]["observed_features"]
-        ]
-        if missing:
-            raise ValueError(
-                "unmeasured primitive: " + key + "/" + pipe + "/" + ",".join(missing)
-            )
-    graph = branch_graph(work) if graph is None else graph
-    predicted, _, critical = source.evaluate(graph, entry["rates"])
-    demands = {
-        f"{phase}.{pipe}": sum(
-            value * entry["pipes"][pipe]["coefficients"].get(n, 0)
-            for n, value in values.items()
-        )
-        for phase, pipes in phase_features(work, totals).items()
-        for pipe, values in pipes.items()
-    }
-    return {
-        "predicted_us": predicted,
-        "critical_path_phase_us": critical,
-        "phase_pipe_active_us": demands,
-        "phase_pipe_active_scope": "whole-device source-operation service sums; not isolated stage wall times; Scalar excludes modeled polling",
-        "adapter_us": critical.get("drop_adapter", 0),
-        "startup_us": critical.get("startup", 0),
-        "implementation": implementation(work.p, work.s),
-        "cost_class": key,
-        "schedule": work.s,
-        "matmul": work.mm,
-        "execution_events": graph["execution_events"],
-        "target": "kernel Task Duration(us); source-directed FIFO and buffer hazards; training-only calibrated operation costs",
-    }
-
-
-def predict(inputs, model):
-    if model.get("version") == "fa_branch_execution_v4" and "baseline" in model:
-        from .fa_latency_refinement import predict_selected
-
-        return predict_selected(inputs, model)
-    if model.get("version") != VERSION:
-        raise ValueError("branch model and execution code differ")
-    return predict_work(workload(inputs, model["hardware"]), model)

@@ -139,8 +139,8 @@ def supplemental_samples():
 
 def dataset():
     metadata = json.loads((BASE / "micro_graphs.json").read_text())
-    configuration = json.loads((ROOT / "clean/model.json").read_text())
-    contract = configuration["varlen_l1_transfer"]
+    configuration = json.loads((DEST / "fa_joint_costs.json").read_text())
+    contract = {"api_input_normalization": configuration["api_input_normalization"]}
     rows = metadata["samples"]
     identities = {row["input_sha256"] for row in rows}
     rows.extend(row for row in supplemental_samples() if row["input_sha256"] not in identities)
@@ -503,8 +503,7 @@ def run():
         "historical": statistics([pair[1] for pair in comparison]),
     }
     artifact = {"version": "fa_joint_shared_costs_v2", "hardware": hardware,
-                "api_input_normalization": json.loads((ROOT / "clean/model.json").read_text())[
-                    "varlen_l1_transfer"]["api_input_normalization"],
+                "api_input_normalization": json.loads((DEST / "fa_joint_costs.json").read_text())["api_input_normalization"],
                 "coefficients": {key: float(rate) for key, rate in zip(keys, final["rates"]) if rate > 1e-10},
                 "zero_costs": [key for key, rate, supported in zip(keys, final["rates"], active)
                                if supported and rate <= 1e-10],

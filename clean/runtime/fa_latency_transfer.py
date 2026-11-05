@@ -1,6 +1,5 @@
 from __future__ import annotations
 import copy
-import math
 from collections import Counter
 import numpy as np
 from . import fa_latency_refinement as micro
@@ -9,7 +8,6 @@ BASE_FEATURES = ("payload_kb", "copy_calls", "strided_rows")
 EXTRA_FEATURES = ("nd2nz_partial_rows", "nd2nz_split_sector_kb", "capacity_pressure_kb")
 FEATURES = BASE_FEATURES + EXTRA_FEATURES
 PARAMETERS = micro.parameter_names() + tuple(("mte2", name) for name in FEATURES)
-VERSION = "varlen_l1_nd2nz_v4"
 
 
 def api_kernel_inputs(inputs, policy=None):
@@ -349,71 +347,4 @@ def branch_graph(work):
         "root": roots[0],
         "phases": phases,
         "execution_events": dict(events),
-    }
-
-
-def predict(inputs, model, contract):
-    original = micro.source.cost.normalize(inputs)
-    kernel_inputs = api_kernel_inputs(original, contract.get("api_input_normalization"))
-    work = workload(
-        kernel_inputs,
-        model["hardware"],
-        source_vector_reads=contract.get("vector_accumulator_read_policy")
-        == "source_unconditional",
-    )
-    conditions = micro.execution_conditions(work)
-    entry = micro.graph_entry(model, micro.cost_class(work.p, work.s), conditions)
-    for pipe, values in micro.active_features(work).items():
-        if pipe == "mte2":
-            continue
-        missing = [
-            name
-            for name, value in values.items()
-            if value > 0 and name not in entry["pipes"][pipe]["observed_features"]
-        ]
-        if missing:
-            raise ValueError(
-                "unmeasured source primitive: " + pipe + "/" + ",".join(missing)
-            )
-    rates = list(entry["rates"]) + [
-        contract["coefficients"].get(name, 0.0) for name in FEATURES
-    ]
-    graph = branch_graph(work)
-    elapsed, gradient, critical = micro.source.evaluate(graph, rates)
-    pipes, terms = Counter(), {}
-    for (pipe, name), value, rate in zip(PARAMETERS, gradient, rates):
-        pipes[pipe] += float(value * rate)
-        if pipe == "mte2" and name in FEATURES:
-            terms[name] = float(value * rate)
-    if not math.isclose(sum(pipes.values()), elapsed, rel_tol=1e-9, abs_tol=1e-8):
-        raise ValueError(
-            "DMA critical-cost attribution does not sum to predicted latency"
-        )
-    total = features(work)
-    return {
-        "predicted_us": elapsed,
-        "implementation": "varlen_l1",
-        "cost_class": micro.cost_class(work.p, work.s),
-        "schedule": work.s,
-        "matmul": work.mm,
-        "critical_path_phase_us": critical,
-        "critical_path_pipe_us": dict(pipes),
-        "critical_dma_terms_us": terms,
-        "dma_features": total,
-        "dma_active_sum_us": sum(
-            total[name] * contract["coefficients"].get(name, 0.0) for name in FEATURES
-        ),
-        "execution_events": graph["execution_events"],
-        "transport_contract": VERSION,
-        "api_input_transform": {
-            "qk_width": [original["D"], kernel_inputs["D"]],
-            "v_width": [original["DV"], kernel_inputs["DV"]],
-            "scope": "FlashAttentionScore kernel after API preprocessing; Pad and Slice task latency excluded",
-        },
-        "vector_accumulator_read_policy": contract.get(
-            "vector_accumulator_read_policy", "legacy_first_window_omitted"
-        ),
-        "execution_events_scope": "distinct representative worker timelines; dma_features contains whole-device source-copy totals",
-        "stage_costs_independently_measured": False,
-        "source_conditions": conditions,
     }
