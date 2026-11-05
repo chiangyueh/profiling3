@@ -13,8 +13,8 @@ import json
 import numpy as np
 from scipy.stats import binomtest
 
-from research import fa_cost_validation as validation
-from research import fa_joint_calibration as joint
+from calibration import fa_cost_validation as validation
+from calibration import fa_joint_calibration as joint
 
 
 def format_records(records):
@@ -135,7 +135,7 @@ def annotate():
     rows, _, _ = joint.dataset()
     keys, features, targets = joint.matrices(rows)
     times = np.array([row["duration_us"] for row in rows])
-    old = {row["input_sha256"]: row for row in csv.DictReader((joint.DEST / "fa_branch_audit.csv").open())
+    old = {row["input_sha256"]: row for row in csv.DictReader((joint.ROOT / "research/reports/fa_branch_audit.csv").open())
            if row["record_type"] == "kernel_case"}
     low, high = np.full(len(rows), np.nan), np.full(len(rows), np.nan)
     for i, row in enumerate(rows):

@@ -1126,7 +1126,7 @@ def fa_key_schema(path: str) -> tuple:
 
 
 def decode_fa_key(key: int) -> dict:
-    source = Path(os.environ.get("OPS_TRANSFORMER_ROOT", str(Path(__file__).resolve().parent.parent / "ops-transformer-official-8.5.0")))
+    source = Path(os.environ.get("OPS_TRANSFORMER_ROOT", str(Path(__file__).resolve().parents[2] / "ops-transformer-official-8.5.0")))
     source /= "attention/flash_attention_score/op_kernel/arch32/flash_attention_score_template_tiling_key.h"
     try:
         decoded, shift = {}, 0
@@ -1561,8 +1561,8 @@ def main() -> None:
     parser.add_argument("--id", type=int, default=4)
     parser.add_argument("--report-only", action="store_true")
     args = parser.parse_args()
-    os.chdir(Path(__file__).resolve().parent)
-    import fa_collection_plan
+    os.chdir(Path(__file__).resolve().parents[1])
+    from calibration import fa_collection_plan
     fa_collection_plan.run(sys.modules[__name__], args.id, args.report_only)
 
 

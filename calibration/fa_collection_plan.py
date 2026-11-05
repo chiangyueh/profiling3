@@ -16,7 +16,7 @@ from pathlib import Path
 
 from prediction import fa_latency_inputs as cost
 from research import fa_latency_model as source
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 GROUPS = ("same_ab", "general", "s1", "b", "varlen", "drop_adapter")
 TARGETS = {group: 20 if group == "same_ab" else 100 for group in GROUPS}
 REQUIRED_PMU = tuple(source.PIPES[pipe][0] for pipe in source.PIPES) + (
@@ -269,7 +269,7 @@ def execute(collector, plan, hardware, forecasts, directory):
 
 
 def run(collector, npu_id, report_only=False):
-    specification = json.loads((ROOT / "fa_collection_plan.json").read_text())
+    specification = json.loads(Path(__file__).with_name("fa_collection_plan.json").read_text())
     focused = specification.get("implementation") == "varlen_l1"
     directory = ROOT / "output" / (specification["version"] if focused else "fa_branch_collection")
     directory.mkdir(parents=True, exist_ok=True)

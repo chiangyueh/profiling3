@@ -24,7 +24,7 @@ from prediction import fa_latency_transfer as transfer
 from prediction import fa_latency_refinement as micro
 
 ROOT = Path(__file__).resolve().parents[1]
-DEST = ROOT / "research/reports"
+DEST = ROOT / "calibration/reports"
 CACHE = ROOT / "out/fa_joint_calibration"
 BASE = ROOT / "out/fa_branch_host"
 PIPES = tuple(micro.PIPES)
@@ -138,6 +138,8 @@ def supplemental_samples():
 
 
 def dataset():
+    from calibration.prepare_data import ensure_data, source_identity
+    ensure_data()
     metadata = json.loads((BASE / "micro_graphs.json").read_text())
     configuration = json.loads((DEST / "fa_joint_costs.json").read_text())
     contract = {"api_input_normalization": configuration["api_input_normalization"]}
@@ -150,10 +152,7 @@ def dataset():
         row["graph_file"] = str(BASE / "micro_graphs.bin")
     CACHE.mkdir(parents=True, exist_ok=True)
     index = CACHE / "l1_graphs.json"
-    identity = hashlib.sha256(b"".join(
-        path.read_bytes() for path in sorted((ROOT / "prediction").rglob("*.py"))
-    ) + json.dumps(contract, sort_keys=True).encode()
-      + json.dumps(sorted(row["input_sha256"] for row in rows)).encode()).hexdigest()
+    identity = source_identity([row["input_sha256"] for row in rows], contract)
     cached = json.loads(index.read_text()) if index.exists() else {}
     failures = []
     if cached.get("source_identity") != identity:
@@ -487,7 +486,7 @@ def run():
         "graph_failures": failures, "optimization_history": history, "cases": detail,
         "production_replaced": False,
     }
-    legacy = {row["input_sha256"]: row for row in csv.DictReader((DEST / "fa_branch_audit.csv").open())
+    legacy = {row["input_sha256"]: row for row in csv.DictReader((ROOT / "research/reports/fa_branch_audit.csv").open())
               if row["record_type"] == "kernel_case" and row["heldout_latency_used_for_fit"] == "False"}
     comparison = []
     for row, measured in zip(rows, detail):

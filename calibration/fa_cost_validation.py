@@ -21,7 +21,7 @@ from scipy.linalg import solve_triangular
 from scipy.optimize import nnls
 from scipy.stats import binomtest
 
-from research import fa_joint_calibration as joint
+from calibration import fa_joint_calibration as joint
 
 CACHE = joint.ROOT / "out/fa_cost_validation"
 REPORT = joint.DEST / "fa_cost_validation.csv"
@@ -634,5 +634,5 @@ def run():
 
 if __name__ == "__main__":
     run()
-    from research.fa_cost_evidence import annotate
+    from calibration.fa_cost_evidence import annotate
     annotate()
