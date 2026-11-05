@@ -1,0 +1,15 @@
+{
+  "source": "calibration/measurements.csv",
+  "source_line": 176,
+  "case": "fa_branch_same_ab_nz_12d4cd573d21",
+  "measurement_snapshot": "measurement.csv",
+  "measurement_scope": "kernel_latency_and_whole_kernel_pmu",
+  "cost_class": "same_ab|FP16|BNSD|gm|NZ|NORMAL",
+  "measured_us": 52.65,
+  "predicted_us": 66.29334162139158,
+  "signed_error_us": 13.643341621391578,
+  "signed_error_pct": 25.9132794328425,
+  "absolute_error_pct": 25.9132794328425,
+  "evaluation_scope": "existing_measurement_comparison",
+  "limitation": "既有校準資料對照，不是新 shape 的獨立泛化驗證；本次沒有重新量測 NPU。"
+}

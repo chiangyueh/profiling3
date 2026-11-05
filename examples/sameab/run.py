@@ -7,6 +7,7 @@ os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
 resource.setrlimit(resource.RLIMIT_AS, (1100 * 1024 ** 2, 1100 * 1024 ** 2))
 
 import ctypes
+import csv
 import hashlib
 import inspect
 import json
@@ -221,7 +222,45 @@ class Native:
         return invoke
 
 
-def save_process(inputs, result, records, values):
+def compare_measurement(inputs, result, records):
+    source = ROOT / "calibration/measurements.csv"
+    with source.open(newline="") as stream:
+        reader = csv.DictReader(stream)
+        fields = reader.fieldnames
+        matches = [(line, row) for line, row in enumerate(reader, 2)
+                   if all(row.get(key) == str(value) for key, value in inputs.items())]
+    if len(matches) != 1:
+        raise ValueError("expected exactly one matching measured input, found %d" % len(matches))
+    line, row = matches[0]
+    if row["cost_class"].split("|")[0] != "same_ab":
+        raise ValueError("the measured record is not a SameAB case")
+    predicted_class = next(record["output"] for record in records
+                           if record["function"] == "clean.runtime.schedules.cost_class")
+    if predicted_class != row["cost_class"]:
+        raise ValueError("predicted and measured execution classes differ")
+    measured = float(row["duration_us"])
+    if not math.isfinite(measured) or measured <= 0:
+        raise ValueError("invalid measured latency")
+    with (FOLDER / "measurement.csv").open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        writer.writerow(row)
+    difference = result["predicted_us"] - measured
+    comparison = {
+        "source": location(source), "source_line": line, "case": row["case"],
+        "measurement_snapshot": "measurement.csv", "measurement_scope": row["measurement_scope"],
+        "cost_class": predicted_class,
+        "measured_us": measured, "predicted_us": result["predicted_us"],
+        "signed_error_us": difference, "signed_error_pct": difference / measured * 100,
+        "absolute_error_pct": abs(difference) / measured * 100,
+        "evaluation_scope": "existing_measurement_comparison",
+        "limitation": "既有校準資料對照，不是新 shape 的獨立泛化驗證；本次沒有重新量測 NPU。",
+    }
+    (FOLDER / "comparison.json").write_text(json.dumps(comparison, ensure_ascii=False, indent=2) + "\n")
+    return comparison
+
+
+def save_process(inputs, result, comparison, records, values):
     with (FOLDER / "process.txt").open("w") as stream:
         stream.write("SameAB：clean.predictor.predict() 的一次實際 CPU 預測呼叫\n")
         stream.write("predicted_us 是模型預估的 NPU latency；本次沒有執行 NPU。\n")
@@ -231,6 +270,15 @@ def save_process(inputs, result, records, values):
         stream.write("call_event／return_event 表示實際先後順序；parent 表示呼叫它的函式編號。\n")
         stream.write("輸入：" + json.dumps(inputs, ensure_ascii=False) + "\n")
         stream.write("結果：" + json.dumps(result, ensure_ascii=False) + "\n")
+        stream.write("實測來源：%s:%d，case=%s；原始一筆資料完整保存在 measurement.csv。\n" %
+                     (comparison["source"], comparison["source_line"], comparison["case"]))
+        stream.write("預測與量測記錄的入參、dtype、layout、drop mask 和 cost_class 完全對應：" +
+                     comparison["cost_class"] + "\n")
+        stream.write("實測 %.9f µs；預測 %.9f µs；預測減實測 %+.9f µs；絕對百分比誤差 %.6f%%。\n" %
+                     (comparison["measured_us"], comparison["predicted_us"], comparison["signed_error_us"],
+                      comparison["absolute_error_pct"]))
+        stream.write("預測完成後才讀取實測資料做對照，實測值沒有傳入 predict()。\n")
+        stream.write(comparison["limitation"] + "\n")
         stream.write("主流程：predict → load_model → workloads.build → graphs.build → costs.rates → timing.evaluate → 返回結果\n")
         stream.write("呼叫數：" + str(len(records)) + "；陣列數：" + str(len(values.arrays)) + "；物件狀態數：" + str(len(values.states)) + "\n\n")
         stream.write("主流程索引（下方相同編號有完整輸入與輸出）：\n")
@@ -317,9 +365,12 @@ def main():
             for record in calls.records:
                 output.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
         (FOLDER / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
-        save_process(inputs, result, calls.records, values)
+        comparison = compare_measurement(inputs, result, calls.records)
+        save_process(inputs, result, comparison, calls.records, values)
     print("EXAMPLE=" + str(FOLDER))
     print("predicted_us=%.9f" % result["predicted_us"])
+    print("measured_us=%.9f" % comparison["measured_us"])
+    print("absolute_error_pct=%.6f" % comparison["absolute_error_pct"])
     print("CALLS=" + str(len(calls.records)))
 
 
