@@ -1,0 +1,21 @@
+{
+  "status": "complete",
+  "prediction_entry": "clean.predictor.predict",
+  "model_file": "clean/model.json",
+  "model_version": "fa_validated_shared_costs_v1",
+  "measurement_file": "calibration/measurements.csv",
+  "previous_prediction_file": "research/reports/clean_inference_audit.csv",
+  "expected_inputs": 906,
+  "npu_executed": false,
+  "parameters_changed": false,
+  "cpu_cores": 1,
+  "memory_limit_mib": 1100,
+  "evaluation_scope": "existing_calibration_measurements; not independent holdout",
+  "evaluated_inputs": 906,
+  "failed_predictions": 0,
+  "first_pass_timeout_seconds": 60,
+  "retry_timeout_seconds": 180,
+  "cpu_timeout_retried_cases": [
+    "general_0a3de3b986aa04f0"
+  ]
+}
