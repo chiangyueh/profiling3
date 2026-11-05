@@ -10,6 +10,8 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
 from . import fa_latency_model as source
+from .drop_adapter_schedule import jobs as adapter_jobs
+from .varlen_schedule import workload as varlen_work
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPES = dict(source.PIPES)
@@ -135,16 +137,6 @@ def cost_class(p, s):
             "STATIC" if s.get("static_matmul") else s["policy"],
         )
     )
-
-
-def _fake():
-    return {
-        "cube": [{"commands": 1}, {"commands": 1}],
-        "vector": [({}, {})],
-        "rows": 0,
-        "columns": 0,
-        "fake": True,
-    }
 
 
 def matmul_cache_trace(
@@ -456,99 +448,10 @@ class Work:
         return range(0, p["S2"], window)
 
 
-def batch_work(work):
-    workers = []
-    s = work.s
-    for start in range(0, s["total_tasks"], s["split_factor"]):
-        workers.append(
-            [
-                work.job(batch, 0, 0, start)
-                for batch in range(
-                    start, min(start + s["split_factor"], s["total_tasks"])
-                )
-            ]
-        )
-    return [workers[first : first + 2] for first in range(0, len(workers), 2)]
-
-
-def s1_work(work):
-    s, workers = work.s, []
-    for start in range(0, s["total_tasks"], s["split_factor"]):
-        clients = [[], []] if s["reuse"] else [[]]
-        for task in range(start, min(start + s["split_factor"], s["total_tasks"])):
-            client = (task - start) % len(clients)
-            clients[client].append(work.job(task, 0, client, start))
-        if len(clients) == 2 and len(clients[0]) != len(clients[1]):
-            clients[1].append(_fake())
-        workers.extend(clients)
-    return [workers[first : first + 2] for first in range(0, len(workers), 2)]
-
-
-def general_work(work):
-    s, workers = work.s, []
-    for start in range(0, s["total_tasks"], s["split_factor"]):
-        end = min(start + s["split_factor"], s["total_tasks"])
-        clients = [[], []] if s["reuse"] else [[]]
-        for head in range(start // s["s1_outer"], (end - 1) // s["s1_outer"] + 1):
-            first, last = max(start, head * s["s1_outer"]), min(
-                end, (head + 1) * s["s1_outer"]
-            )
-            for task in range(first, last):
-                client = (task - first) % len(clients)
-                clients[client].extend(
-                    work.job(task, offset, client, start) for offset in work.offsets()
-                )
-            if s["reuse"] and (last - first) % 2:
-                clients[1].extend(_fake() for _ in work.offsets())
-        workers.extend(clients)
-    return [workers[first : first + 2] for first in range(0, len(workers), 2)]
-
-
-def varlen_work(work):
-    workers, s = [], work.s
-    for start in range(0, s["total_tasks"], s["split_factor"]):
-        tasks = []
-        for task in range(start, min(start + s["split_factor"], s["total_tasks"])):
-            tasks.extend(work.job(task, offset, 0, start) for offset in work.offsets())
-        workers.append(tasks)
-    width = 1 if s["same_ab"] else 2
-    return [workers[first : first + width] for first in range(0, len(workers), width)]
-
-
 def workload(inputs, hardware, work_type=Work):
     work = work_type(inputs, hardware)
-    name = implementation(work.p, work.s)
-    work.pairs = (
-        batch_work(work)
-        if name == "b"
-        else (
-            s1_work(work)
-            if name == "s1"
-            else general_work(work) if name == "general" else varlen_work(work)
-        )
-    )
-    if name == "same_ab":
-        work.pairs = [[tasks] for pair in work.pairs for tasks in pair]
+    work.pairs = source.schedule_module(work.s).workload(work)
     return work
-
-
-def adapter_jobs(work):
-    jobs = source.adapter_jobs(work.p, work.s, work.hardware)
-    if not jobs:
-        return []
-    count = work.p["B"] * work.p["N1"] * work.p["S1"] * work.p["S2"]
-    single = (
-        source.cost.ceil_div(
-            source.cost.ceil_div(count, 2048), int(work.hardware["aiv_cores"])
-        )
-        * 2048
-    )
-    base = min(
-        single, source.cost.ceil_div(int(work.hardware["ub_bytes"]), 6) // 2048 * 2048
-    )
-    return [
-        {**job, "cast_k": job["unpack_k"], "duplicate_k": base / 1000} for job in jobs
-    ]
 
 
 def active_features(work):
@@ -583,38 +486,6 @@ def active_features(work):
             totals[pipe].update({name: job.get(name, 0) for name in PIPES[pipe][1]})
     totals["vscalar"]["adapter_workers"] = aiv if work.s["drop_adapter"] else 0
     return {pipe: dict(values) for pipe, values in totals.items()}
-
-
-def _stages(count):
-    program = []
-    for step in range(count + 2):
-        if 0 <= step - 1 < count:
-            program.append(("wait", step - 1, 0))
-        if step < count:
-            program.append(("launch", step, 0))
-        if 0 <= step - 1 < count:
-            program.append(("vector", step - 1, 1))
-        if 0 <= step - 2 < count:
-            program.append(("wait", step - 2, 2))
-        if 0 <= step - 1 < count:
-            program.append(("launch", step - 1, 2))
-        if 0 <= step - 2 < count:
-            program.append(("vector", step - 2, 3))
-    return program
-
-
-def varlen_l1_program(tasks, peer):
-    program = []
-    for step in range(len(tasks) + 2):
-        if 0 <= step - 1 < len(tasks):
-            program.extend((("wait", step - 1, 0), ("vector", step - 1, 1)))
-        if 0 <= step - 1 < len(peer):
-            program.append(("peer_wait", step - 1, 0))
-        if 0 <= step - 2 < len(tasks):
-            program.extend((("wait", step - 2, 2), ("vector", step - 2, 3)))
-        if 0 <= step - 2 < len(peer):
-            program.append(("peer_wait", step - 2, 2))
-    return program
 
 
 def parameter_names():
@@ -778,12 +649,8 @@ class BranchGraph:
         client_messages = [[] for _ in workers]
         for owner, tasks in enumerate(workers):
             previous = self.tails["vscalar", owner]
-            program = (
-                varlen_l1_program(
-                    tasks, workers[1 - owner] if len(workers) == 2 else []
-                )
-                if controlled
-                else _stages(len(tasks))
+            program = source.schedule_module(self.work.s).program(
+                tasks, workers[1 - owner] if len(workers) == 2 else [], self.work.s
             )
             for kind, task, stage in program:
                 key = (
@@ -837,71 +704,7 @@ class BranchGraph:
 
     def build(self):
         prefix = self.node()
-        adapter_ends = []
-        adapter_cache = {}
-        for job in adapter_jobs(self.work):
-            identity = tuple(sorted(job.items()))
-            if identity not in adapter_cache:
-                self.tails, self.buffers = {}, {}
-                chunks = max(1, int(job["chunks"]))
-                self.operation(
-                    "vector",
-                    0,
-                    {"duplicate_k": job["duplicate_k"]},
-                    "drop_adapter",
-                    (prefix,),
-                    writes=("adapterOnes",),
-                )
-                for _ in range(chunks):
-                    issue = self.operation(
-                        "vscalar", 0, job, "drop_adapter", (prefix,), divisor=chunks
-                    )
-                    read = self.operation(
-                        "vmte2",
-                        0,
-                        job,
-                        "drop_adapter",
-                        (issue,),
-                        writes=("adapterInput",),
-                        divisor=chunks,
-                    )
-                    selected = self.operation(
-                        "vector",
-                        0,
-                        {"unpack_k": job["unpack_k"], "chunks": job["chunks"]},
-                        "drop_adapter",
-                        (read,),
-                        reads=("adapterInput",),
-                        writes=("adapterSelect",),
-                        divisor=chunks,
-                    )
-                    compute = self.operation(
-                        "vector",
-                        0,
-                        {"cast_k": job["cast_k"]},
-                        "drop_adapter",
-                        (selected,),
-                        reads=("adapterSelect",),
-                        writes=("adapterOutput",),
-                        divisor=chunks,
-                    )
-                    end = self.operation(
-                        "vmte3",
-                        0,
-                        job,
-                        "drop_adapter",
-                        (compute,),
-                        reads=("adapterOutput",),
-                        divisor=chunks,
-                    )
-                adapter_cache[identity] = end
-            adapter_ends.append(adapter_cache[identity])
-        if adapter_ends:
-            prefix = self.node(adapter_ends)
-            prefix = self.node(
-                (prefix,),
-                self.template("vscalar", {"adapter_workers": 1}, "drop_adapter"),
-            )
+        prefix = source.drop_adapter_schedule.build(self, prefix)
         roots, seen = [], set()
         for pair in self.work.pairs:
             identity = tuple(tuple(id(job) for job in tasks) for tasks in pair)

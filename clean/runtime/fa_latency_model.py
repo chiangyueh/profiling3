@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 import numpy as np
 from . import fa_latency_inputs as cost
-from . import sameab_schedule as legacy
+from . import b_schedule, drop_adapter_schedule, general_schedule, s1_schedule, sameab_schedule, varlen_schedule
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPES = {
@@ -47,151 +47,35 @@ PHASES = ("startup", "drop_adapter", "bmm1", "vec1", "bmm2", "vec2")
 
 def schedule(inputs, hardware):
     p = cost.normalize(inputs)
-    if p["dtype"] not in ("FP16", "BF16") or p["layout"] not in (
-        "BNSD",
-        "SBH",
-        "BSND",
-        "TND",
-    ):
-        raise ValueError(
-            "source model supports dense FP16/BF16 BNSD/SBH/BSND and uniform-length TND"
-        )
+    if p["dtype"] not in ("FP16", "BF16") or p["layout"] not in ("BNSD", "SBH", "BSND", "TND"):
+        raise ValueError("source model supports dense FP16/BF16 BNSD/SBH/BSND and uniform-length TND")
     if int(hardware["aiv_cores"]) != 2 * int(hardware["aic_cores"]):
         raise ValueError("source model requires two Vector cores per Cube")
     try:
-        work = legacy.sameab_workload(p, hardware)
-        s = dict(work["schedule"])
-        s.update(
-            reuse=False,
-            l1=work["l1_carry"],
-            nz=work["bmm1_template_format"] == "NZ",
-            implementation=work["implementation"],
-            policy=work["matmul_policy"],
-        )
+        s = sameab_schedule.schedule(p, hardware)
     except ValueError as error:
         if str(error) != "inputs do not select a supported SameAB kernel":
             raise
-        b, n, nk, q, k, d, dv = (p[name] for name in cost.INPUT_FIELDS[:7])
-        align, ceil = cost.align, cost.ceil_div
-        aq, ak, ad = align(q), align(k), align(d)
-        aic, aiv = int(hardware["aic_cores"]), int(hardware["aiv_cores"])
-        same, reuse, l1, nz = False, False, False, False
-        if p["layout"] == "TND":
-            family, priority = "varlen", 94
-            best = (
-                128
-                if b * q <= 10000 or k >= 1024
-                else 256 if b >= 5 or k >= 512 else 512
-            )
-            base, ratio = min(best, aq), min(8, ceil(k, min(128, ak)))
-        elif k > 1024:
-            family, priority = "general", 96
-            base = min(
-                128 if b * n * (n // nk) * ceil(q, min(64, aq)) > aiv else 64, aq
-            )
-            ratio = min(
-                (
-                    5
-                    if 1025 <= k <= 1040
-                    else (
-                        6
-                        if d == 64 and p["layout"] == "BNSD" and 2049 <= k <= 2304
-                        else 8
-                    )
-                ),
-                ceil(k, min(128, ak)),
-            )
-            reuse = d <= 128 and not (
-                d == 64 and p["layout"] == "BNSD" and k % 256 and k not in (4032, 42192)
-            )
-            nz = bool(k % 64 and d != 64)
-        else:
-            bytes1, bytes2 = n * ((aq + ak) * ad + ak) * 2, n * (aq + ad) * ak * 2
-            is_b = (
-                ak <= 128
-                and bytes1 < int(hardware["l1_bytes"])
-                and bytes2 < int(hardware["l1_bytes"])
-                and n * aq * ak <= 65536
-            )
-            if is_b:
-                family, priority = ("b_drop" if p["has_drop_mask"] else "b"), 98
-                base, ratio = min(aq, 256, 8192 // ak // 16 * 16), 0
-            else:
-                family, priority = "s1", 97
-                initial = min(128, aq)
-                l1 = ad == 64 and 512 <= ak <= 1024 and q <= 3840
-                reuse = not l1 and (
-                    (k >= 512 and b * n > 64 and d <= 128)
-                    or (b * n >= 4800 and k == 256 and d == 144)
-                )
-                nz = bool(
-                    k % 64 or k == 64 or k >= 704 and k % 128 and b * n * q > 20480
-                )
-                maximum = 1 if l1 and ak == 512 or ak < 128 else 4
-                if nz and d <= 256:
-                    maximum = 4
-                ratio, total = 1, b * n * ceil(q, initial)
-                while (
-                    ratio < maximum
-                    and total > (ratio - 1) * aiv // ratio
-                    and initial * ratio < aq
-                    and initial * ratio * ak <= 131072
-                ):
-                    ratio += 1
-                    total = b * n * ceil(ceil(q, initial), ratio)
-                while (
-                    total <= (ratio - 1) * aiv // ratio
-                    or initial * ratio > aq
-                    or initial * ratio * ak > 131072
-                ):
-                    ratio -= 1
-                    if ratio <= 0:
-                        raise ValueError(
-                            "official S1 block geometry is not representable"
-                        )
-                base = initial * ratio
-        outer = ceil(q, base)
-        total = b if family in ("b", "b_drop") else b * n * outer
-        split = ceil(total, min(total, aiv)) * (2 if reuse else 1)
-        cores = min(total, aiv)
-        if family in ("s1", "b", "b_drop"):
-            cores = min(aiv, ceil(total, split // (2 if reuse else 1)))
-            if reuse and cores % 2:
-                cores = min(aiv, cores + 1)
-        s = {
-            "family": family,
-            "priority": priority,
-            "same_ab": False,
-            "reuse": reuse,
-            "l1": l1,
-            "nz": nz,
-            "s1_base": base,
-            "s2_base": ak if family in ("b", "b_drop") else min(128, ak),
-            "n_ratio": ratio,
-            "s1_outer": outer,
-            "total_tasks": total,
-            "split_factor": split,
-            "core_num": cores,
-        }
-        s.update(policy="NORMAL")
-        if p["layout"] == "TND":
-            s["l1"] = s["s1_base"] <= 128 and max(p["D"], p["DV"]) <= 128
-            s["nz"] = True
-            s["implementation"] = "TND_GENERAL_L1" if s["l1"] else "TND_GENERAL_GM"
-        else:
-            s["implementation"] = (
-                "B_BATCH"
-                if s["family"] in ("b", "b_drop")
-                else "S1" if s["family"] == "s1" else "GENERAL"
-            )
-            s["implementation"] += "_NZ" if s["nz"] else "_ND"
-            s["implementation"] += (
-                "_L1" if s["l1"] else "_REUSE" if s["reuse"] else "_GM"
-            )
-    s["drop_adapter"] = bool(
-        p["has_drop_mask"] and (p["S2"] % 8 or p["layout"] == "TND" and p["B"] > 1)
-    )
+        branch = (
+            varlen_schedule if p["layout"] == "TND" else
+            general_schedule if p["S2"] > 1024 else
+            b_schedule if b_schedule.is_capable(p, hardware) else s1_schedule
+        )
+        s = branch.schedule(p, hardware)
+    s["drop_adapter"] = drop_adapter_schedule.enabled(p)
     return s
+
+
+def schedule_module(schedule):
+    if schedule["same_ab"]:
+        return sameab_schedule
+    return {
+        "b": b_schedule,
+        "b_drop": b_schedule,
+        "s1": s1_schedule,
+        "general": general_schedule,
+        "varlen": varlen_schedule,
+    }[schedule["family"]]
 
 
 def cann_root():
@@ -545,35 +429,6 @@ def cube_job(
         ),
         "query_rows": heads * rows,
     }
-
-
-def adapter_jobs(p, s, hardware):
-    if not s["drop_adapter"]:
-        return []
-    count = p["B"] * p["N1"] * p["S1"] * p["S2"]
-    aligned = cost.align(count, 2048)
-    single = (
-        cost.ceil_div(cost.ceil_div(count, 2048), int(hardware["aiv_cores"])) * 2048
-    )
-    base = min(single, cost.ceil_div(int(hardware["ub_bytes"]), 6) // 2048 * 2048)
-    factor, total = cost.ceil_div(single, base), cost.ceil_div(aligned, base)
-    jobs = []
-    for core in range(int(hardware["aiv_cores"])):
-        chunks = max(0, min(factor, total - core * factor))
-        elements = max(0, min(chunks * base, count - core * factor * base))
-        if elements:
-            jobs.append(
-                {
-                    "unpack_k": elements / 1000,
-                    "chunks": chunks,
-                    "calls": chunks,
-                    "read_kb": cost.ceil_div(elements, 8) / 1024,
-                    "write_kb": elements / 1024,
-                    "loads": chunks,
-                    "stores": chunks,
-                }
-            )
-    return jobs
 
 
 @lru_cache(maxsize=1)

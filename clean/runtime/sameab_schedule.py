@@ -1,5 +1,6 @@
 from __future__ import annotations
 from . import fa_latency_inputs as input_cost
+from .schedule_common import controlled_program as program, sequence_work
 
 
 def sameab_workload(inputs: dict, hardware: dict) -> dict:
@@ -122,3 +123,20 @@ def sameab_workload(inputs: dict, hardware: dict) -> dict:
         "bmm1_template_format": "NZ" if compiled_nz else "ND",
         "l1_carry": l1_carry,
     }
+
+
+def schedule(inputs, hardware):
+    work = sameab_workload(inputs, hardware)
+    s = dict(work["schedule"])
+    s.update(
+        reuse=False,
+        l1=work["l1_carry"],
+        nz=work["bmm1_template_format"] == "NZ",
+        implementation=work["implementation"],
+        policy=work["matmul_policy"],
+    )
+    return s
+
+
+def workload(work):
+    return sequence_work(work, 1)
