@@ -1,4 +1,4 @@
-from .. import inputs as cost, schedules
+from .. import inputs as input_utils, schedules
 from ..native.matmul import geometry, mm_requests
 from . import matmul, transfer, vector
 
@@ -39,17 +39,17 @@ class Work:
                 bool(
                     s["reuse"]
                     and client == 1
-                    and self.previous.get((group, stage, "pair", offset)) == key
+                    and self.previous.get((group, bmm_index, "pair", offset)) == key
                 ),
                 bool(
                     s["family"] == "s1"
                     and s["l1"]
-                    and stage == 1
+                    and bmm_index == 1
                     and self.previous.get((group, client, "value")) == key[:2]
                 ),
-                p["layout"] == "TND" and s["l1"] and stage == 0 and offset > 0,
+                p["layout"] == "TND" and s["l1"] and bmm_index == 0 and offset > 0,
             )
-            for stage in (0, 1)
+            for bmm_index in (0, 1)
         )
         identity = (
             rows,
@@ -59,28 +59,28 @@ class Work:
             offset + columns == p["S2"],
         )
         if identity in self.cache:
-            for stage in (0, 1):
-                self.previous[group, stage, "pair", offset] = key
+            for bmm_index in (0, 1):
+                self.previous[group, bmm_index, "pair", offset] = key
             self.previous[group, client, "value"] = key[:2]
             return self.cache[identity]
-        for stage in (0, 1):
+        for bmm_index in (0, 1):
             shared = bool(
                 s["reuse"]
                 and client == 1
-                and self.previous.get((group, stage, "pair", offset)) == key
+                and self.previous.get((group, bmm_index, "pair", offset)) == key
             )
             carried = bool(
                 s["family"] == "s1"
                 and s["l1"]
-                and stage == 1
+                and bmm_index == 1
                 and self.previous.get((group, client, "value")) == key[:2]
             )
-            q_carried = p["layout"] == "TND" and s["l1"] and stage == 0 and offset > 0
+            q_carried = p["layout"] == "TND" and s["l1"] and bmm_index == 0 and offset > 0
             job = matmul.cube_job(
                 p,
                 s,
-                self.mm[stage],
-                stage * 2,
+                self.mm[bmm_index],
+                bmm_index,
                 rows,
                 columns,
                 heads,
@@ -90,53 +90,53 @@ class Work:
                 q_carried,
             )
             if s["same_ab"] and s["policy"] == "UNSPLITK":
-                mm = self.mm[stage]
-                mt = cost.ceil_div(rows, mm["base_m"])
-                nt = cost.ceil_div(
-                    columns if stage == 0 else p["DV"], mm["base_n"]
+                mm = self.mm[bmm_index]
+                mt = input_utils.ceil_div(rows, mm["base_m"])
+                nt = input_utils.ceil_div(
+                    columns if bmm_index == 0 else p["DV"], mm["base_n"]
                 )
-                kt = cost.ceil_div(
-                    p["D"] if stage == 0 else columns, mm["base_k"]
+                kt = input_utils.ceil_div(
+                    p["D"] if bmm_index == 0 else columns, mm["base_k"]
                 )
-                job["loads"] = cost.ceil_div(mt * kt, 2) + cost.ceil_div(
+                job["loads"] = input_utils.ceil_div(mt * kt, 2) + input_utils.ceil_div(
                     nt * kt, 2
                 )
             if p["layout"] == "TND" and s["l1"] and not s["same_ab"]:
                 parts = [min(256, columns - first) for first in range(0, columns, 256)]
                 job["loads"] = (
                     (0 if q_carried else 1) + len(parts)
-                    if stage == 0
+                    if bmm_index == 0
                     else 2 * len(parts)
                 )
                 job["calls"] = len(parts)
                 job["commands"] = len(parts) + job["tiles"]
-                if stage == 1:
+                if bmm_index == 1:
                     job["k_slices"] = [
-                        cost.align(part) / sum(map(cost.align, parts))
+                        input_utils.align(part) / sum(map(input_utils.align, parts))
                         for part in parts
                     ]
-            if p["layout"] == "TND" and s["l1"] and stage == 0:
-                job["output_group_tiles"] = cost.ceil_div(
-                    rows, self.mm[stage]["base_m"]
-                ) * cost.ceil_div(256, self.mm[stage]["base_n"])
+            if p["layout"] == "TND" and s["l1"] and bmm_index == 0:
+                job["output_group_tiles"] = input_utils.ceil_div(
+                    rows, self.mm[bmm_index]["base_m"]
+                ) * input_utils.ceil_div(256, self.mm[bmm_index]["base_n"])
             if (
                 not batch_mode
                 and not (p["layout"] == "TND" and s["l1"])
                 and s["policy"] == "NORMAL"
             ):
                 trace = matmul.matmul_cache_trace(
-                    p, self.mm[stage], stage, rows, columns, shared, carried, q_carried
+                    p, self.mm[bmm_index], bmm_index, rows, columns, shared, carried, q_carried
                 )
                 job["cache_trace"] = trace
                 for name in ("read_kb", "loads", "address_gap_kb"):
                     job[name] = sum(part[name] for output in trace for part in output)
-            cubes.append(matmul.refine_matmul_job(p, s, self.mm[stage], stage, rows, columns, heads, job))
+            cubes.append(matmul.refine_matmul_job(p, s, self.mm[bmm_index], bmm_index, rows, columns, heads, job))
             sharing.append((shared, carried, q_carried))
-            self.previous[group, stage, "pair", offset] = key
+            self.previous[group, bmm_index, "pair", offset] = key
         self.previous[group, client, "value"] = key[:2]
         vectors = []
         for owned in (
-            (cost.ceil_div(rows, 2), rows // 2) if s["same_ab"] else (rows,)
+            (input_utils.ceil_div(rows, 2), rows // 2) if s["same_ab"] else (rows,)
         ):
             if not owned:
                 vectors.append(({}, {}))

@@ -1,11 +1,11 @@
 from __future__ import annotations
-from .. import inputs as input_cost
+from .. import inputs as input_utils
 from .schedule_common import controlled_program as program, sequence_work
 
 
-def sameab_workload(inputs: dict, hardware: dict) -> dict:
-    p = input_cost.normalize(inputs)
-    align, ceil = input_cost.align, input_cost.ceil_div
+def sameab_config(inputs: dict, hardware: dict) -> dict:
+    p = input_utils.normalize(inputs)
+    align, ceil = input_utils.align, input_utils.ceil_div
     if p["dtype"] not in ("FP16", "BF16") or p["layout"] not in (
         "BNSD",
         "SBH",
@@ -83,7 +83,7 @@ def sameab_workload(inputs: dict, hardware: dict) -> dict:
     }
     compiled_nz = tnd or (p["S2"] % 64 != 0 and policy == "NORMAL")
     l1_carry = tnd and base <= 256 and p["D"] in (80, 88, 128, 192)
-    implementation = (
+    kernel_variant = (
         "TND_L1_CARRY"
         if l1_carry
         else (
@@ -118,7 +118,7 @@ def sameab_workload(inputs: dict, hardware: dict) -> dict:
                 raise ZeroDivisionError("integer division or modulo by zero")
     return {
         "schedule": schedule,
-        "implementation": implementation,
+        "kernel_variant": kernel_variant,
         "matmul_policy": policy,
         "bmm1_template_format": "NZ" if compiled_nz else "ND",
         "l1_carry": l1_carry,
@@ -126,13 +126,13 @@ def sameab_workload(inputs: dict, hardware: dict) -> dict:
 
 
 def schedule(inputs, hardware):
-    work = sameab_workload(inputs, hardware)
+    work = sameab_config(inputs, hardware)
     s = dict(work["schedule"])
     s.update(
         reuse=False,
         l1=work["l1_carry"],
         nz=work["bmm1_template_format"] == "NZ",
-        implementation=work["implementation"],
+        kernel_variant=work["kernel_variant"],
         policy=work["matmul_policy"],
     )
     return s

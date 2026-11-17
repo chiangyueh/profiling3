@@ -1,9 +1,9 @@
-from .. import inputs as cost
+from .. import inputs as input_utils
 
 
-def cube(graph, owner, unit, stage, launch, slot_state):
-    phase = 'bmm1' if stage == 0 else 'bmm2'
-    job, mm = unit['cube'][stage // 2], graph.work.mm[stage // 2]
+def cube(graph, owner, unit, phase, launch, slot_state):
+    bmm_index = 0 if phase == "bmm1" else 1
+    job, mm = unit['cube'][bmm_index], graph.work.mm[bmm_index]
     if unit.get('fake'):
         graph.events['fake_matmul_messages'] += 1
         return graph.operation('cscalar', 0, job, phase, (launch,))
@@ -31,15 +31,15 @@ def cube(graph, owner, unit, stage, launch, slot_state):
         partial = launch
         for k, length in enumerate(tile['k']):
             issued = graph.operation('cscalar', 0, {'commands': 1}, phase, (launch,))
-            a_slot = (stage, 'a1', (output * len(tile['k']) + k) % a_count)
-            b_slot = (stage, 'b1', (output * len(tile['k']) + k) % b_count)
+            a_slot = (phase, 'a1', (output * len(tile['k']) + k) % a_count)
+            b_slot = (phase, 'b1', (output * len(tile['k']) + k) % b_count)
             l0_slot = ('ab0', (output * len(tile['k']) + k) % ab_count)
             c_slot = ('c0', output % c_count)
             transfer = job.get('cache_trace')
             values = transfer[output][k] if transfer else job
             if transfer:
-                a_slot = (stage, 'a1', values['a_slot'])
-                b_slot = (stage, 'b1', values['b_slot'])
+                a_slot = (phase, 'a1', values['a_slot'])
+                b_slot = (phase, 'b1', values['b_slot'])
             dependencies = [issued, last_api]
             for operand, slot in (('a', a_slot), ('b', b_slot)):
                 if not transfer or values[operand + '_miss']:
@@ -49,7 +49,7 @@ def cube(graph, owner, unit, stage, launch, slot_state):
             if bulk is not None:
                 loaded = graph.node(dependencies + [bulk])
             elif not transfer or values['loads']:
-                fraction = cost.align(length) / sum(cost.align(v) for v in tile['k'])
+                fraction = input_utils.align(length) / sum(input_utils.align(v) for v in tile['k'])
                 loaded = graph.operation('mte2', 0, values, phase, dependencies,
                                         divisor=1 if transfer else len(tiles) / fraction)
             else:
@@ -57,7 +57,7 @@ def cube(graph, owner, unit, stage, launch, slot_state):
             for operand, slot in (('a', a_slot), ('b', b_slot)):
                 if not transfer or values[operand + '_miss']:
                     operand_data[slot] = loaded
-            m, n, kval = map(cost.align, (tile['m'], tile['n'], length))
+            m, n, kval = map(input_utils.align, (tile['m'], tile['n'], length))
             local = {'l0_kb': 2 * (m + n) * kval / 1024, 'tiles': 1}
             moved = graph.operation('mte1', 0, local, phase, (loaded, slot_state.get(l0_slot, -1)))
             slot_state[a_slot] = slot_state[b_slot] = moved
@@ -73,7 +73,7 @@ def cube(graph, owner, unit, stage, launch, slot_state):
         if batch_mode:
             graph.tails['mte1',0] = graph.node((graph.tails.get(('mte1',0),-1),partial))
             graph.events['batch_mte1_fences'] += 1
-        write = tile['m'] * cost.align(tile['n']) * 4 / 1024
+        write = tile['m'] * input_utils.align(tile['n']) * 4 / 1024
         output_job = {'nz_write_kb': write if job.get('nz_write_kb') else 0,
                       'nd_write_kb': write if not job.get('nz_write_kb') else 0,
                       'stores': 1, 'calls': int(api_start)}

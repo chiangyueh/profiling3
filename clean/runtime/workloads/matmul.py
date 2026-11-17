@@ -1,11 +1,11 @@
-from .. import inputs as cost
+from .. import inputs as input_utils
 
 
 def cube_job(
     p,
     s,
     geometry,
-    stage,
+    bmm_index,
     rows,
     columns,
     heads,
@@ -14,42 +14,42 @@ def cube_job(
     carried,
     q_carried=False,
 ):
-    align, ceil = cost.align, cost.ceil_div
+    align, ceil = input_utils.align, input_utils.ceil_div
     m, n, k = (
         rows,
-        columns if stage == 0 else p["DV"],
-        p["D"] if stage == 0 else columns,
+        columns if bmm_index == 0 else p["DV"],
+        p["D"] if bmm_index == 0 else columns,
     )
     bm, bn, bk = (geometry[name] for name in ("base_m", "base_n", "base_k"))
     mt, nt, kt = ceil(m, bm), ceil(n, bn), ceil(k, bk)
     tiles = heads * mt * nt * kt
     a_bytes = heads * m * align(k, 16) * 2
-    b_bytes = kv_heads * columns * align(p["D"] if stage == 0 else p["DV"], 16) * 2
+    b_bytes = kv_heads * columns * align(p["D"] if bmm_index == 0 else p["DV"], 16) * 2
     if shared or carried:
         b_bytes = 0
     if q_carried:
         a_bytes = 0
     factor = p["B"] if p["layout"] == "SBH" else 1
     qstride = p["D"] * (p["N1"] * factor if p["layout"] != "BNSD" else 1)
-    kvstride = (p["D"] if stage == 0 else p["DV"]) * (
+    kvstride = (p["D"] if bmm_index == 0 else p["DV"]) * (
         p["N2"] * factor if p["layout"] != "BNSD" else 1
     )
     gap = (
         heads * max(0, m - 1) * max(0, qstride - p["D"]) * 2
-        if stage == 0 and not q_carried
+        if bmm_index == 0 and not q_carried
         else 0
     )
     if not shared and not carried:
         gap += (
             kv_heads
             * max(0, columns - 1)
-            * max(0, kvstride - (p["D"] if stage == 0 else p["DV"]))
+            * max(0, kvstride - (p["D"] if bmm_index == 0 else p["DV"]))
             * 2
         )
     output_width = 4
     nz = (
         (s["nz"] and (s["family"] == "s1" or columns % 64 != 0))
-        if stage == 0
+        if bmm_index == 0
         else (
             s["same_ab"]
             or p["layout"] == "TND"
@@ -63,7 +63,7 @@ def cube_job(
     )
     calls, k_slices = 1, []
     if p["layout"] == "TND" and s["same_ab"] and s["l1"]:
-        if stage == 0:
+        if bmm_index == 0:
             calls = ceil(columns, 256)
             loads = (0 if q_carried else heads) + kv_heads * calls
         else:
@@ -75,11 +75,6 @@ def cube_job(
             a_bytes *= nloops
             calls = nloops * (len(parts) + 1)
             loads = (heads + kv_heads) * nloops * len(parts)
-    k_parts = (
-        [align(min(bk, k - start)) for start in range(0, k, bk)]
-        if s["policy"] == "NORMAL"
-        else []
-    )
     return {
         "flops_m": 2 * heads * align(m) * align(n) * align(k) / 1e6,
         "tiles": tiles,
@@ -98,25 +93,17 @@ def cube_job(
         "calls": calls,
         "commands": calls + tiles,
         "k_slices": k_slices,
-        "pipeline_k_slices": (
-            [part / sum(k_parts) for part in k_parts] if len(k_parts) > 1 else []
-        ),
-        "pipeline_k_buffers": min(
-            max(1, geometry["depth_a1"] // max(1, geometry.get("step_m", 1))),
-            max(1, geometry["depth_b1"] // max(1, geometry.get("step_n", 1))),
-        ),
-        "query_rows": heads * rows,
     }
 
 
 def matmul_cache_trace(
-    p, mm, stage, rows, columns, shared=False, carried=False, q_carried=False
+    p, mm, bmm_index, rows, columns, shared=False, carried=False, q_carried=False
 ):
-    ceil, align = cost.ceil_div, cost.align
+    ceil, align = input_utils.ceil_div, input_utils.align
     m, n, k = (
         rows,
-        columns if stage == 0 else p["DV"],
-        p["D"] if stage == 0 else columns,
+        columns if bmm_index == 0 else p["DV"],
+        p["D"] if bmm_index == 0 else columns,
     )
     bm, bn, bk = (mm[name] for name in ("base_m", "base_n", "base_k"))
     mt, nt, kt = ceil(m, bm), ceil(n, bn), ceil(k, bk)
@@ -176,13 +163,13 @@ def matmul_cache_trace(
                         astride = p["D"] * (
                             p["N1"] * factor if p["layout"] != "BNSD" else 1
                         )
-                        bwidth = p["D"] if stage == 0 else p["DV"]
+                        bwidth = p["D"] if bmm_index == 0 else p["DV"]
                         bstride = bwidth * (
                             p["N2"] * factor if p["layout"] != "BNSD" else 1
                         )
                         gap = (
                             max(0, ar - 1) * max(0, astride - p["D"]) * 2
-                            if amiss and stage == 0
+                            if amiss and bmm_index == 0
                             else 0
                         )
                         gap += (
@@ -207,20 +194,20 @@ def matmul_cache_trace(
     return trace
 
 
-def matmul_microtiles(p, s, mm, stage, rows, columns, heads):
+def matmul_microtiles(p, s, mm, bmm_index, rows, columns, heads):
     m, n, k = (
         rows,
-        columns if stage == 0 else p["DV"],
-        p["D"] if stage == 0 else columns,
+        columns if bmm_index == 0 else p["DV"],
+        p["D"] if bmm_index == 0 else columns,
     )
     bm, bn, bk = (mm[name] for name in ("base_m", "base_n", "base_k"))
     manual = p["layout"] == "TND" and s["l1"]
     nsplit = (
         256
-        if manual and stage == 0
-        else 128 if manual and s["same_ab"] and stage == 1 else n
+        if manual and bmm_index == 0
+        else 128 if manual and s["same_ab"] and bmm_index == 1 else n
     )
-    ksplit = (192 if s["same_ab"] else 256) if manual and stage == 1 else k
+    ksplit = (192 if s["same_ab"] else 256) if manual and bmm_index == 1 else k
     kparts = [
         min(bk, min(ksplit, k - outer) - inner)
         for outer in range(0, k, ksplit)
@@ -231,7 +218,7 @@ def matmul_microtiles(p, s, mm, stage, rows, columns, heads):
     for head in range(heads):
         for start in range(0, n, nsplit):
             count = min(nsplit, n - start)
-            mt, nt = cost.ceil_div(m, bm), cost.ceil_div(count, bn)
+            mt, nt = input_utils.ceil_div(m, bm), input_utils.ceil_div(count, bn)
             sm, sn = max(1, mm["step_m"]), max(1, mm["step_n"])
             order = mm["iterate_order"]
             for major in range(0, mt if order == 1 else nt, sm if order == 1 else sn):
@@ -274,24 +261,24 @@ def matmul_microtiles(p, s, mm, stage, rows, columns, heads):
     return result
 
 
-def refine_matmul_job(p, s, mm, stage, rows, columns, heads, job):
-    tiles = matmul_microtiles(p, s, mm, stage, rows, columns, heads)
+def refine_matmul_job(p, s, mm, bmm_index, rows, columns, heads, job):
+    tiles = matmul_microtiles(p, s, mm, bmm_index, rows, columns, heads)
     job["micro_tiles"] = tiles
     job["tiles"] = sum(len(t["k"]) for t in tiles)
     job["output_tiles"] = job["stores"] = len(tiles)
     job["flops_m"] = sum(
         2
-        * cost.align(t["m"])
-        * cost.align(t["n"])
-        * cost.align(k)
+        * input_utils.align(t["m"])
+        * input_utils.align(t["n"])
+        * input_utils.align(k)
         / 1e6
         for t in tiles
         for k in t["k"]
     )
     job["l0_kb"] = sum(
         2
-        * (cost.align(t["m"]) + cost.align(t["n"]))
-        * cost.align(k)
+        * (input_utils.align(t["m"]) + input_utils.align(t["n"]))
+        * input_utils.align(k)
         / 1024
         for t in tiles
         for k in t["k"]
@@ -299,9 +286,9 @@ def refine_matmul_job(p, s, mm, stage, rows, columns, heads, job):
     manual = p["layout"] == "TND" and s["l1"]
     job["calls"] = len({t["api"] for t in tiles}) if manual else 1
     api_steps = job["calls"]
-    if manual and stage == 1:
+    if manual and bmm_index == 1:
         width = 192 if s["same_ab"] else 256
-        api_steps *= cost.ceil_div(columns, width) + 1
+        api_steps *= input_utils.ceil_div(columns, width) + 1
     job["commands"] = (
         api_steps + job["tiles"] + sum(t["barrier"] * len(t["k"]) for t in tiles)
     )

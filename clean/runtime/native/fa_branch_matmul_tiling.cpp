@@ -5,9 +5,9 @@ int main()
 {
     using namespace matmul_tiling;
     int m, n, k, om, on, ka, kb, fm, fn, fk, l1, l0c, ub, dtype, apos, cpos;
-    int batches, seq1, seq2, n2, g, stage, batch_mode, same, unsplit;
+    int batches, seq1, seq2, n2, g, bmm_number, batch_mode, same, unsplit;
     while (std::cin >> m >> n >> k >> om >> on >> ka >> kb >> fm >> fn >> fk >> l1 >> l0c >> ub
-                    >> dtype >> apos >> cpos >> batches >> seq1 >> seq2 >> n2 >> g >> stage
+                    >> dtype >> apos >> cpos >> batches >> seq1 >> seq2 >> n2 >> g >> bmm_number
                     >> batch_mode >> same >> unsplit) {
         PlatformInfo platform;
         platform.socVersion = platform_ascendc::SocVersion::ASCEND910B;
@@ -19,14 +19,14 @@ int main()
         MatmulApiTiling mm(platform);
         auto dt = dtype == 2 ? DataType::DT_BF16 : DataType::DT_FLOAT16;
         mm.SetAType(apos ? TPosition::VECCALC : TPosition::GM, apos ? CubeFormat::NZ : CubeFormat::ND, dt, false);
-        mm.SetBType(TPosition::GM, CubeFormat::ND, dt, stage == 1);
+        mm.SetBType(TPosition::GM, CubeFormat::ND, dt, bmm_number == 1);
         mm.SetCType(TPosition::GM, CubeFormat::ND, cpos ? dt : DataType::DT_FLOAT);
         mm.SetShape(m, n, k);
         mm.SetOrgShape(om, on, ka, kb);
         if (batch_mode) {
-            mm.SetALayout(batches, seq1, n2, g, stage == 1 ? k : seq2);
-            mm.SetBLayout(batches, seq2, n2, 1, stage == 1 ? k : n);
-            mm.SetCLayout(batches, seq1, n2, g, stage == 1 ? seq2 : n);
+            mm.SetALayout(batches, seq1, n2, g, bmm_number == 1 ? k : seq2);
+            mm.SetBLayout(batches, seq2, n2, 1, bmm_number == 1 ? k : n);
+            mm.SetCLayout(batches, seq1, n2, g, bmm_number == 1 ? seq2 : n);
             mm.SetBatchNum(n2 * g);
         }
         mm.SetBias(false);
@@ -39,10 +39,10 @@ int main()
             std::cout << "ERROR" << std::endl;
             continue;
         }
-        if (same && stage == 1 && t.baseK >= t.singleCoreK && t.depthA1 == 2) {
+        if (same && bmm_number == 1 && t.baseK >= t.singleCoreK && t.depthA1 == 2) {
             t.depthA1 = 3;
         }
-        if (unsplit && stage == 1) {
+        if (unsplit && bmm_number == 1) {
             t.baseK = ((k / 2 + 15) / 16) * 16;
             t.dbL0C = 2;
         }

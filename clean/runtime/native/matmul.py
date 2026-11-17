@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .environment import cann_root
-from .. import inputs as cost
+from .. import inputs as input_utils
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -17,7 +17,7 @@ def tiler():
         for name in ("libtiling_api.so", "libtiling_api.a")
         if (sdk / "lib64" / name).is_file()
     )
-    identity = cost.sha256(
+    identity = input_utils.sha256(
         {
             "source": cpp.read_text(),
             "api": hashlib.sha256(library.read_bytes()).hexdigest(),
@@ -104,7 +104,7 @@ def geometry(requests):
 
 
 def mm_requests(p, s, hardware):
-    align = cost.align
+    align = input_utils.align
     base, s2base = s["s1_base"], s["s2_base"]
     same, batch = s["same_ab"], s["family"] in ("b", "b_drop")
     window = (
@@ -127,46 +127,46 @@ def mm_requests(p, s, hardware):
         align(p["S2"]) * align(p["D"]) * 4 if s["family"] == "s1" and s["l1"] else 0
     )
     requests = []
-    for stage in (1, 2):
+    for bmm_number in (1, 2):
         m, n, k = (
             min(base, p["S1"]),
-            window if stage == 1 else p["DV"],
-            p["D"] if stage == 1 else window,
+            window if bmm_number == 1 else p["DV"],
+            p["D"] if bmm_number == 1 else window,
         )
         om, on, ka, kb = p["S1"], s2base * s["n_ratio"], qstride, kstride
         fm = fn = fk = -1
-        if stage == 2:
+        if bmm_number == 2:
             on, ka, kb = vstride, window, vstride
         if batch:
             m = p["S1"]
-            om, on = p["S1"], p["S2"] if stage == 1 else p["DV"]
-            ka, kb = (qstride, kstride) if stage == 1 else (p["S2"], p["DV"])
+            om, on = p["S1"], p["S2"] if bmm_number == 1 else p["DV"]
+            ka, kb = (qstride, kstride) if bmm_number == 1 else (p["S2"], p["DV"])
             fm, fn = base, (
                 s2base
-                if stage == 1
+                if bmm_number == 1
                 else min(align(p["DV"]), (131072 // (base * 4)) // 16 * 16)
             )
         elif s["family"] == "s1":
             om, on, ka, kb = (
                 (p["S1"], p["S2"], qstride, kstride)
-                if stage == 1
+                if bmm_number == 1
                 else (p["S1"], vstride, p["S2"], vstride)
             )
             fm, fn = min(128, align(p["S1"])), min(
-                128, align(p["S2"] if stage == 1 else p["DV"])
+                128, align(p["S2"] if bmm_number == 1 else p["DV"])
             )
-            if stage == 2 and p["S1"] == p["S2"] and p["S2"] >= 928 and p["D"] == 64:
+            if bmm_number == 2 and p["S1"] == p["S2"] and p["S2"] >= 928 and p["D"] == 64:
                 fm, fn, fk = 64, 64, 256
         elif p["layout"] == "TND":
-            if stage == 2 and s["l1"]:
+            if bmm_number == 2 and s["l1"]:
                 fm, fn = align(min(base, p["S1"])), -1 if same else align(p["DV"])
-        elif stage == 1 and (64 < p["D"] <= 128 or s["policy"] == "UNSPLITK"):
+        elif bmm_number == 1 and (64 < p["D"] <= 128 or s["policy"] == "UNSPLITK"):
             fm, fn, fk = (
                 min(128 if same else base, align(p["S1"])),
                 128,
                 align(p["D"]) if same else p["D"],
             )
-        elif stage == 2:
+        elif bmm_number == 2:
             if same and (64 < p["DV"] <= 128 or s["policy"] == "UNSPLITK"):
                 fm, fn = min(128, align(p["S1"])), align(p["DV"])
             if p["DV"] == 64 and p["layout"] == "BNSD" and m >= 64:
@@ -187,14 +187,14 @@ def mm_requests(p, s, hardware):
                 131072,
                 int(hardware["ub_bytes"]),
                 2 if p["dtype"] == "BF16" else 0,
-                int(batch and stage == 2),
-                int(s["family"] == "s1" and stage == 2),
+                int(batch and bmm_number == 2),
+                int(s["family"] == "s1" and bmm_number == 2),
                 p["B"],
                 p["S1"],
                 p["S2"],
                 p["N2"],
                 p["N1"] // p["N2"],
-                stage,
+                bmm_number,
                 int(batch),
                 int(same),
                 int(s["policy"] == "UNSPLITK"),

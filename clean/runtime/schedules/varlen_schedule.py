@@ -1,12 +1,12 @@
-from .. import inputs as cost
+from .. import inputs as input_utils
 from .schedule_common import controlled_program, finish, sequence_work, stages
 
 
 def schedule(p, hardware):
     b, q, k = (p[name] for name in ("B", "S1", "S2"))
-    aq, ak = cost.align(q), cost.align(k)
+    aq, ak = input_utils.align(q), input_utils.align(k)
     best = 128 if b * q <= 10000 or k >= 1024 else 256 if b >= 5 or k >= 512 else 512
-    base, ratio = min(best, aq), min(8, cost.ceil_div(k, min(128, ak)))
+    base, ratio = min(best, aq), min(8, input_utils.ceil_div(k, min(128, ak)))
     return finish(p, hardware, "varlen", 94, base, ratio)
 
 

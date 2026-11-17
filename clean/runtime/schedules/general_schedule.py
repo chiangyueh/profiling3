@@ -1,10 +1,10 @@
-from .. import inputs as cost
+from .. import inputs as input_utils
 from .schedule_common import _fake, finish, program
 
 
 def schedule(p, hardware):
     b, n, nk, q, k, d = (p[name] for name in ("B", "N1", "N2", "S1", "S2", "D"))
-    align, ceil = cost.align, cost.ceil_div
+    align, ceil = input_utils.align, input_utils.ceil_div
     aq, ak = align(q), align(k)
     aiv = int(hardware["aiv_cores"])
     base = min(128 if b * n * (n // nk) * ceil(q, min(64, aq)) > aiv else 64, aq)

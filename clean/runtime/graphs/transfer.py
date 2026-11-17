@@ -1,4 +1,4 @@
-from .. import inputs as cost
+from .. import inputs as input_utils
 from . import matmul
 
 
@@ -9,11 +9,11 @@ def load(graph, item, phase, launch, slot, slots):
     return graph.operation("mte2", 0, item, phase, (launch, slots.get(slot, -1)))
 
 
-def cube(graph, owner, unit, stage, launch, slots):
+def cube(graph, owner, unit, phase, launch, slots):
     if unit.get("fake"):
-        return matmul.cube(graph, owner, unit, stage, launch, slots)
-    phase = "bmm1" if stage == 0 else "bmm2"
-    job, mm = unit["cube"][stage // 2], graph.work.mm[stage // 2]
+        return matmul.cube(graph, owner, unit, phase, launch, slots)
+    bmm_index = 0 if phase == "bmm1" else 1
+    job, mm = unit["cube"][bmm_index], graph.work.mm[bmm_index]
     tiles = job["micro_tiles"]
     ab_count = max(1, min(mm["db_l0a"], mm["db_l0b"]))
     c_count = max(
@@ -31,13 +31,13 @@ def cube(graph, owner, unit, stage, launch, slots):
         )
     fixed, accumulators, serial = [], {}, 0
     for api, copies in enumerate(job["dma_groups"]):
-        if stage == 0:
+        if phase == "bmm1":
             serial = 0
         previous_fix = graph.tails.get(("fixpipe", 0), -1)
         issued = graph.operation("cscalar", 0, {"commands": 1}, phase, (launch,))
         kv_slot = ("dma_kv", graph.kv_iteration % 2)
         graph.kv_iteration += 1
-        if stage == 0:
+        if phase == "bmm1":
             a_ready = graph.query_data[owner]
             b_ready = load(graph, copies[0], phase, issued, kv_slot, slots)
             selected = [
@@ -54,17 +54,17 @@ def cube(graph, owner, unit, stage, launch, slots):
             selected = list(enumerate(tiles))
         released = []
         for output, tile in selected:
-            c_slot = ("c0", output % c_count) if stage == 0 else ("c0", output)
+            c_slot = ("c0", output % c_count) if phase == "bmm1" else ("c0", output)
             partial = (
                 accumulators.get(
                     output, graph.node((slots.get(c_slot, -1), previous_fix))
                 )
-                if stage
+                if phase == "bmm2"
                 else graph.node((slots.get(c_slot, -1), previous_fix))
             )
             lengths = (
                 tile["k"]
-                if stage == 0
+                if phase == "bmm1"
                 else [
                     min(mm["base_k"], copies[1]["rows"] - pos)
                     for pos in range(0, copies[1]["rows"], mm["base_k"])
@@ -74,7 +74,7 @@ def cube(graph, owner, unit, stage, launch, slots):
                 l0_slot = ("ab0", serial % ab_count)
                 serial += 1
                 m, n, k = map(
-                    cost.align, (tile["m"], tile["n"], length)
+                    input_utils.align, (tile["m"], tile["n"], length)
                 )
                 local = {"l0_kb": 2 * (m + n) * k / 1024, "tiles": 1}
                 moved = graph.operation(
@@ -88,7 +88,7 @@ def cube(graph, owner, unit, stage, launch, slots):
                 arithmetic = {
                     "flops_m": 2 * m * n * k / 1e6,
                     "tiles": 1,
-                    "output_tiles": int(index == 0 and (stage == 0 or api == 0)),
+                    "output_tiles": int(index == 0 and (phase == "bmm1" or api == 0)),
                 }
                 partial = graph.operation(
                     "cube", 0, arithmetic, phase, (moved, partial)
@@ -103,7 +103,7 @@ def cube(graph, owner, unit, stage, launch, slots):
                 )
                 graph.events["k_tiles"] += 1
                 graph.events["pipe_m_barriers"] += tile["barrier"]
-            if stage == 0:
+            if phase == "bmm1":
                 fixed.append(
                     store(graph,
                         tile, job, phase, partial, int(output == selected[0][0])
@@ -113,7 +113,7 @@ def cube(graph, owner, unit, stage, launch, slots):
             else:
                 accumulators[output] = partial
         end_read = graph.node(released)
-        if stage == 0:
+        if phase == "bmm1":
             graph.tails["mte1", 0] = graph.node(
                 (graph.tails.get(("mte1", 0), -1), partial)
             )
@@ -124,7 +124,7 @@ def cube(graph, owner, unit, stage, launch, slots):
         else:
             slots[query_slot] = end_read
         graph.events["matmul_calls"] += 1
-    if stage == 2:
+    if phase == "bmm2":
         for output, tile in enumerate(tiles):
             fixed.append(
                 store(graph, tile, job, phase, accumulators[output], int(output == 0))
@@ -139,7 +139,7 @@ def cube(graph, owner, unit, stage, launch, slots):
 
 
 def store(graph, tile, job, phase, dependency, first):
-    write = tile["m"] * cost.align(tile["n"]) * 4 / 1024
+    write = tile["m"] * input_utils.align(tile["n"]) * 4 / 1024
     values = {
         "nz_write_kb": write if job.get("nz_write_kb") else 0,
         "nd_write_kb": 0 if job.get("nz_write_kb") else write,

@@ -1,9 +1,9 @@
-from .. import inputs as cost
+from .. import inputs as input_utils
 from . import b_schedule, drop_adapter_schedule, general_schedule, s1_schedule, sameab_schedule, varlen_schedule
 
 
 def select(inputs, hardware):
-    p = cost.normalize(inputs)
+    p = input_utils.normalize(inputs)
     if p["dtype"] not in ("FP16", "BF16") or p["layout"] not in ("BNSD", "SBH", "BSND", "TND"):
         raise ValueError("source model supports dense FP16/BF16 BNSD/SBH/BSND and uniform-length TND")
     if int(hardware["aiv_cores"]) != 2 * int(hardware["aic_cores"]):
@@ -22,6 +22,8 @@ def select(inputs, hardware):
     s["drop_adapter"] = drop_adapter_schedule.enabled(p)
     if p["layout"] == "TND" and not s["same_ab"]:
         s["l1"] = s["s1_base"] <= 128 and max(p["D"], p["DV"]) <= 256
+        s["kernel_variant"] = "TND_GENERAL_L1" if s["l1"] else "TND_GENERAL_GM"
+    s["implementation"] = implementation(p, s)
     return s
 
 

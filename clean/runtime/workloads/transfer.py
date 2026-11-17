@@ -1,6 +1,6 @@
 from collections import Counter
 
-from .. import inputs as cost
+from .. import inputs as input_utils
 from ..features import TRANSFER_FEATURES as FEATURES
 
 
@@ -39,9 +39,9 @@ def add_copies(work, unit, offset):
     second = [
         [
             transfer(
-                cost.align(rows),
-                cost.align(count),
-                cost.align(count),
+                input_utils.align(rows),
+                input_utils.align(count),
+                input_utils.align(count),
                 "P",
             ),
             transfer(count, p["DV"], p["N2"] * p["DV"], "V", pressure),
@@ -64,7 +64,7 @@ def add_vector_reads(work):
     for unit in work.cache.values():
         for _, stage2 in unit["vector"]:
             if not stage2["accumulator_read_bytes"]:
-                size = 4 * unit["rows"] * cost.align(work.p["DV"])
+                size = 4 * unit["rows"] * input_utils.align(work.p["DV"])
                 stage2["read_kb"] += size / 1024
                 stage2["loads"] += stage2["chunks"]
                 stage2["accumulator_read_bytes"] = size

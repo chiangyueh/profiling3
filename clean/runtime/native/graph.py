@@ -8,14 +8,14 @@ from pathlib import Path
 
 import numpy as np
 
-from .. import inputs as cost
+from .. import inputs as input_utils
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def graph_engine():
     source = Path(__file__).with_name("fa_latency_eval.cpp")
-    signature = cost.sha256(
+    signature = input_utils.sha256(
         {"source": source.read_text(), "machine": os.uname().machine}
     )
     folder = ROOT / "out" / "fa_latency_host"

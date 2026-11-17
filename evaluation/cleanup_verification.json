@@ -1,0 +1,51 @@
+{
+  "status": "interrupted_by_host_reboot",
+  "full_regression_passed": false,
+  "reference_file": "evaluation/errors.csv",
+  "expected_inputs": 906,
+  "completed_inputs": 585,
+  "exact_complete_public_outputs": 585,
+  "unverified_inputs": 321,
+  "completed_mismatches": 0,
+  "completed_prediction_failures": 0,
+  "max_absolute_difference_us": 0,
+  "checked_outputs": [
+    "predicted_us",
+    "implementation",
+    "critical_path_phase_us"
+  ],
+  "completed_implementations": {
+    "b": 104,
+    "s1": 145,
+    "same_ab": 134,
+    "general": 85,
+    "varlen_l1": 86,
+    "varlen_same_ab": 30,
+    "varlen_gm": 1
+  },
+  "model_unchanged": true,
+  "invalid_dropout_values_rejected": 7,
+  "valid_dropout_representations_preserved": 8,
+  "standalone": {
+    "standalone": true,
+    "copied_files": 37,
+    "cold_cpu_cpp_builds": 3,
+    "original_project_accessed": false,
+    "expected_stdout": "predicted_us=1105.330280",
+    "dependencies": [
+      "Python 3",
+      "NumPy",
+      "g++ with C++17",
+      "CANN Host Matmul tiling API headers and libraries"
+    ],
+    "npu_required": false,
+    "temporary_copy_removed": true
+  },
+  "npu_runs": 0,
+  "interruption_note": "Host rebooted at 2026-11-17 19:57 CET. Previous kernel journal was not retained; cause is unconfirmed. Remaining inputs were not rerun.",
+  "bounded_post_reboot_check": {
+    "case": "varlen_061e8456999f937d",
+    "memory_limit_mib": 512,
+    "timeout_seconds": 20
+  }
+}

@@ -1,10 +1,10 @@
 import math
 
-from .. import inputs as cost
+from .. import inputs as input_utils
 
 
 def vector_job(p, s, rows, columns, first, last):
-    align, ceil = cost.align, cost.ceil_div
+    align, ceil = input_utils.align, input_utils.ceil_div
     batch = s["family"] in ("b", "b_drop")
     windowed = s["same_ab"] or s["family"] in ("general", "varlen")
     padded = (
@@ -53,7 +53,6 @@ def vector_job(p, s, rows, columns, first, last):
         "softmax_k": soft_elements / 1000,
         "reduction_k": soft_rows * math.ceil(math.log2(max(2, padded))) / 1000,
         "cast_k": rows * padded / 1000,
-        "format_k": rows * padded * (int(nz1) + int(probability_nz)) / 1000,
         "online_k": (0 if first else rows * 8) / 1000,
         "drop_k": rows * padded / 1000 if p["has_drop_mask"] else 0,
         "chunks": c1,
@@ -82,7 +81,6 @@ def vector_job(p, s, rows, columns, first, last):
         "softmax_k": 0,
         "reduction_k": 0,
         "cast_k": output_elements / 1000 if last else 0,
-        "format_k": output_elements / 1000 if nz2 else 0,
         "online_k": 0,
         "rescale_k": output_elements * int(not first) * 2 / 1000,
         "normalize_k": output_elements * int(last) / 1000,

@@ -1,10 +1,10 @@
-from .. import inputs as cost
+from .. import inputs as input_utils
 from .schedule_common import finish, program
 
 
 def is_capable(p, hardware):
     n, q, k, d = (p[name] for name in ("N1", "S1", "S2", "D"))
-    aq, ak, ad = map(cost.align, (q, k, d))
+    aq, ak, ad = map(input_utils.align, (q, k, d))
     bytes1, bytes2 = n * ((aq + ak) * ad + ak) * 2, n * (aq + ad) * ak * 2
     return (
         ak <= 128
@@ -15,7 +15,7 @@ def is_capable(p, hardware):
 
 
 def schedule(p, hardware):
-    aq, ak = cost.align(p["S1"]), cost.align(p["S2"])
+    aq, ak = input_utils.align(p["S1"]), input_utils.align(p["S2"])
     base = min(aq, 256, 8192 // ak // 16 * 16)
     family = "b_drop" if p["has_drop_mask"] else "b"
     return finish(p, hardware, family, 98, base, 0)

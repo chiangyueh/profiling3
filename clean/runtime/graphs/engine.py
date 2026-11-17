@@ -69,12 +69,12 @@ class Graph:
             self.buffers[owner, buf] = result, []
         return result
 
-    def cube(self, owner, unit, stage, launch, slots):
+    def cube(self, owner, unit, phase, launch, slots):
         builder = transfer if self.work.manual_transfer else matmul
-        return builder.cube(self, owner, unit, stage, launch, slots)
+        return builder.cube(self, owner, unit, phase, launch, slots)
 
-    def vector(self, owner, unit, stage, launch):
-        return vector.build(self, owner, unit, stage, launch)
+    def vector(self, owner, unit, phase, launch):
+        return vector.build(self, owner, unit, phase, launch)
 
 
     def pair(self, pair, prefix):
@@ -85,12 +85,12 @@ class Graph:
         launches, done, vec_done = {}, {}, {}
         for owner, tasks in enumerate(workers):
             for task in range(len(tasks)):
-                for stage in (0, 2):
-                    key = (0 if same else owner), task, stage
+                for phase in ("bmm1", "bmm2"):
+                    key = (0 if same else owner), task, phase
                     if key not in done:
                         launches[key], done[key] = self.node(), self.node()
-                for stage in (1, 3):
-                    vec_done[owner, task, stage] = self.node()
+                for phase in ("vec1", "vec2"):
+                    vec_done[owner, task, phase] = self.node()
         init = {
             "workers": 1,
             "batch_entries": self.work.p["B"] if self.work.p["layout"] == "TND" else 0,
@@ -105,11 +105,11 @@ class Graph:
             program = schedules.module(self.work.s).program(
                 tasks, workers[1 - owner] if len(workers) == 2 else [], self.work.s
             )
-            for kind, task, stage in program:
+            for kind, task, phase in program:
                 key = (
                     (0 if same else 1 - owner if kind == "peer_wait" else owner),
                     task,
-                    stage,
+                    phase,
                 )
                 if kind in ("wait", "peer_wait"):
                     previous = self.node((previous, done[key]))
@@ -117,8 +117,8 @@ class Graph:
                     self.resolve(launches[key], (previous,))
                     client_messages[owner].append(key)
                 else:
-                    issued, end = self.vector(owner, tasks[task], stage, previous)
-                    self.resolve(vec_done[owner, task, stage], (end,))
+                    issued, end = self.vector(owner, tasks[task], phase, previous)
+                    self.resolve(vec_done[owner, task, phase], (end,))
                     previous = issued
             self.tails["vscalar", owner] = previous
         if controlled:
@@ -126,10 +126,10 @@ class Graph:
             messages = []
             for step in range(max(map(len, workers)) + 1):
                 messages.extend(
-                    (owner, step, 0) for owner in owners if step < len(workers[owner])
+                    (owner, step, "bmm1") for owner in owners if step < len(workers[owner])
                 )
                 messages.extend(
-                    (owner, step - 1, 2)
+                    (owner, step - 1, "bmm2")
                     for owner in owners
                     if 0 <= step - 1 < len(workers[owner])
                 )
@@ -141,17 +141,17 @@ class Graph:
                 if index < len(items)
             ]
         slots = {}
-        for owner, task, stage in messages:
-            key = owner, task, stage
+        for owner, task, phase in messages:
+            key = owner, task, phase
             dependencies = [startup]
             if not controlled:
                 dependencies.append(launches[key])
-            if stage == 2:
+            if phase == "bmm2":
                 dependencies.extend(
-                    vec_done[peer, task, 1] for peer in (range(2) if same else (owner,))
+                    vec_done[peer, task, "vec1"] for peer in (range(2) if same else (owner,))
                 )
             launch = self.node(dependencies)
-            end = self.cube(owner, workers[owner][task], stage, launch, slots)
+            end = self.cube(owner, workers[owner][task], phase, launch, slots)
             self.resolve(done[key], (end,))
         return self.node(list(self.tails.values()))
 

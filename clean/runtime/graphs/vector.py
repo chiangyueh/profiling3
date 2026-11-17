@@ -1,15 +1,15 @@
 from ..schedules import implementation
 
 
-def build(graph, owner, unit, stage, launch):
-    phase = "vec1" if stage == 1 else "vec2"
-    job = unit["vector"][owner if graph.work.s["same_ab"] else 0][stage // 2]
+def build(graph, owner, unit, phase, launch):
+    vector_index = 0 if phase == "vec1" else 1
+    job = unit["vector"][owner if graph.work.s["same_ab"] else 0][vector_index]
     if unit.get("fake") or not job.get("chunks"):
         return launch, launch
     chunks = int(job["chunks"])
     name = implementation(graph.work.p, graph.work.s)
     b_or_s1 = name in ("b", "s1")
-    if stage == 1:
+    if phase == "vec1":
         inp, calc, out = "stage1Pong", "stage1Ping", "vec1Output"
         pre_names, post_names = ("scale_k", "nz2nd_k"), ("cast_k", "nd2nz_k")
     elif b_or_s1:
@@ -31,7 +31,7 @@ def build(graph, owner, unit, stage, launch):
             "vscalar", owner, job, phase, (issued,), divisor=chunks
         )
         read_deps = [issued, launch]
-        if stage == 3 and not b_or_s1:
+        if phase == "vec2" and not b_or_s1:
             read_deps.append(graph.tails.get(("vmte3", owner), -1))
         loaded = graph.operation(
             "vmte2", owner, job, phase, read_deps, writes=(inp,), divisor=chunks
@@ -69,7 +69,7 @@ def build(graph, owner, unit, stage, launch):
         finished = graph.operation(
             "vmte3", owner, job, phase, (cast,), reads=(out,), divisor=chunks
         )
-    if stage == 3:
+    if phase == "vec2":
         graph.tails["vmte2", owner] = graph.node(
             (graph.tails.get(("vmte2", owner), -1), finished)
         )

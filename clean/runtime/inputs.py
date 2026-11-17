@@ -42,8 +42,14 @@ def normalize(inputs: dict) -> dict:
         p[name] = int(number)
     p["dtype"] = str(p["dtype"]).upper()
     p["layout"] = str(p["layout"]).upper()
-    p["has_drop_mask"] = int(p["has_drop_mask"])
-    if p["N1"] % p["N2"] or p["has_drop_mask"] not in (0, 1):
+    try:
+        drop_mask = float(p["has_drop_mask"])
+    except (TypeError, ValueError):
+        raise ValueError("has_drop_mask must be 0 or 1") from None
+    if not math.isfinite(drop_mask) or drop_mask not in (0, 1):
+        raise ValueError("has_drop_mask must be 0 or 1")
+    p["has_drop_mask"] = int(drop_mask)
+    if p["N1"] % p["N2"]:
         raise ValueError("invalid heads or dropout")
     return p
 
