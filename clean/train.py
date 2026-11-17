@@ -30,7 +30,6 @@ else:
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "training" / "measurements.csv"
-WORKLOADS = DATA.with_name("workloads.csv")
 CONFIG = ROOT / "training" / "config.json"
 CACHE = ROOT / "out" / "training"
 PIPES = tuple(PIPE_FEATURES)
@@ -43,30 +42,37 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
-def dataset(path=DATA):
+def dataset(path=DATA, configuration=None):
+    if configuration is None:
+        configuration = json.loads(CONFIG.read_text())
     with path.open(newline="") as stream:
         rows = list(csv.DictReader(stream))
     if not rows:
         raise ValueError("training measurements are empty")
-    with path.with_name("workloads.csv").open(newline="") as stream:
-        records = list(csv.DictReader(stream))
-    modeled = {row["case"]: row for row in records}
-    if len(modeled) != len(records) or len({row["case"] for row in rows}) != len(rows):
+    if len({row["case"] for row in rows}) != len(rows):
         raise ValueError("duplicate training case")
-    if set(modeled) != {row["case"] for row in rows}:
-        raise ValueError("measurements and workloads contain different cases")
     identities = set()
     for row in rows:
-        row.update(modeled[row["case"]])
         row["inputs"] = inputs.normalize({key: row[key] for key in inputs.INPUT_FIELDS})
         identity = inputs.sha256(row["inputs"])
         if identity in identities:
             raise ValueError("duplicate training input: " + row["case"])
         identities.add(identity)
-        row["names"] = TRANSFER_PARAMETERS if row["cost_class"].split("|")[0] == "varlen_l1" else PARAMETERS
         row["duration_us"] = float(row["duration_us"])
         if not math.isfinite(row["duration_us"]) or row["duration_us"] <= 0:
             raise ValueError("invalid measured kernel time: " + row["case"])
+        work = None
+        try:
+            work, _ = workloads.build(row["inputs"], configuration["hardware"], configuration["api_input_normalization"])
+            row["cost_class"] = schedules.cost_class(work.p, work.s)
+            row["names"] = TRANSFER_PARAMETERS if work.manual_transfer else PARAMETERS
+            active = workloads.active_features(work)
+            row.update({pipe + "." + feature: value for pipe, values in active.items() for feature, value in values.items()})
+        except Exception as error:
+            raise RuntimeError("workload calculation failed for " + row["case"] + ": " + str(error)) from error
+        finally:
+            del work
+            gc.collect()
     keys = sorted({costs._binding(row["cost_class"], *name) for row in rows for name in row["names"]})
     positions = {key: index for index, key in enumerate(keys)}
     features = np.zeros((len(rows), len(PIPES), len(keys)))
@@ -88,7 +94,7 @@ class Graphs:
         CACHE.mkdir(parents=True, exist_ok=True)
         self.path = CACHE / "graphs.bin"
         self.index = CACHE / "graphs.json"
-        identity = hashlib.sha256(DATA.read_bytes() + WORKLOADS.read_bytes() + CONFIG.read_bytes())
+        identity = hashlib.sha256(DATA.read_bytes() + CONFIG.read_bytes())
         for path in sorted((ROOT / "runtime").rglob("*")):
             if path.suffix in (".py", ".cpp"):
                 identity.update(str(path.relative_to(ROOT)).encode())
@@ -117,12 +123,6 @@ class Graphs:
                     work, implementation = workloads.build(row["inputs"], configuration["hardware"], configuration["api_input_normalization"])
                     if implementation != row["cost_class"].split("|")[0] or schedules.cost_class(work.p, work.s) != row["cost_class"]:
                         raise ValueError("source route differs from historical training record")
-                    active = workloads.active_features(work)
-                    for pipe, values in active.items():
-                        for feature, value in values.items():
-                            historical = float(row.get(pipe + "." + feature) or 0)
-                            if not math.isclose(value, historical, rel_tol=1e-9, abs_tol=1e-9):
-                                raise ValueError("source workload differs: " + pipe + "." + feature)
                     graph = graphs.build(work)
                     entry = {"root": int(graph["root"]), "arrays": {}}
                     for name in ("a", "b", "which", "templates"):
@@ -385,7 +385,7 @@ def main():
         limit = min(limit, soft)
     resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
     configuration = json.loads(CONFIG.read_text())
-    rows, keys, features, targets = dataset()
+    rows, keys, features, targets = dataset(configuration=configuration)
     store = Graphs(rows, configuration)
     paths = source_paths(rows, keys, store)
     times = np.array([row["duration_us"] for row in rows])
