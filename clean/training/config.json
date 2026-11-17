@@ -1,0 +1,35 @@
+{
+  "version": "fa_validated_shared_costs_v1",
+  "hardware": {
+    "aic_cores": 20,
+    "aiv_cores": 40,
+    "l1_bytes": 524288,
+    "l2_bytes": 201326592,
+    "soc": "Ascend910B3",
+    "ub_bytes": 196608
+  },
+  "api_input_normalization": {
+    "constants": {
+      "HEAD_DIM_128": 88,
+      "HEAD_DIM_64": 64,
+      "HEAD_DIM_80": 80,
+      "PAD_ALIGN_128": 128,
+      "PAD_ALIGN_SPL_SHAPE": 448,
+      "PAD_BASIC_BLOCK": 16,
+      "PAD_LOWER_BOUND_196": 196,
+      "TND_UNPAD_MAX_DDIM": 96,
+      "TND_UNPAD_MAX_S1_SUM": 163840,
+      "TND_UNPAD_MAX_S2": 1024
+    }
+  },
+  "merges": [
+    [
+      "vector",
+      "*",
+      "all"
+    ]
+  ],
+  "removed": [],
+  "schema_selection": "Previously selected by grouped cross-validation; train.py refits this fixed schema without repeating schema selection.",
+  "measurement_scope": "Whole-kernel latency and per-pipe sums across cores; no independently measured BMM1/Vec1/BMM2/Vec2 times."
+}
