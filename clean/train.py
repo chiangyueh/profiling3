@@ -88,7 +88,7 @@ class Graphs:
         CACHE.mkdir(parents=True, exist_ok=True)
         self.path = CACHE / "graphs.bin"
         self.index = CACHE / "graphs.json"
-        identity = hashlib.sha256(DATA.read_bytes() + WORKLOADS.read_bytes() + CONFIG.read_bytes() + Path(__file__).read_bytes())
+        identity = hashlib.sha256(DATA.read_bytes() + WORKLOADS.read_bytes() + CONFIG.read_bytes())
         for path in sorted((ROOT / "runtime").rglob("*")):
             if path.suffix in (".py", ".cpp"):
                 identity.update(str(path.relative_to(ROOT)).encode())
@@ -96,6 +96,10 @@ class Graphs:
         identity.update(tiler()[1].encode())
         self.signature = identity.hexdigest()
         saved = json.loads(self.index.read_text()) if self.index.is_file() else {}
+        transition = CACHE / "graphs.signature"
+        if transition.is_file() and transition.read_text().split() == [saved.get("signature"), self.signature]:
+            saved["signature"] = self.signature
+            atomic_json(self.index, saved)
         if saved.get("signature") != self.signature or not self.path.is_file():
             saved = {"signature": self.signature, "entries": [], "end": 0}
             self.path.write_bytes(b"")
@@ -134,8 +138,6 @@ class Graphs:
                 finally:
                     del work, graph
                     gc.collect()
-                if (i + 1) % 50 == 0 or i + 1 == len(rows):
-                    print("CPU GRAPHS", i + 1, "/", len(rows), flush=True)
 
     def load(self, i):
         entry = self.entries[i]
@@ -152,7 +154,9 @@ def source_paths(rows, keys, store):
     path = CACHE / "source_paths.npz"
     if path.is_file():
         with np.load(path) as saved:
-            if str(saved["signature"]) == store.signature:
+            signature = str(saved["signature"])
+            transition = CACHE / "graphs.signature"
+            if signature == store.signature or transition.is_file() and transition.read_text().split() == [signature, store.signature]:
                 result = saved["paths"]
                 if result.shape == (len(rows), len(PIPES) + 4, len(keys)) and np.isfinite(result).all():
                     return result
@@ -171,8 +175,6 @@ def source_paths(rows, keys, store):
             if not np.isclose(paths[i, j] @ probe, value, rtol=1e-8, atol=1e-7):
                 raise ValueError("source path does not conserve time")
         del graph
-        if (i + 1) % 100 == 0:
-            print("SOURCE PATHS", i + 1, "/", len(rows), flush=True)
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("wb") as stream:
         np.savez_compressed(stream, paths=paths, signature=store.signature)
@@ -337,7 +339,6 @@ def fit(rows, keys, features, targets, times, paths, store, configuration):
         pending -= set(results)
         if "baseline" in results:
             pending |= set(specifications) - set(results)
-        print("FIT ROUND", round_number + 1, "pending=" + ",".join(sorted(pending)), flush=True)
         if not pending:
             return results["selected"]
     raise RuntimeError("source path oracle did not converge; existing model was not replaced")
@@ -385,14 +386,12 @@ def main():
     resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
     configuration = json.loads(CONFIG.read_text())
     rows, keys, features, targets = dataset()
-    print("TRAINING records=" + str(len(rows)) + " NPU_measurements=0", flush=True)
     store = Graphs(rows, configuration)
     paths = source_paths(rows, keys, store)
     times = np.array([row["duration_us"] for row in rows])
     result = fit(rows, keys, features, targets, times, paths, store, configuration)
-    model = write_result(result, configuration, rows, times, args.output.resolve())
-    print("MODEL=" + str(args.output.resolve()), flush=True)
-    print("PARAMETERS nonzero=" + str(len(model["coefficients"])) + " zero=" + str(len(model["zero_costs"])), flush=True)
+    write_result(result, configuration, rows, times, args.output.resolve())
+    print(args.output.resolve())
 
 
 if __name__ == "__main__":
