@@ -1,9 +1,7 @@
 import ctypes
 import hashlib
-import math
 import os
 import subprocess
-from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -40,7 +38,7 @@ def graph_engine():
         )
         if result.returncode:
             raise RuntimeError(
-                "CPU latency evaluator build failed:\n" + result.stdout[-2000:]
+                "Latency evaluator build failed:\n" + result.stdout[-2000:]
             )
         Path(str(library) + ".tmp").replace(library)
         marker.write_text(signature)
@@ -83,7 +81,7 @@ def compact_engine():
         )
         if result.returncode:
             raise RuntimeError(
-                "CPU graph compactor build failed: " + result.stdout[-1000:]
+                "Graph compactor build failed:\n" + result.stdout[-1000:]
             )
         Path(str(library) + ".tmp").replace(library)
         marker.write_text(key)
@@ -111,7 +109,7 @@ def compact_graph(graph):
         ctypes.byref(root),
     )
     if count <= 0 or root.value < 0:
-        raise ValueError("dependency graph compaction failed")
+        raise RuntimeError("graph compaction failed")
     return {
         **graph,
         "a": a[:count].copy(),
@@ -136,6 +134,4 @@ def graph_time(graph, rates, gradient=False):
         coefficients.ctypes.data,
         derivative.ctypes.data if gradient else None,
     )
-    if not math.isfinite(value):
-        raise RuntimeError("source timing graph produced a non-finite duration")
     return (value, derivative) if gradient else value

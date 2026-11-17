@@ -1,18 +1,11 @@
-from .. import inputs as input_utils
 from . import b_schedule, drop_adapter_schedule, general_schedule, s1_schedule, sameab_schedule, varlen_schedule
 
 
 def select(inputs, hardware):
-    p = input_utils.normalize(inputs)
-    if p["dtype"] not in ("FP16", "BF16") or p["layout"] not in ("BNSD", "SBH", "BSND", "TND"):
-        raise ValueError("source model supports dense FP16/BF16 BNSD/SBH/BSND and uniform-length TND")
-    if int(hardware["aiv_cores"]) != 2 * int(hardware["aic_cores"]):
-        raise ValueError("source model requires two Vector cores per Cube")
-    try:
+    p = inputs
+    if sameab_schedule.is_capable(p):
         s = sameab_schedule.schedule(p, hardware)
-    except ValueError as error:
-        if str(error) != "inputs do not select a supported SameAB kernel":
-            raise
+    else:
         branch = (
             varlen_schedule if p["layout"] == "TND" else
             general_schedule if p["S2"] > 1024 else

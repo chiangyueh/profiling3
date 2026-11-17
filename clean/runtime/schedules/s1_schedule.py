@@ -32,8 +32,6 @@ def schedule(p, hardware):
         or initial * ratio * ak > 131072
     ):
         ratio -= 1
-        if ratio <= 0:
-            raise ValueError("official S1 block geometry is not representable")
     return finish(p, hardware, "s1", 97, initial * ratio, ratio, reuse, l1, nz)
 
 

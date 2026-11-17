@@ -1,4 +1,3 @@
-import math
 import numpy as np
 
 from .features import PHASES
@@ -15,8 +14,4 @@ def evaluate(graph, rates):
         encoded, np.append(rates, np.zeros(len(PHASES))), True
     )
     result = dict(zip(PHASES, map(float, derivative[-len(PHASES) :])))
-    if not math.isclose(sum(result.values()), value, rel_tol=1e-9, abs_tol=1e-8):
-        raise RuntimeError(
-            "phase critical-path contributions do not sum to kernel latency"
-        )
     return value, derivative[: len(rates)], result

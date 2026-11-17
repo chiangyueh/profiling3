@@ -1,6 +1,5 @@
 import hashlib
 import subprocess
-from functools import lru_cache
 from pathlib import Path
 
 from .environment import cann_environment, cann_root
@@ -59,7 +58,7 @@ def tiler():
         )
         if built.returncode:
             raise RuntimeError(
-                "CPU Matmul trace helper failed: " + built.stdout[-2000:]
+                "Matmul tiling build failed:\n" + built.stdout[-2000:]
             )
         Path(str(binary) + ".tmp").replace(binary)
         marker.write_text(identity)
@@ -93,15 +92,10 @@ def geometry(requests):
         "iterate_order",
         "trans_length",
     )
-    lines = result.stdout.strip().splitlines()
-    if (
-        result.returncode
-        or len(lines) != 2
-        or any(len(line.split()) != len(names) for line in lines)
-    ):
-        raise ValueError(
-            "CPU Matmul API rejected branch geometry: " + result.stderr[-500:]
-        )
+    if result.returncode:
+        raise RuntimeError(f"Matmul tiling failed ({result.returncode}): {result.stderr.strip()}")
+    first, second = result.stdout.strip().splitlines()
+    lines = (first, second)
     return [dict(zip(names, map(int, line.split()))) for line in lines]
 
 

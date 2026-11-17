@@ -3,19 +3,9 @@ from .. import inputs as input_utils
 from .schedule_common import controlled_program as program, sequence_work
 
 
-def sameab_config(inputs: dict, hardware: dict) -> dict:
-    p = input_utils.normalize(inputs)
-    align, ceil = input_utils.align, input_utils.ceil_div
-    if p["dtype"] not in ("FP16", "BF16") or p["layout"] not in (
-        "BNSD",
-        "SBH",
-        "BSND",
-        "TND",
-    ):
-        raise ValueError("unsupported SameAB source-analysis dtype or layout")
-    tnd = p["layout"] == "TND"
-    if tnd:
-        eligible = p["N1"] != 1 and (
+def is_capable(p):
+    if p["layout"] == "TND":
+        return p["N1"] != 1 and (
             (
                 p["B"] >= 4
                 and p["B"] * p["S1"] >= 8192
@@ -24,14 +14,17 @@ def sameab_config(inputs: dict, hardware: dict) -> dict:
             )
             or min(p["S1"], p["S2"]) > 5120
         )
-    else:
-        eligible = (
-            ((p["D"] % 16 or p["D"] == 96) and p["S2"] >= 512)
-            or (p["S2"] > 1024 and 128 < p["D"] < 196)
-            or (p["D"] == 64 and p["S2"] % 64 and 2048 < p["S2"] < 18432)
-        )
-    if not eligible:
-        raise ValueError("inputs do not select a supported SameAB kernel")
+    return (
+        ((p["D"] % 16 or p["D"] == 96) and p["S2"] >= 512)
+        or (p["S2"] > 1024 and 128 < p["D"] < 196)
+        or (p["D"] == 64 and p["S2"] % 64 and 2048 < p["S2"] < 18432)
+    )
+
+
+def sameab_config(inputs: dict, hardware: dict) -> dict:
+    p = inputs
+    align, ceil = input_utils.align, input_utils.ceil_div
+    tnd = p["layout"] == "TND"
     policy = (
         "UNSPLITK"
         if not tnd
@@ -96,26 +89,6 @@ def sameab_config(inputs: dict, hardware: dict) -> dict:
             )
         )
     )
-    base, window = schedule["s1_base"], schedule["s2_base"] * schedule["n_ratio"]
-    full, tail = divmod(p["S1"], base)
-    blocks = ([base] if full else []) + ([tail] if tail else [])
-    for cube_rows in blocks:
-        for offset in range(0, p["S2"], window):
-            columns = min(window, p["S2"] - offset)
-            padded = align(columns, 64)
-            for rows in (ceil(cube_rows, 2), cube_rows // 2):
-                if not rows:
-                    continue
-                vec1_base = (
-                    rows if tnd and columns < 8 else min(1024 // padded * 8, rows)
-                )
-                vec2_base = (
-                    1024 // align(p["D"]) * 8 if align(p["D"]) > 64 else min(128, rows)
-                )
-                if min(vec1_base, vec2_base) <= 0:
-                    raise ValueError("unsupported official SameAB Vector geometry")
-            if min(align(p["S1"]), 8192 // align(p["DV"]) // 16 * 16) == 0:
-                raise ZeroDivisionError("integer division or modulo by zero")
     return {
         "schedule": schedule,
         "kernel_variant": kernel_variant,

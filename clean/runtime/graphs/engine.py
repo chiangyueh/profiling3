@@ -172,7 +172,7 @@ class Graph:
         if graph_engine().fa_latency_order(
             len(a), a.ctypes.data, b.ctypes.data, order.ctypes.data
         ) != len(a):
-            raise RuntimeError("branch source dependency graph contains a cycle")
+            raise RuntimeError("cyclic dependency graph")
         inverse = np.empty(len(a), dtype=np.int32)
         inverse[order] = np.arange(len(a), dtype=np.int32)
         a = np.where(a[order] >= 0, inverse[np.maximum(a[order], 0)], -1).astype(

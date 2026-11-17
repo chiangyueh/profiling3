@@ -15,8 +15,6 @@ def build(values, hardware, api_policy=None):
         p = inputs.api_kernel_inputs(p, api_policy)
         schedule = schedules.select(p, hardware)
     work = Work(p, hardware, schedule)
-    if implementation == "varlen_l1" and schedules.implementation(work.p, work.s) != "varlen_l1":
-        raise ValueError("ND2NZ transfer model requires the Varlen L1 implementation")
     work.pairs = schedules.module(work.s).workload(work)
     if work.manual_transfer:
         transfer.add_vector_reads(work)

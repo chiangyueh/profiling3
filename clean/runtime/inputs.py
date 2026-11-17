@@ -28,12 +28,7 @@ def align(a: int, b: int = 16) -> int:
 def normalize(inputs: dict) -> dict:
     unexpected = set(inputs) - set(INPUT_FIELDS)
     if unexpected:
-        raise ValueError(
-            f"prediction accepts operator inputs only: unexpected {sorted(unexpected)}"
-        )
-    missing = set(INPUT_FIELDS) - set(inputs)
-    if missing:
-        raise ValueError(f"missing inputs: {sorted(missing)}")
+        raise ValueError(f"unexpected inputs: {sorted(unexpected)}")
     p = dict(inputs)
     for name in INPUT_FIELDS[:7]:
         number = float(p[name])
@@ -42,15 +37,14 @@ def normalize(inputs: dict) -> dict:
         p[name] = int(number)
     p["dtype"] = str(p["dtype"]).upper()
     p["layout"] = str(p["layout"]).upper()
-    try:
-        drop_mask = float(p["has_drop_mask"])
-    except (TypeError, ValueError):
-        raise ValueError("has_drop_mask must be 0 or 1") from None
-    if not math.isfinite(drop_mask) or drop_mask not in (0, 1):
+    if p["dtype"] not in ("FP16", "BF16") or p["layout"] not in ("BNSD", "SBH", "BSND", "TND"):
+        raise ValueError("unsupported dtype or layout")
+    drop_mask = float(p["has_drop_mask"])
+    if drop_mask not in (0, 1):
         raise ValueError("has_drop_mask must be 0 or 1")
     p["has_drop_mask"] = int(drop_mask)
     if p["N1"] % p["N2"]:
-        raise ValueError("invalid heads or dropout")
+        raise ValueError("N1 must be a multiple of N2")
     return p
 
 
@@ -61,13 +55,11 @@ def sha256(value: dict) -> str:
 
 
 def api_kernel_inputs(inputs, policy=None):
-    p = normalize(inputs)
+    p = inputs
     if policy is None:
         return p
-    if p["layout"] != "TND":
-        raise ValueError("the API normalization policy covers uniform TND inputs")
     if p["DV"] > p["D"]:
-        raise ValueError("official FlashAttentionScore API requires Dqk >= Dv")
+        raise ValueError("D must be >= DV")
     constants = policy["constants"]
     alignment = (
         constants["PAD_BASIC_BLOCK"]

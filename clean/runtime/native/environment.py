@@ -28,7 +28,7 @@ def cann_root():
         )
         if raw and headers and library:
             return p.resolve()
-    raise RuntimeError("CANN Host Matmul tiling API headers/library are missing")
+    raise FileNotFoundError("CANN Matmul tiling API not found")
 
 
 def cann_environment(sdk):

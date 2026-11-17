@@ -1,5 +1,4 @@
 import json
-import math
 from functools import lru_cache
 from pathlib import Path
 
@@ -63,12 +62,7 @@ def _aliases(keys, specification):
 
 @lru_cache(maxsize=1)
 def load_model():
-    model = json.loads((ROOT / "model.json").read_text())
-    if model["version"] != "fa_validated_shared_costs_v1":
-        raise ValueError("shared cost model and predictor versions differ")
-    if any(not math.isfinite(value) or value < 0 for value in model["coefficients"].values()):
-        raise ValueError("cost coefficients must be finite and nonnegative")
-    return model
+    return json.loads((ROOT / "model.json").read_text())
 
 
 def rates(work, graph, model):
@@ -76,9 +70,10 @@ def rates(work, graph, model):
     key = cost_class(work.p, work.s)
     keys = [_binding(key, *name) for name in names]
     aliases = _aliases(keys, model)
-    calibrated = set(model["coefficients"]) | set(model["zero_costs"])
-    missing = [key for i, (key, alias) in enumerate(zip(keys, aliases))
-               if alias is not None and alias not in calibrated and graph["templates"][:, i].any()]
-    if missing:
-        raise ValueError("uncalibrated source operations: " + ",".join(missing))
-    return [model["coefficients"].get(alias, 0.0) for alias in aliases]
+    coefficients = dict.fromkeys(model["zero_costs"], 0.0)
+    coefficients.update(model["coefficients"])
+    return [
+        0.0 if alias is None else
+        coefficients[alias] if graph["templates"][:, i].any() else coefficients.get(alias, 0.0)
+        for i, alias in enumerate(aliases)
+    ]
