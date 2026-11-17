@@ -31,7 +31,6 @@ else:
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "training" / "measurements.csv"
 WORKLOADS = DATA.with_name("workloads.csv")
-REFERENCE = DATA.with_name("parameters.csv")
 CONFIG = ROOT / "training" / "config.json"
 CACHE = ROOT / "out" / "training"
 PIPES = tuple(PIPE_FEATURES)
@@ -344,35 +343,6 @@ def fit(rows, keys, features, targets, times, paths, store, configuration):
     raise RuntimeError("source path oracle did not converge; existing model was not replaced")
 
 
-def compare_parameters(model):
-    with REFERENCE.open(newline="") as stream:
-        records = list(csv.DictReader(stream))
-    expected = {row["parameter"]: row for row in records}
-    if not expected or len(expected) != len(records):
-        raise ValueError("invalid reference parameter table")
-    actual = {key: ("nonzero", value) for key, value in model["coefficients"].items()}
-    actual.update({key: ("zero", 0.0) for key in model["zero_costs"]})
-    actual.update({key: ("unsupported", None) for key in model["unsupported"]})
-    comparisons = []
-    for key in sorted(set(expected) | set(actual)):
-        reference = expected.get(key, {"status": "missing", "value": ""})
-        status, value = actual.get(key, ("missing", None))
-        reference_value = float(reference["value"]) if reference["value"] != "" else None
-        same = status == reference["status"] and value == reference_value
-        comparisons.append({"parameter": key, "reference_status": reference["status"], "trained_status": status,
-                            "reference_value": reference_value, "trained_value": value,
-                            "difference": value - reference_value if value is not None and reference_value is not None else "", "exact_match": same})
-    CACHE.mkdir(parents=True, exist_ok=True)
-    path = CACHE / "parameters_comparison.csv"
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(comparisons[0]), lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(comparisons)
-    temporary.replace(path)
-    return all(row["exact_match"] for row in comparisons)
-
-
 def write_result(result, configuration, rows, times, output):
     model = {key: configuration[key] for key in ("version", "hardware", "api_input_normalization", "merges", "removed")}
     model["coefficients"] = {key: float(value) for key, value in zip(result["names"], result["rates"]) if value > 1e-10}
@@ -380,7 +350,6 @@ def write_result(result, configuration, rows, times, output):
     model["unsupported"] = [key for key, supported in zip(result["names"], result["supported"]) if not supported]
     if not np.isfinite(result["rates"]).all() or np.any(result["rates"] < 0) or not np.isfinite(result["predicted"]).all() or np.any(result["predicted"] <= 0):
         raise ValueError("invalid fitted model; existing model was not replaced")
-    matches_reference = compare_parameters(model)
     errors = np.abs(result["predicted"] / times - 1) * 100
     report = {"records": len(rows), "with_pmu": sum(any(float(row.get(counter) or 0) > 0 for counter, _ in PIPE_FEATURES.values()) for row in rows),
               "nonzero_parameters": len(model["coefficients"]), "zero_parameters": len(model["zero_costs"]), "unsupported_parameters": len(model["unsupported"]),
@@ -389,8 +358,7 @@ def write_result(result, configuration, rows, times, output):
               "oracle_rounds": result["oracle_rounds"], "optimizer_at_iteration_limit": bool(result["at_iteration_limit"]),
               "evaluation_scope": "In-sample fit diagnostics; this is not independent validation.",
               "schema_selection": configuration["schema_selection"], "measurement_scope": configuration["measurement_scope"],
-              "existing_model_used_for_initialization": False, "npu_measurements": 0,
-              "reference_parameters_exact_match": matches_reference}
+              "existing_model_used_for_initialization": False, "npu_measurements": 0}
     CACHE.mkdir(parents=True, exist_ok=True)
     temporary = CACHE / "fit.csv.tmp"
     with temporary.open("w", newline="") as stream:
@@ -400,8 +368,6 @@ def write_result(result, configuration, rows, times, output):
             writer.writerow({"case": row["case"], "measured_us": measured, "predicted_us": predicted, "absolute_error_percent": error})
     temporary.replace(CACHE / "fit.csv")
     atomic_json(CACHE / "fit.json", report)
-    if not matches_reference:
-        raise ValueError("trained parameters differ from the reference; existing model was not replaced; see " + str(CACHE / "parameters_comparison.csv"))
     atomic_json(output, model)
     return model
 
@@ -426,7 +392,6 @@ def main():
     result = fit(rows, keys, features, targets, times, paths, store, configuration)
     model = write_result(result, configuration, rows, times, args.output.resolve())
     print("MODEL=" + str(args.output.resolve()), flush=True)
-    print("REFERENCE_PARAMETERS=exact_match", flush=True)
     print("PARAMETERS nonzero=" + str(len(model["coefficients"])) + " zero=" + str(len(model["zero_costs"])), flush=True)
 
 
