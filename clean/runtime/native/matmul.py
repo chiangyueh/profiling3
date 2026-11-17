@@ -3,7 +3,7 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
-from .environment import cann_root
+from .environment import cann_environment, cann_root
 from .. import inputs as input_utils
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,6 +51,7 @@ def tiler():
         ]
         built = subprocess.run(
             command,
+            env=cann_environment(sdk),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -69,6 +70,7 @@ def geometry(requests):
     binary, _ = tiler()
     result = subprocess.run(
         [str(binary)],
+        env=cann_environment(cann_root()),
         input="\n".join(" ".join(map(str, row)) for row in requests) + "\n",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

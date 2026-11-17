@@ -29,3 +29,15 @@ def cann_root():
         if raw and headers and library:
             return p.resolve()
     raise RuntimeError("CANN Host Matmul tiling API headers/library are missing")
+
+
+def cann_environment(sdk):
+    environment = os.environ.copy()
+    paths = [str(sdk / "lib64")]
+    paths.extend(
+        path
+        for path in environment.get("LD_LIBRARY_PATH", "").split(os.pathsep)
+        if path and "devlib" not in Path(path).parts
+    )
+    environment["LD_LIBRARY_PATH"] = os.pathsep.join(dict.fromkeys(paths))
+    return environment
