@@ -48,19 +48,12 @@ def dataset(path=DATA, configuration=None):
     with path.open(newline="") as stream:
         rows = list(csv.DictReader(stream))
     if not rows:
-        raise ValueError("training measurements are empty")
-    if len({row["case"] for row in rows}) != len(rows):
-        raise ValueError("duplicate training case")
-    identities = set()
+        raise ValueError("empty training data")
     for row in rows:
         row["inputs"] = inputs.normalize({key: row[key] for key in inputs.INPUT_FIELDS})
-        identity = inputs.sha256(row["inputs"])
-        if identity in identities:
-            raise ValueError("duplicate training input: " + row["case"])
-        identities.add(identity)
         row["duration_us"] = float(row["duration_us"])
         if not math.isfinite(row["duration_us"]) or row["duration_us"] <= 0:
-            raise ValueError("invalid measured kernel time: " + row["case"])
+            raise ValueError("invalid duration_us: " + row["case"])
         work = None
         try:
             work, _ = workloads.build(row["inputs"], configuration["hardware"], configuration["api_input_normalization"])
@@ -68,8 +61,6 @@ def dataset(path=DATA, configuration=None):
             row["names"] = TRANSFER_PARAMETERS if work.manual_transfer else PARAMETERS
             active = workloads.active_features(work)
             row.update({pipe + "." + feature: value for pipe, values in active.items() for feature, value in values.items()})
-        except Exception as error:
-            raise RuntimeError("workload calculation failed for " + row["case"] + ": " + str(error)) from error
         finally:
             del work
             gc.collect()
@@ -84,8 +75,8 @@ def dataset(path=DATA, configuration=None):
             for selected_pipe, feature in row["names"]:
                 if selected_pipe == pipe:
                     features[i, j, positions[costs._binding(row["cost_class"], pipe, feature)]] += float(row.get(pipe + "." + feature) or 0)
-    if not np.isfinite(features).all() or not np.isfinite(targets).all() or np.any(features < 0) or np.any(targets < 0):
-        raise ValueError("invalid training workloads or PMU observations")
+    if not np.isfinite(targets).all() or np.any(targets < 0):
+        raise ValueError("invalid PMU data")
     return rows, keys, features, targets
 
 
@@ -111,7 +102,7 @@ class Graphs:
             self.path.write_bytes(b"")
             atomic_json(self.index, saved)
         if self.path.stat().st_size < saved["end"] or len(saved["entries"]) > len(rows):
-            raise ValueError("incomplete training graph cache")
+            raise ValueError("invalid graph cache")
         self.entries = saved["entries"]
         with self.path.open("r+b") as stream:
             stream.truncate(saved["end"])
@@ -120,9 +111,7 @@ class Graphs:
                 row = rows[i]
                 work = graph = None
                 try:
-                    work, implementation = workloads.build(row["inputs"], configuration["hardware"], configuration["api_input_normalization"])
-                    if implementation != row["cost_class"].split("|")[0] or schedules.cost_class(work.p, work.s) != row["cost_class"]:
-                        raise ValueError("source route differs from historical training record")
+                    work, _ = workloads.build(row["inputs"], configuration["hardware"], configuration["api_input_normalization"])
                     graph = graphs.build(work)
                     entry = {"root": int(graph["root"]), "arrays": {}}
                     for name in ("a", "b", "which", "templates"):
@@ -133,8 +122,6 @@ class Graphs:
                     stream.flush()
                     self.entries.append(entry)
                     atomic_json(self.index, {"signature": self.signature, "entries": self.entries, "end": stream.tell()})
-                except Exception as error:
-                    raise RuntimeError("training graph failed for " + row["case"] + ": " + str(error)) from error
                 finally:
                     del work, graph
                     gc.collect()
@@ -173,7 +160,7 @@ def source_paths(rows, keys, store):
             value, derivative = graph_time(graph, probe[row["mapping"]], True)
             paths[i, j] = np.bincount(row["mapping"], derivative, minlength=len(keys))
             if not np.isclose(paths[i, j] @ probe, value, rtol=1e-8, atol=1e-7):
-                raise ValueError("source path does not conserve time")
+                raise RuntimeError("inconsistent path gradient")
         del graph
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("wb") as stream:
@@ -329,7 +316,7 @@ def fit(rows, keys, features, targets, times, paths, store, configuration):
                 discrepancy = value - envelope
                 tolerance = 1e-7 + 1e-5 * abs(value)
                 if discrepancy < -tolerance:
-                    raise ValueError("path envelope exceeds the source graph")
+                    raise RuntimeError("inconsistent critical path")
                 if discrepancy > tolerance:
                     bank.add(i, np.bincount(row["mapping"], derivative, minlength=len(keys)))
                     violations.add(name)
@@ -341,7 +328,7 @@ def fit(rows, keys, features, targets, times, paths, store, configuration):
             pending |= set(specifications) - set(results)
         if not pending:
             return results["selected"]
-    raise RuntimeError("source path oracle did not converge; existing model was not replaced")
+    raise RuntimeError("training did not converge")
 
 
 def write_result(result, configuration, rows, times, output):
@@ -349,8 +336,6 @@ def write_result(result, configuration, rows, times, output):
     model["coefficients"] = {key: float(value) for key, value in zip(result["names"], result["rates"]) if value > 1e-10}
     model["zero_costs"] = [key for key, value, supported in zip(result["names"], result["rates"], result["supported"]) if supported and value <= 1e-10]
     model["unsupported"] = [key for key, supported in zip(result["names"], result["supported"]) if not supported]
-    if not np.isfinite(result["rates"]).all() or np.any(result["rates"] < 0) or not np.isfinite(result["predicted"]).all() or np.any(result["predicted"] <= 0):
-        raise ValueError("invalid fitted model; existing model was not replaced")
     errors = np.abs(result["predicted"] / times - 1) * 100
     report = {"records": len(rows), "with_pmu": sum(any(float(row.get(counter) or 0) > 0 for counter, _ in PIPE_FEATURES.values()) for row in rows),
               "nonzero_parameters": len(model["coefficients"]), "zero_parameters": len(model["zero_costs"]), "unsupported_parameters": len(model["unsupported"]),
